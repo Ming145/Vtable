@@ -393,6 +393,7 @@ function scheduleMathRender(root) {
 }
 function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, onCommit, onConvertToMd, onConvertToHtml) {
   el.empty();
+  el.classList.add("vtable-container");
   const grid = parseSource(source);
   const table = el.createEl("table", { cls: "vt" });
   const tbody = table.createEl("tbody");
@@ -1118,6 +1119,7 @@ var VtPlugin = class extends import_obsidian2.Plugin {
     }
   }
   async onload() {
+    await this.ensureTemplates();
     this.addCommand({
       id: "delete-current-vtable",
       name: "\u5220\u9664\u5F53\u524D Vtable \u8868\u683C",
@@ -1126,47 +1128,42 @@ var VtPlugin = class extends import_obsidian2.Plugin {
         if (!editor)
           return false;
         const cursor = editor.getCursor();
-        const line = cursor.line;
-        const lineContent = editor.getLine(line);
-        let isInVtable = false;
+        const currentLine = cursor.line;
+        const currentLineText = editor.getLine(currentLine);
+        const isBlank = currentLineText.trim() === "";
+        if (!isBlank)
+          return false;
+        if (currentLine === 0)
+          return false;
+        const prevLine = currentLine - 1;
+        const prevLineText = editor.getLine(prevLine);
+        if (prevLineText.trim() !== "```")
+          return false;
         let startLine = -1;
-        let endLine = -1;
-        for (let i = line; i >= 0; i--) {
-          const content = editor.getLine(i);
-          if (content.trim() === "```vtable") {
+        let endLine = prevLine;
+        for (let i = prevLine - 1; i >= 0; i--) {
+          const lineText = editor.getLine(i);
+          if (lineText.trim() === "```vtable") {
             startLine = i;
             break;
           }
-          if (content.trim() === "```" && i !== line)
+          if (lineText.trim() === "```" && i !== prevLine)
             break;
         }
         if (startLine === -1)
           return false;
-        for (let i = startLine + 1; i < editor.lineCount(); i++) {
-          const content = editor.getLine(i);
-          if (content.trim() === "```") {
-            endLine = i;
-            break;
-          }
-        }
-        if (endLine === -1)
-          return false;
-        if (line < startLine || line > endLine)
-          return false;
-        isInVtable = true;
         if (checking)
           return true;
-        editor.transaction({
-          changes: [{
-            from: { line: startLine, ch: 0 },
-            to: { line: endLine, ch: editor.getLine(endLine).length }
-          }]
-        });
-        editor.setCursor({ line: startLine, ch: 0 });
+        const from = { line: startLine, ch: 0 };
+        const to = { line: endLine, ch: editor.getLine(endLine).length };
+        editor.replaceRange("", from, to);
+        const afterLine = editor.getLine(startLine);
+        if (afterLine === "") {
+          editor.replaceRange("", { line: startLine, ch: 0 }, { line: startLine + 1, ch: 0 });
+        }
         return true;
       }
     });
-    await this.ensureTemplates();
     this.toolbar = new Toolbar();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.addSettingTab(new VtSettingTab(this.app, this));

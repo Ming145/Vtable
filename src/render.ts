@@ -47,6 +47,7 @@ export function renderBlock(
 	onConvertToHtml: (grid: Grid) => void,
 ) {
 	el.empty();
+	el.classList.add('vtable-container');   // 👈 插入这一行
 
 	const grid = parseSource(source);
 	const table = el.createEl('table', { cls: 'vt' });

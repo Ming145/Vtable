@@ -70,7 +70,10 @@ export default class VtPlugin extends Plugin {
 	}
 
 	async onload() {
-		// 在 main.ts 的 onload() 方法中，与其他 addCommand 放在一起
+
+
+		await this.ensureTemplates();
+
 		this.addCommand({
 			id: 'delete-current-vtable',
 			name: '删除当前 Vtable 表格',
@@ -78,63 +81,52 @@ export default class VtPlugin extends Plugin {
 				const editor = this.app.workspace.activeEditor?.editor;
 				if (!editor) return false;
 
-				// 获取当前光标所在位置的 vtable 代码块信息
 				const cursor = editor.getCursor();
-				const line = cursor.line;
-				const lineContent = editor.getLine(line);
+				const currentLine = cursor.line;
 
-				// 检查光标所在行是否在 vtable 代码块内
-				let isInVtable = false;
+				// 1. 检查当前行是否是空行（或只包含空白字符）
+				const currentLineText = editor.getLine(currentLine);
+				const isBlank = currentLineText.trim() === '';
+
+				if (!isBlank) return false; // 当前行不是空行，命令不可用
+
+				// 2. 向上查找，看上一行是否包含 ````vtable` 代码块的结束标记
+				if (currentLine === 0) return false;
+				const prevLine = currentLine - 1;
+				const prevLineText = editor.getLine(prevLine);
+				if (prevLineText.trim() !== '```') return false; // 上一行不是代码块结束符
+
+				// 3. 继续向上查找对应的 ````vtable` 开始标记
 				let startLine = -1;
-				let endLine = -1;
-
-				// 向上查找 vtable 代码块开始
-				for (let i = line; i >= 0; i--) {
-					const content = editor.getLine(i);
-					if (content.trim() === '```vtable') {
+				let endLine = prevLine;
+				for (let i = prevLine - 1; i >= 0; i--) {
+					const lineText = editor.getLine(i);
+					if (lineText.trim() === '```vtable') {
 						startLine = i;
 						break;
 					}
-					// 如果遇到其他代码块结束或文档开头，停止查找
-					if (content.trim() === '```' && i !== line) break;
+					// 如果遇到其他 ``` 或文档开头，停止
+					if (lineText.trim() === '```' && i !== prevLine) break;
 				}
 
 				if (startLine === -1) return false;
 
-				// 向下查找 vtable 代码块结束
-				for (let i = startLine + 1; i < editor.lineCount(); i++) {
-					const content = editor.getLine(i);
-					if (content.trim() === '```') {
-						endLine = i;
-						break;
-					}
-				}
-
-				if (endLine === -1) return false;
-
-				// 检查光标是否在代码块范围内（允许光标在代码块内的任意位置）
-				if (line < startLine || line > endLine) return false;
-
-				isInVtable = true;
-
 				if (checking) return true;
 
-				// 执行删除：删除从 startLine 到 endLine 的所有行
-				editor.transaction({
-					changes: [{
-						from: { line: startLine, ch: 0 },
-						to: { line: endLine, ch: editor.getLine(endLine).length }
-					}]
-				});
+				// 4. 执行删除：从 startLine 到 endLine 全部删除
+				const from = { line: startLine, ch: 0 };
+				const to = { line: endLine, ch: editor.getLine(endLine).length };
+				editor.replaceRange('', from, to);
 
-				// 删除后，光标可能会停留在空行，这里简单处理：将光标移到删除起始位置
-				editor.setCursor({ line: startLine, ch: 0 });
+				// 5. 删除后，如果删除位置现在是空行，也删掉（保持文档整洁）
+				const afterLine = editor.getLine(startLine);
+				if (afterLine === '') {
+					editor.replaceRange('', { line: startLine, ch: 0 }, { line: startLine + 1, ch: 0 });
+				}
 
 				return true;
 			}
 		});
-
-		await this.ensureTemplates();
 		
 		this.toolbar = new Toolbar();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
