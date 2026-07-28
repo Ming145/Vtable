@@ -33,7 +33,7 @@ Obsidian 原生 Markdown 表格存在明显局限：
 
 ---
 
-## ✨ 核心优势
+## 核心优势
 
 ### 1. 格内回车换行 — 终于可以在单元格里自由换行了
 
@@ -63,7 +63,7 @@ Obsidian 原生 Markdown 表格存在明显局限：
 
 选中表格执行命令，即可生成**柱状图、饼图、折线图**，图表自动适配深色/浅色主题。
 
-### 5. 🚀 自动模板生成 — 图表制作零门槛
+### 5. 自动模板生成 — 图表制作零门槛
 
 不知道图表数据怎么填？**插件启用后自动帮你搞定**：
 
@@ -208,15 +208,23 @@ npm run build
 ## 技术架构
 
 ```
-src/
-├── main.ts        — 插件入口、命令注册、设置面板
-├── builder.ts     — 数据模型、序列化、行列操作
-├── render.ts      — 表格渲染、工具栏、公式/图片渲染
-├── bar.ts         — 浮动工具栏 UI
-├── formula.ts     — 公式引擎
-├── vbarchart.ts   — 柱状图生成
-├── vpiechart.ts   — 饼图生成
-└── vlinechart.ts  — 折线图生成
+vtable/
+├── src/                        # 源代码目录
+│   ├── main.ts                 # 插件入口、命令注册、设置面板
+│   ├── builder.ts              # 数据模型、序列化、行列操作
+│   ├── render.ts               # 表格渲染、工具栏、公式/图片渲染
+│   ├── bar.ts                  # 浮动工具栏 UI
+│   ├── formula.ts              # 公式引擎
+│   ├── vbarchart.ts            # 柱状图生成
+│   ├── vpiechart.ts            # 饼图生成
+│   └── vlinechart.ts           # 折线图生成
+├── main.js                     # 编译后的插件主文件
+├── styles.css                  # 插件样式
+├── manifest.json               # 插件清单
+├── package.json                # 项目依赖
+├── esbuild.config.mjs          # 构建配置
+├── tsconfig.json               # TypeScript 配置
+└── LICENSE                     # MIT 许可证
 ```
 
 ---
@@ -237,4 +245,4 @@ vtable 使用 JSON 存储表格数据（通常无需手动编辑）：
 
 ---
 
-**让 Obsidian 表格不再是短板。** 🎯
+**让 Obsidian 表格不再是短板。**

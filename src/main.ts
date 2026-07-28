@@ -70,6 +70,70 @@ export default class VtPlugin extends Plugin {
 	}
 
 	async onload() {
+		// 在 main.ts 的 onload() 方法中，与其他 addCommand 放在一起
+		this.addCommand({
+			id: 'delete-current-vtable',
+			name: '删除当前 Vtable 表格',
+			checkCallback: (checking: boolean) => {
+				const editor = this.app.workspace.activeEditor?.editor;
+				if (!editor) return false;
+
+				// 获取当前光标所在位置的 vtable 代码块信息
+				const cursor = editor.getCursor();
+				const line = cursor.line;
+				const lineContent = editor.getLine(line);
+
+				// 检查光标所在行是否在 vtable 代码块内
+				let isInVtable = false;
+				let startLine = -1;
+				let endLine = -1;
+
+				// 向上查找 vtable 代码块开始
+				for (let i = line; i >= 0; i--) {
+					const content = editor.getLine(i);
+					if (content.trim() === '```vtable') {
+						startLine = i;
+						break;
+					}
+					// 如果遇到其他代码块结束或文档开头，停止查找
+					if (content.trim() === '```' && i !== line) break;
+				}
+
+				if (startLine === -1) return false;
+
+				// 向下查找 vtable 代码块结束
+				for (let i = startLine + 1; i < editor.lineCount(); i++) {
+					const content = editor.getLine(i);
+					if (content.trim() === '```') {
+						endLine = i;
+						break;
+					}
+				}
+
+				if (endLine === -1) return false;
+
+				// 检查光标是否在代码块范围内（允许光标在代码块内的任意位置）
+				if (line < startLine || line > endLine) return false;
+
+				isInVtable = true;
+
+				if (checking) return true;
+
+				// 执行删除：删除从 startLine 到 endLine 的所有行
+				editor.transaction({
+					changes: [{
+						from: { line: startLine, ch: 0 },
+						to: { line: endLine, ch: editor.getLine(endLine).length }
+					}]
+				});
+
+				// 删除后，光标可能会停留在空行，这里简单处理：将光标移到删除起始位置
+				editor.setCursor({ line: startLine, ch: 0 });
+
+				return true;
+			}
+		});
+
 		await this.ensureTemplates();
 		
 		this.toolbar = new Toolbar();
