@@ -1,0 +1,166 @@
+/* ===== vtable 代码块渲染的表格 ===== */
+
+table.vt {
+	border-collapse: collapse;
+	width: 100%;
+	font-size: 0.95em;
+	margin: 0.4em 0;
+	border-top: 1px solid var(--table-border-color, #bbb);
+}
+
+table.vt th,
+table.vt td {
+	border: 1px solid var(--table-border-color, #bbb);
+	padding: 6px 10px;
+	min-width: 60px;
+	vertical-align: top;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+table.vt th {
+	background: var(--table-header-background, rgba(0, 0, 0, 0.05));
+	font-weight: 600;
+	text-align: left;
+}
+
+.theme-dark table.vt th {
+	background: rgba(255, 255, 255, 0.07);
+}
+
+/* ===== 悬浮格式化工具栏（毛玻璃质感） ===== */
+
+.vt-bar {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	background: rgba(255, 255, 255, 0.18);
+	-webkit-backdrop-filter: blur(20px) saturate(160%);
+	backdrop-filter: blur(20px) saturate(160%);
+	border-radius: 10px;
+	box-shadow:
+		0 4px 14px rgba(0, 0, 0, 0.22),
+		inset 0 0 4px rgba(255, 255, 255, 0.55),
+		inset 0 1px 0 rgba(255, 255, 255, 0.5);
+	transition: opacity 0.2s ease, transform 0.25s ease;
+}
+
+.theme-dark .vt-bar {
+	background: rgba(50, 50, 56, 0.55);
+	box-shadow:
+		0 4px 14px rgba(0, 0, 0, 0.5),
+		inset 0 0 4px rgba(255, 255, 255, 0.28),
+		inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.vt-bar-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.vt-bar-btn {
+	min-width: 28px;
+	height: 28px;
+	padding: 0 6px;
+	border: none;
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.08);
+	color: var(--text-normal, #222);
+	font-size: 14px;
+	cursor: pointer;
+	transition: background 0.15s ease;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.theme-dark .vt-bar-btn {
+	background: rgba(255, 255, 255, 0.06);
+	color: var(--text-normal, #ddd);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.vt-bar-btn:hover {
+	background: rgba(255, 255, 255, 0.24);
+}
+
+.theme-dark .vt-bar-btn:hover {
+	background: rgba(255, 255, 255, 0.16);
+}
+
+.vt-bar-sep {
+	width: 1px;
+	height: 18px;
+	margin: 0 3px;
+	background: rgba(120, 120, 128, 0.35);
+	flex-shrink: 0;
+}
+
+.theme-dark .vt-bar-sep {
+	background: rgba(200, 200, 210, 0.22);
+}
+
+/* ===== 移动端 / 平板适配（iPad 等触屏设备） ===== */
+
+.is-mobile .vt-bar,
+.is-tablet .vt-bar {
+	padding: 5px 6px;
+	gap: 3px;
+	border-radius: 10px;
+}
+
+.is-mobile .vt-bar-row,
+.is-tablet .vt-bar-row {
+	gap: 3px;
+}
+
+.is-mobile .vt-bar-btn,
+.is-tablet .vt-bar-btn {
+	min-width: 20px;
+	height: 26px;
+	padding: 0 2px;
+	font-size: 11px;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.theme-dark .is-mobile .vt-bar-btn,
+.theme-dark .is-tablet .vt-bar-btn {
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.is-mobile .vt-bar-sep,
+.is-tablet .vt-bar-sep {
+	height: 18px;
+	margin: 0 3px;
+}
+
+@media (pointer: coarse) {
+	.vt-bar {
+		padding: 5px 6px;
+		gap: 3px;
+		border-radius: 10px;
+	}
+
+	.vt-bar-row {
+		gap: 3px;
+	}
+
+	.vt-bar-btn {
+		min-width: 20px;
+		height: 26px;
+		padding: 0 2px;
+		font-size: 11px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+	}
+
+	.theme-dark .vt-bar-btn {
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+	}
+
+	.vt-bar-sep {
+		height: 18px;
+		margin: 0 3px;
+	}
+}
+
