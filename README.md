@@ -208,15 +208,23 @@ npm run build
 ## 技术架构
 
 ```
-src/
-├── main.ts        — 插件入口、命令注册、设置面板
-├── builder.ts     — 数据模型、序列化、行列操作
-├── render.ts      — 表格渲染、工具栏、公式/图片渲染
-├── bar.ts         — 浮动工具栏 UI
-├── formula.ts     — 公式引擎
-├── vbarchart.ts   — 柱状图生成
-├── vpiechart.ts   — 饼图生成
-└── vlinechart.ts  — 折线图生成
+vtable/
+├── src/                        # 源代码目录
+│   ├── main.ts                 # 插件入口、命令注册、设置面板
+│   ├── builder.ts              # 数据模型、序列化、行列操作
+│   ├── render.ts               # 表格渲染、工具栏、公式/图片渲染
+│   ├── bar.ts                  # 浮动工具栏 UI
+│   ├── formula.ts              # 公式引擎
+│   ├── vbarchart.ts            # 柱状图生成
+│   ├── vpiechart.ts            # 饼图生成
+│   └── vlinechart.ts           # 折线图生成
+├── main.js                     # 编译后的插件主文件
+├── styles.css                  # 插件样式
+├── manifest.json               # 插件清单
+├── package.json                # 项目依赖
+├── esbuild.config.mjs          # 构建配置
+├── tsconfig.json               # TypeScript 配置
+└── LICENSE                     # MIT 许可证
 ```
 
 ---
