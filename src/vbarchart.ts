@@ -83,19 +83,19 @@ export function generateBarChart(grid: Grid): string | null {
 	const xl = '.x-label';
 
 	const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}`
-		+ `${mc}{text-align:center;font-size:28px;font-weight:700;margin:0 0 20px;color:#111}`
+		+ `${mc}{text-align:center;font-size:28px;font-weight:700;margin:10px 0 24px;color:#111}`
 		+ `${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${bv}{fill:#111}${xl}{fill:#333}`;
 
 	let sBars = '';
 	for (let i = 0; i < n; i++) sBars += `.bar-${i}{fill:${lightColors[i % lightColors.length]}}`;
 
-	const sDark = `@media(prefers-color-scheme:dark){${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}`
-		+ `${mc}{color:#F9FAFB}${gl}{stroke:rgba(255,255,255,.08)}${al}{stroke:#6B7280}${at}{fill:#9CA3AF}${bv}{fill:#F9FAFB}${xl}{fill:#D1D5DB}`;
+	const sDark = `.theme-dark ${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}`
+		+ `.theme-dark ${mc}{color:#F9FAFB}.theme-dark ${gl}{stroke:rgba(255,255,255,.08)}`
+		+ `.theme-dark ${al}{stroke:#6B7280}.theme-dark ${at}{fill:#9CA3AF}.theme-dark ${bv}{fill:#F9FAFB}.theme-dark ${xl}{fill:#D1D5DB}`;
 	let sBarsDark = '';
-	for (let i = 0; i < n; i++) sBarsDark += `.bar-${i}{fill:${darkColor}}`;
-	const sDarkClose = '}';
+	for (let i = 0; i < n; i++) sBarsDark += `.theme-dark .bar-${i}{fill:${darkColor}}`;
 
-	const style = sLight + sBars + sDark + sBarsDark + sDarkClose;
+	const style = sLight + sBars + sDark + sBarsDark;
 
 	// ===== 构建 SVG =====
 	const parts: string[] = [];

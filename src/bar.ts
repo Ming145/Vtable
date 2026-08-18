@@ -6,7 +6,7 @@
  */
 
 import {
-	Grid, serialize, gridToMdTable,
+	VtData, serialize, gridToMdTable,
 	mergeRight, mergeDown, splitCell,
 	insertRow, insertCol, deleteRow, deleteCol,
 } from './builder';
@@ -14,10 +14,11 @@ import {
 export class Toolbar {
 	readonly el: HTMLElement;
 	private cell: HTMLElement | null = null;
-	private grid: Grid | null = null;
+	private data: VtData | null = null;
 	private cellR = 0;
 	private cellC = 0;
 	private onCommit: ((s: string) => void) | null = null;
+	private flushCell: (() => void) | null = null;
 	private onConvertToMd: (() => void) | null = null;
 	private onConvertToHtml: (() => void) | null = null;
 	private animated = false;
@@ -60,7 +61,7 @@ export class Toolbar {
 			this.structExec(splitCell);
 		});
 
-		const mergeDefs: Array<[string, string, (g: Grid, r: number, c: number) => void]> = [
+		const mergeDefs: Array<[string, string, (g: VtData['rows'], r: number, c: number) => void]> = [
 			['合↓', '向下合并单元格', mergeDown],
 			['合→', '向右合并单元格', mergeRight],
 		];
@@ -75,7 +76,7 @@ export class Toolbar {
 
 		// 第二行：＋行 ＋列 －行 －列 MD H5
 		const row2 = this.el.createEl('div', { cls: 'vt-bar-row' });
-		const opDefs: Array<[string, string, (g: Grid, r: number, c: number) => void]> = [
+		const opDefs: Array<[string, string, (g: VtData['rows'], r: number, c: number) => void]> = [
 			['＋行',   '下方插入行',     (g, r) => insertRow(g, r)],
 			['＋列',   '右侧插入列',     (g, _r, c) => insertCol(g, c)],
 			['－行',   '删除本行',       (g, r) => deleteRow(g, r)],
@@ -114,34 +115,36 @@ export class Toolbar {
 		});
 	}
 
-	/** 执行结构操作 → 提交 → 隐藏工具栏（Obsidian 重新渲染） */
-	private structExec(fn: (g: Grid, r: number, c: number) => void) {
-		if (!this.grid || !this.onCommit) return;
-		const g = this.grid;
+	/** 执行结构操作 → 先保存当前格 → 提交（保持聚焦） */
+	private structExec(fn: (g: VtData['rows'], r: number, c: number) => void) {
+		if (!this.data || !this.onCommit) return;
+		this.flushCell?.();
+		const g = this.data.rows;
 		const commit = this.onCommit;
 		const r = this.cellR;
 		const c = this.cellC;
-		this.hide();
 		fn(g, r, c);
-		commit(serialize(g));
+		commit(serialize(this.data));
 	}
 
 	/* ===== 显示/隐藏/定位 ===== */
 
 	show(
 		cell: HTMLElement,
-		grid: Grid,
+		data: VtData,
 		r: number,
 		c: number,
 		onCommit: (s: string) => void,
+		flushCell: () => void,
 		onConvertToMd: () => void,
 		onConvertToHtml: () => void,
 	) {
 		this.cell = cell;
-		this.grid = grid;
+		this.data = data;
 		this.cellR = r;
 		this.cellC = c;
 		this.onCommit = onCommit;
+		this.flushCell = flushCell;
 		this.onConvertToMd = onConvertToMd;
 		this.onConvertToHtml = onConvertToHtml;
 
@@ -151,41 +154,48 @@ export class Toolbar {
 			this.animatedTimer = null;
 		}
 
-		if (!this.animated) {
-			// 首次显示：入场动画
-			this.el.style.transition = 'none';
-			this.el.style.display = 'flex';
-			this.el.style.transform = 'scale(0.8) translateY(6px)';
-			this.el.style.opacity = '0.7';
+		const animate = !this.animated;
+		if (!this.prepareVisible(animate)) return;
 
-			if (!this.reposition()) {
-				this.el.style.display = 'none';
-				return;
-			}
-
-			void this.el.offsetWidth;
-			this.el.style.transition = '';
-
+		if (animate) {
 			this.animated = true;
+			this.el.style.transition = '';
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
 					this.el.style.transform = 'scale(1) translateY(0)';
 					this.el.style.opacity = '1';
+					this.reposition();
 				});
 			});
-		} else {
-			// 后续显示：直接出现，无动画
-			this.el.style.transition = 'none';
-			this.el.style.display = 'flex';
-			this.el.style.transform = 'scale(1) translateY(0)';
-			this.el.style.opacity = '1';
-			if (!this.reposition()) {
-				this.el.style.display = 'none';
-				return;
-			}
-			void this.el.offsetWidth;
-			this.el.style.transition = '';
 		}
+		this.scheduleRepositionRetries();
+	}
+
+	/** 先隐藏布局再测量尺寸，避免首次显示时 offsetWidth 为 0 导致定位偏移 */
+	private prepareVisible(animate: boolean): boolean {
+		this.el.style.transition = 'none';
+		this.el.style.visibility = 'hidden';
+		this.el.style.display = 'flex';
+		this.el.style.transform = animate ? 'scale(0.8) translateY(6px)' : 'scale(1) translateY(0)';
+		this.el.style.opacity = animate ? '0.7' : '1';
+
+		void this.el.offsetWidth;
+		if (!this.reposition()) {
+			this.el.style.display = 'none';
+			this.el.style.visibility = '';
+			return false;
+		}
+
+		this.el.style.visibility = 'visible';
+		void this.el.offsetWidth;
+		return true;
+	}
+
+	/** Obsidian 刚启动时编辑器布局可能尚未稳定，短延迟内重算位置 */
+	private scheduleRepositionRetries() {
+		requestAnimationFrame(() => this.reposition());
+		window.setTimeout(() => this.reposition(), 0);
+		window.setTimeout(() => this.reposition(), 120);
 	}
 
 	hide() {
@@ -193,8 +203,9 @@ export class Toolbar {
 		this.el.style.opacity = '';
 		this.el.style.display = 'none';
 		this.cell = null;
-		this.grid = null;
+		this.data = null;
 		this.onCommit = null;
+		this.flushCell = null;
 		this.onConvertToMd = null;
 		this.onConvertToHtml = null;
 

@@ -25,6 +25,10 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian2 = require("obsidian");
 
 // src/builder.ts
+var RC_HANDLE_RE = /<div\s+class="vt-rc-handle[^"]*"[^>]*>\s*<\/div>/gi;
+function stripRcHandles(html) {
+  return RC_HANDLE_RE.test(html) ? html.replace(RC_HANDLE_RE, "") : html;
+}
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -36,7 +40,7 @@ function mdInlineToHtml(s) {
     return `\0${idx}`;
   };
   const escapeAttr = (v) => escapeHtml(v).replace(/"/g, "&quot;");
-  s = s.replace(/`([^`]+)`/g, (_, content) => protect("`" + escapeHtml(content) + "`"));
+  s = s.replace(/`([^`]+)`/g, (_, content) => protect("<code>" + escapeHtml(content) + "</code>"));
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, url) => {
     const href = /^javascript:/i.test(url) ? "#" : escapeAttr(url);
     return protect(`<a href="${href}">${escapeHtml(text)}</a>`);
@@ -78,24 +82,45 @@ function blankGrid(cols, rows) {
   }
   return g;
 }
-function serialize(grid) {
-  return JSON.stringify({ rows: grid });
+function serialize(data) {
+  const obj = { rows: data.rows };
+  if (data.mode !== "OL")
+    obj.mode = data.mode;
+  if (data.colWidths?.length)
+    obj.colWidths = data.colWidths;
+  if (data.rowHeights?.length)
+    obj.rowHeights = data.rowHeights;
+  return JSON.stringify(obj);
 }
 function blankSource(cols, rows) {
-  return serialize(blankGrid(cols, rows));
+  return serialize({ mode: "OL", rows: blankGrid(cols, rows) });
 }
 function parseSource(src) {
   const trimmed = src.trim();
   if (trimmed === "")
-    return blankGrid(1, 1);
+    return { mode: "OL", rows: blankGrid(1, 1) };
   try {
     const obj = JSON.parse(trimmed);
     if (obj && Array.isArray(obj.rows)) {
-      return normalize(obj.rows);
+      const mode = parseMode(obj.mode);
+      const rows = normalize(obj.rows);
+      const data = { mode, rows };
+      if (Array.isArray(obj.colWidths)) {
+        data.colWidths = obj.colWidths.filter((n) => typeof n === "number");
+      }
+      if (Array.isArray(obj.rowHeights)) {
+        data.rowHeights = obj.rowHeights.filter((n) => typeof n === "number");
+      }
+      return data;
     }
   } catch {
   }
-  return pipeToGrid(trimmed);
+  return { mode: "OL", rows: pipeToGrid(trimmed) };
+}
+function parseMode(v) {
+  if (v === "HS" || v === "RC")
+    return v;
+  return "OL";
 }
 function normalize(rows) {
   const g = [];
@@ -105,7 +130,7 @@ function normalize(rows) {
     const row = rawRow.map((x) => {
       const o = x;
       return {
-        t: typeof o.t === "string" ? o.t : "",
+        t: typeof o.t === "string" ? stripRcHandles(o.t) : "",
         rs: typeof o.rs === "number" ? o.rs : 1,
         cs: typeof o.cs === "number" ? o.cs : 1
       };
@@ -135,7 +160,7 @@ function mdTableToSource(md) {
   const lines = md.split("\n").filter((l) => l.trim() !== "");
   const rows = lines.filter((l) => !isSeparator(l)).map(splitRow);
   const grid = rows.map((r) => r.map((t) => cell(mdInlineToHtml(t))));
-  return serialize(grid.length ? grid : blankGrid(1, 1));
+  return serialize({ mode: "OL", rows: grid.length ? grid : blankGrid(1, 1) });
 }
 function htmlTableToSource(html) {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -181,7 +206,7 @@ function htmlTableToSource(html) {
       out.push(row[c] ?? cell());
     return out;
   });
-  return serialize(full);
+  return serialize({ mode: "OL", rows: full });
 }
 function gridToHtmlTable(grid) {
   const cols = colCount(grid);
@@ -378,6 +403,266 @@ function evalFormula(grid, text) {
   }
 }
 
+// src/modes.ts
+var MODE_HINTS = {
+  OL: "\u539F\u59CB\u6362\u884C\u6A21\u5F0F",
+  HS: "\u6A2A\u5411\u62C9\u957F\u6A21\u5F0F",
+  RC: "\u81EA\u7531\u62D6\u62FD\u884C\u9AD8\u5217\u5BBD"
+};
+var ModeSwitcher = class {
+  constructor(parent) {
+    this.onChange = null;
+    this.el = parent.createDiv({ cls: "vt-mode-bar" });
+    this.el.style.display = "none";
+    for (const mode of ["OL", "HS", "RC"]) {
+      const btn = this.el.createEl("button", { cls: "vt-mode-btn", text: mode });
+      btn.dataset.mode = mode;
+      btn.title = MODE_HINTS[mode];
+      btn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        document.body.dataset.vtModeClick = "1";
+        this.onChange?.(mode);
+        setTimeout(() => {
+          delete document.body.dataset.vtModeClick;
+        }, 300);
+      });
+    }
+  }
+  setHandler(fn) {
+    this.onChange = fn;
+  }
+  show(active) {
+    this.el.style.display = "flex";
+    this.setActive(active);
+  }
+  hide() {
+    this.el.style.display = "none";
+  }
+  setActive(mode) {
+    this.el.querySelectorAll(".vt-mode-btn").forEach((el) => {
+      el.toggleClass("is-active", el.dataset.mode === mode);
+    });
+  }
+};
+function applyModeStyles(wrap, table, data, hsBar) {
+  table.removeClass("vt-mode-ol", "vt-mode-hs", "vt-mode-rc");
+  table.addClass(`vt-mode-${data.mode.toLowerCase()}`);
+  const isHs = data.mode === "HS";
+  const isRc = data.mode === "RC";
+  wrap.toggleClass("vt-hs-scroll", isHs);
+  wrap.toggleClass("vt-rc-scroll", isRc);
+  if (hsBar)
+    hsBar.style.display = isHs || isRc ? "block" : "none";
+  if (data.mode !== "RC") {
+    table.querySelectorAll("tr, td, col").forEach((el) => {
+      el.style.removeProperty("height");
+      el.style.removeProperty("width");
+      el.style.removeProperty("min-height");
+    });
+    table.querySelector("colgroup")?.remove();
+    wrap.querySelector(".vt-rc-overlay")?.remove();
+    return;
+  }
+  let colgroup = table.querySelector("colgroup");
+  if (!colgroup) {
+    colgroup = table.createEl("colgroup");
+    table.prepend(colgroup);
+  }
+  colgroup.empty();
+  const cols = data.rows[0]?.length ?? 0;
+  for (let c = 0; c < cols; c++) {
+    const col = colgroup.createEl("col");
+    const w = data.colWidths?.[c];
+    if (w && w > 0)
+      col.style.width = `${w}px`;
+    else
+      col.style.width = "120px";
+  }
+  table.querySelectorAll("tr").forEach((tr, r) => {
+    const h = data.rowHeights?.[r];
+    if (h && h > 0)
+      tr.style.height = `${h}px`;
+    else
+      tr.style.removeProperty("height");
+  });
+  table.querySelectorAll("td").forEach((td) => {
+    const rh = data.rowHeights?.[parseInt(td.dataset.vtR ?? "-1", 10)];
+    if (rh && rh > 0)
+      td.style.minHeight = `${rh}px`;
+    else
+      td.style.removeProperty("min-height");
+  });
+}
+function setupHsScrollBar(wrap, barEl) {
+  const track = barEl.querySelector(".vt-hs-track");
+  const thumb = barEl.querySelector(".vt-hs-thumb");
+  if (!track || !thumb)
+    return;
+  const syncThumb = () => {
+    if (!wrap.hasClass("vt-hs-scroll") && !wrap.hasClass("vt-rc-scroll")) {
+      barEl.style.display = "none";
+      return;
+    }
+    const maxScroll = wrap.scrollWidth - wrap.clientWidth;
+    if (maxScroll <= 0) {
+      barEl.style.display = "none";
+      return;
+    }
+    barEl.style.display = "block";
+    const ratio = wrap.clientWidth / wrap.scrollWidth;
+    const thumbW = Math.max(24, track.clientWidth * ratio);
+    thumb.style.width = `${thumbW}px`;
+    const maxThumbLeft = track.clientWidth - thumbW;
+    thumb.style.left = `${maxScroll > 0 ? wrap.scrollLeft / maxScroll * maxThumbLeft : 0}px`;
+  };
+  wrap.addEventListener("scroll", syncThumb);
+  new ResizeObserver(syncThumb).observe(wrap);
+  const tbl = wrap.querySelector("table");
+  if (tbl)
+    new ResizeObserver(syncThumb).observe(tbl);
+  syncThumb();
+  let dragging = false;
+  let startX = 0;
+  let startLeft = 0;
+  thumb.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = true;
+    startX = e.clientX;
+    startLeft = thumb.offsetLeft;
+    thumb.setPointerCapture(e.pointerId);
+  });
+  thumb.addEventListener("pointermove", (e) => {
+    if (!dragging)
+      return;
+    const trackW = track.clientWidth;
+    const thumbW = thumb.offsetWidth;
+    const maxThumbLeft = trackW - thumbW;
+    const newLeft = Math.max(0, Math.min(maxThumbLeft, startLeft + (e.clientX - startX)));
+    const maxScroll = wrap.scrollWidth - wrap.clientWidth;
+    wrap.scrollLeft = maxScroll > 0 ? newLeft / maxThumbLeft * maxScroll : 0;
+  });
+  const stopDrag = (e) => {
+    dragging = false;
+    try {
+      thumb.releasePointerCapture(e.pointerId);
+    } catch {
+    }
+  };
+  thumb.addEventListener("pointerup", stopDrag);
+  thumb.addEventListener("pointercancel", stopDrag);
+  track.addEventListener("pointerdown", (e) => {
+    if (e.target === thumb)
+      return;
+    const rect = track.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    const maxScroll = wrap.scrollWidth - wrap.clientWidth;
+    wrap.scrollLeft = ratio * maxScroll;
+  });
+}
+function bindRcResizeHandles(table, data, editing, onUpdate) {
+  const wrap = table.closest(".vt-table-wrap");
+  if (!wrap)
+    return;
+  let overlay = wrap.querySelector(".vt-rc-overlay");
+  if (data.mode !== "RC" || !editing) {
+    overlay?.remove();
+    return;
+  }
+  if (!overlay) {
+    overlay = wrap.createDiv({ cls: "vt-rc-overlay" });
+  }
+  overlay.empty();
+  const rows = Array.from(table.querySelectorAll("tr"));
+  const cols = data.rows[0]?.length ?? 0;
+  for (let c = 0; c < cols; c++) {
+    const firstRow = rows[0];
+    if (!firstRow)
+      continue;
+    const cells = Array.from(firstRow.querySelectorAll("td"));
+    const targetCell = cells.find((td) => parseInt(td.dataset.vtC ?? "-1", 10) === c);
+    if (!targetCell)
+      continue;
+    const rect = targetCell.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    const colHandle = overlay.createDiv({ cls: "vt-rc-handle vt-rc-handle-col" });
+    colHandle.style.left = `${rect.right - tableRect.left - 3}px`;
+    colHandle.style.top = "0";
+    colHandle.style.height = `${table.offsetHeight}px`;
+    colHandle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!data.colWidths)
+        data.colWidths = [];
+      const startX = e.clientX;
+      const startW = data.colWidths[c] ?? targetCell.offsetWidth;
+      const onMove = (ev) => {
+        const newW = Math.max(40, Math.round(startW + (ev.clientX - startX)));
+        data.colWidths[c] = newW;
+        const colgroup = table.querySelector("colgroup");
+        const col = colgroup?.children[c];
+        if (col)
+          col.style.width = `${newW}px`;
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        onUpdate();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+  }
+  rows.forEach((tr, r) => {
+    const rect = tr.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    const rowHandle = overlay.createDiv({ cls: "vt-rc-handle vt-rc-handle-row" });
+    rowHandle.style.top = `${rect.bottom - tableRect.top - 3}px`;
+    rowHandle.style.left = "0";
+    rowHandle.style.width = `${table.offsetWidth}px`;
+    rowHandle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!data.rowHeights)
+        data.rowHeights = [];
+      const startY = e.clientY;
+      const startH = data.rowHeights[r] ?? tr.offsetHeight;
+      const onMove = (ev) => {
+        const newH = Math.max(24, Math.round(startH + (ev.clientY - startY)));
+        data.rowHeights[r] = newH;
+        tr.style.height = `${newH}px`;
+        tr.querySelectorAll("td").forEach((td) => {
+          td.style.minHeight = `${newH}px`;
+        });
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        onUpdate();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+  });
+}
+function autoExpandRowHeight(td, data, r, contentChanged) {
+  if (data.mode !== "RC" || !contentChanged)
+    return;
+  if (td.scrollHeight <= td.clientHeight)
+    return;
+  const needed = td.scrollHeight + 4;
+  if (!data.rowHeights)
+    data.rowHeights = [];
+  const cur = data.rowHeights[r] ?? 0;
+  if (needed > cur) {
+    data.rowHeights[r] = needed;
+    const tr = td.closest("tr");
+    if (tr)
+      tr.style.height = `${needed}px`;
+    td.style.minHeight = `${needed}px`;
+  }
+}
+
 // src/render.ts
 var mathJaxReady = null;
 function ensureMathJax() {
@@ -391,72 +676,286 @@ function scheduleMathRender(root) {
       void (0, import_obsidian.finishRenderMath)();
   });
 }
+var activeController = null;
+var pendingFocusRestore = null;
+function getActiveTableController() {
+  return activeController;
+}
 function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, onCommit, onConvertToMd, onConvertToHtml) {
   el.empty();
   el.classList.add("vtable-container");
-  const grid = parseSource(source);
-  const table = el.createEl("table", { cls: "vt" });
+  const data = parseSource(source);
+  const grid = data.rows;
+  const modeBar = new ModeSwitcher(el);
+  const wrap = el.createDiv({ cls: "vt-table-wrap" });
+  const table = wrap.createEl("table", { cls: "vt" });
   const tbody = table.createEl("tbody");
+  const hsBar = el.createDiv({ cls: "vt-hs-bar" });
+  hsBar.style.display = "none";
+  const hsTrack = hsBar.createDiv({ cls: "vt-hs-track" });
+  hsTrack.createDiv({ cls: "vt-hs-thumb" });
+  setupHsScrollBar(wrap, hsBar);
+  const cellMap = [];
+  let focusedR = 0;
+  let focusedC = 0;
+  let editing = false;
+  const flushActiveCell = () => {
+    const active = document.activeElement;
+    if (!active?.matches("td") || !table.contains(active))
+      return;
+    const rr = parseInt(active.dataset.vtR ?? "-1", 10);
+    const cc = parseInt(active.dataset.vtC ?? "-1", 10);
+    if (rr < 0 || cc < 0)
+      return;
+    const html = normalizeCellHtml(stripRcHandles(active.innerHTML));
+    grid[rr][cc].t = html;
+  };
+  const commit = (keepFocus = false, caretAtEnd = false) => {
+    if (keepFocus)
+      pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd };
+    onCommit(serialize(data));
+  };
+  const rerenderMode = () => {
+    applyModeStyles(wrap, table, data, hsBar);
+    bindRcResizeHandles(table, data, editing, () => {
+      pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
+      onCommit(serialize(data));
+    });
+  };
+  const placeCaret = (td, atEnd) => {
+    const range = document.createRange();
+    range.selectNodeContents(td);
+    range.collapse(!atEnd);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  const focusCell = (r, c, caretAtEnd = false) => {
+    if (r < 0 || r >= grid.length || c < 0 || c >= (grid[0]?.length ?? 0))
+      return false;
+    if (!visible(grid[r][c]))
+      return false;
+    const td = cellMap[r]?.[c];
+    if (!td)
+      return false;
+    td.focus();
+    focusedR = r;
+    focusedC = c;
+    placeCaret(td, caretAtEnd);
+    return true;
+  };
+  const moveFocus = (dr, dc) => {
+    let r = focusedR + dr;
+    let c = focusedC + dc;
+    const maxR = grid.length;
+    const maxC = grid[0]?.length ?? 0;
+    while (r >= 0 && r < maxR && c >= 0 && c < maxC) {
+      if (visible(grid[r][c]) && cellMap[r]?.[c]) {
+        return focusCell(r, c, dc < 0);
+      }
+      r += dr;
+      c += dc;
+    }
+    return false;
+  };
+  const setMode = (mode) => {
+    if (data.mode === mode)
+      return;
+    flushActiveCell();
+    if (mode === "RC" && data.colWidths === void 0) {
+      const cols = grid[0]?.length ?? 0;
+      data.colWidths = [];
+      const firstRow = tbody.querySelector("tr");
+      if (firstRow) {
+        for (let c = 0; c < cols; c++) {
+          const td = Array.from(firstRow.querySelectorAll("td")).find((cell2) => parseInt(cell2.dataset.vtC ?? "-1", 10) === c);
+          data.colWidths[c] = td ? Math.max(120, td.offsetWidth) : 120;
+        }
+      }
+    }
+    data.mode = mode;
+    modeBar.setActive(mode);
+    pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
+    onCommit(serialize(data));
+  };
+  const showEditingUi = () => {
+    if (!table.closest(".cm-editor"))
+      return;
+    editing = true;
+    el.addClass("vt-editing");
+    if (settings.enableModeSwitcher) {
+      modeBar.show(data.mode);
+    }
+    rerenderMode();
+  };
+  const hideEditingUi = () => {
+    editing = false;
+    el.removeClass("vt-editing");
+    modeBar.hide();
+    rerenderMode();
+    if (activeController?.moveCell === controller.moveCell)
+      activeController = null;
+  };
+  modeBar.setHandler(setMode);
+  const controller = {
+    moveCell(dr, dc) {
+      return moveFocus(dr, dc);
+    },
+    setMode,
+    getMode: () => data.mode
+  };
   grid.forEach((row, r) => {
+    cellMap[r] = [];
     const tr = tbody.createEl("tr");
     row.forEach((cellData, c) => {
       if (!visible(cellData))
         return;
       const td = tr.createEl("td");
       td.contentEditable = "true";
+      td.dataset.vtR = String(r);
+      td.dataset.vtC = String(c);
+      cellMap[r][c] = td;
       if (cellData.rs > 1)
         td.rowSpan = cellData.rs;
       if (cellData.cs > 1)
         td.colSpan = cellData.cs;
-      td.innerHTML = cellData.t;
-      if (/^=[A-Z]+\(/i.test(cellData.t)) {
-        td.textContent = evalFormula(grid, cellData.t);
-      }
-      renderHtml(td);
-      renderMarkdown(td);
-      renderImages(td, sourcePath, resolveImage);
+      populateCell(td, cellData.t, grid, sourcePath, resolveImage);
       td.addEventListener("focus", () => {
         if (!td.closest(".cm-editor")) {
           td.blur();
           return;
         }
+        focusedR = r;
+        focusedC = c;
+        activeController = controller;
         td.innerHTML = grid[r][c].t;
+        showEditingUi();
         if (import_obsidian.Platform.isDesktop && !settings.enableDesktopToolbar)
           return;
         if ((import_obsidian.Platform.isMobile || import_obsidian.Platform.isTablet) && !settings.enableMobileToolbar)
           return;
-        toolbar.show(td, grid, r, c, onCommit, () => onConvertToMd(grid), () => onConvertToHtml(grid));
+        toolbar.show(
+          td,
+          data,
+          r,
+          c,
+          (s) => {
+            pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
+            onCommit(s);
+          },
+          flushActiveCell,
+          () => onConvertToMd(grid),
+          () => onConvertToHtml(grid)
+        );
       });
       td.addEventListener("blur", (e) => {
-        const html = td.innerHTML;
-        const relatedTarget = e.relatedTarget;
-        const inSameTable = relatedTarget?.closest(".vt") === td.closest(".vt");
-        if (grid[r][c].t !== html) {
+        const html = normalizeCellHtml(stripRcHandles(td.innerHTML));
+        const related = e.relatedTarget;
+        const inSameTable = related?.closest(".vt") === td.closest(".vt");
+        const contentChanged = grid[r][c].t !== html;
+        if (contentChanged) {
           grid[r][c].t = html;
-          if (!inSameTable)
-            onCommit(serialize(grid));
         }
-        td.innerHTML = html;
-        if (/^=[A-Z]+\(/i.test(html)) {
-          td.textContent = evalFormula(grid, html);
-        }
-        renderHtml(td);
-        renderMarkdown(td);
-        renderImages(td, sourcePath, resolveImage);
+        autoExpandRowHeight(td, data, r, contentChanged);
+        if (!inSameTable)
+          commit();
+        populateCell(td, html, grid, sourcePath, resolveImage);
         scheduleMathRender(td);
-        if (!inSameTable && document.body.dataset.vtBarClick !== "1")
+        const uiClick = document.body.dataset.vtBarClick === "1" || document.body.dataset.vtModeClick === "1";
+        if (!inSameTable && !uiClick) {
           toolbar.hide();
+          if (!table.contains(document.activeElement))
+            hideEditingUi();
+        }
+      });
+      td.addEventListener("keydown", (e) => {
+        if (!td.closest(".cm-editor"))
+          return;
+        let dr = 0;
+        let dc = 0;
+        if (e.key === "ArrowUp")
+          dr = -1;
+        else if (e.key === "ArrowDown")
+          dr = 1;
+        else if (e.key === "ArrowLeft")
+          dc = -1;
+        else if (e.key === "ArrowRight")
+          dc = 1;
+        else if (e.key === "Tab") {
+          dc = e.shiftKey ? -1 : 1;
+          e.preventDefault();
+        } else
+          return;
+        e.preventDefault();
+        if (moveFocus(dr, dc))
+          return;
+        if (e.key === "Tab" && dc > 0) {
+          moveFocus(1, -focusedC);
+        }
+      });
+      td.addEventListener("paste", (e) => {
+        e.preventDefault();
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        document.execCommand("insertText", false, text);
       });
       td.addEventListener("contextmenu", (e) => {
         if (!td.closest(".cm-editor"))
           return;
         e.preventDefault();
         e.stopPropagation();
-        showCellMenu(e, grid, r, c, toolbar, onCommit);
+        showCellMenu(e, data, r, c, toolbar, flushActiveCell, () => {
+          pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
+          onCommit(serialize(data));
+        });
       });
     });
   });
+  applyModeStyles(wrap, table, data, hsBar);
+  bindRcResizeHandles(table, data, false, () => {
+  });
   scheduleMathRender(table);
+  if (pendingFocusRestore) {
+    const { r: fr, c: fc, caretAtEnd } = pendingFocusRestore;
+    pendingFocusRestore = null;
+    requestAnimationFrame(() => {
+      if (focusCell(fr, fc, caretAtEnd)) {
+        showEditingUi();
+        const td = cellMap[fr]?.[fc];
+        if (td && (import_obsidian.Platform.isDesktop && settings.enableDesktopToolbar || (import_obsidian.Platform.isMobile || import_obsidian.Platform.isTablet) && settings.enableMobileToolbar)) {
+          toolbar.show(
+            td,
+            data,
+            fr,
+            fc,
+            (s) => {
+              pendingFocusRestore = { r: fr, c: fc, caretAtEnd };
+              onCommit(s);
+            },
+            flushActiveCell,
+            () => onConvertToMd(grid),
+            () => onConvertToHtml(grid)
+          );
+        }
+      }
+    });
+  }
+}
+function normalizeCellHtml(html) {
+  const trimmed = html.trim();
+  if (!trimmed)
+    return "";
+  return trimmed.replace(/^<(div|p)>\s*(<br\s*\/?>)?\s*<\/\1>/i, "").replace(/^(&nbsp;|\u00a0|\s)+/, "");
+}
+function populateCell(td, raw, grid, sourcePath, resolveImage) {
+  td.innerHTML = raw;
+  if (/^=[A-Z]+\(/i.test(raw)) {
+    td.textContent = evalFormula(grid, raw);
+  }
+  renderHtml(td);
+  renderInlineCode(td);
+  renderMarkdown(td);
+  renderTodos(td);
+  renderImages(td, sourcePath, resolveImage);
 }
 var MATH_RE = /\$\$([^$]+?)\$\$|\$(\S(?:[^$\n]*?\S)?)\$/g;
 function renderMathInNode(root) {
@@ -532,9 +1031,9 @@ function renderMarkdown(root) {
   let node;
   while (node = walker.nextNode()) {
     const text = node.textContent;
-    if (!text || !/[*_~=]/.test(text))
+    if (!text || !/[*_~=`]/.test(text))
       continue;
-    if (node.parentElement?.closest("b, i, mark, s, a, code, img"))
+    if (node.parentElement?.closest("b, i, mark, s, a, code, img, label"))
       continue;
     targets.push(node);
   }
@@ -544,6 +1043,73 @@ function renderMarkdown(root) {
       continue;
     const frag = document.createDocumentFragment();
     frag.append(document.createRange().createContextualFragment(html));
+    textNode.replaceWith(frag);
+  }
+}
+function renderInlineCode(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let node;
+  while (node = walker.nextNode()) {
+    const text = node.textContent;
+    if (!text || !text.includes("`"))
+      continue;
+    if (node.parentElement?.closest("code"))
+      continue;
+    targets.push(node);
+  }
+  for (const textNode of targets) {
+    if (!/`[^`]+`/.test(textNode.textContent))
+      continue;
+    const html = mdInlineToHtml(textNode.textContent);
+    if (html === textNode.textContent)
+      continue;
+    const frag = document.createDocumentFragment();
+    frag.append(document.createRange().createContextualFragment(html));
+    textNode.replaceWith(frag);
+  }
+}
+var TODO_LINE_RE = /^-\s*\[([ xX])\]\s*(.*)$/;
+function renderTodos(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let node;
+  while (node = walker.nextNode()) {
+    const text = node.textContent;
+    if (!text || !/-\s*\[[ xX]\]/.test(text))
+      continue;
+    if (node.parentElement?.closest("code, label"))
+      continue;
+    targets.push(node);
+  }
+  for (const textNode of targets) {
+    const text = textNode.textContent;
+    const lines = text.split("\n");
+    let hasTodo = false;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const m = line.match(TODO_LINE_RE);
+      if (m) {
+        hasTodo = true;
+        const item = document.createElement("div");
+        item.className = "vt-task-item";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = m[1] !== " ";
+        cb.tabIndex = -1;
+        cb.addEventListener("mousedown", (e) => e.preventDefault());
+        item.appendChild(cb);
+        const span = document.createElement("span");
+        span.textContent = m[2] ?? "";
+        item.appendChild(span);
+        frag.appendChild(item);
+      } else if (line || i < lines.length - 1) {
+        frag.appendChild(document.createTextNode(line + (i < lines.length - 1 ? "\n" : "")));
+      }
+    }
+    if (!hasTodo)
+      continue;
     textNode.replaceWith(frag);
   }
 }
@@ -570,6 +1136,12 @@ function renderImages(root, sourcePath, resolveImage) {
     while (match = IMG_RE.exec(text)) {
       if (match.index > last)
         frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+      if (isWikiLinkInsideBackticks(text, match.index)) {
+        frag.appendChild(document.createTextNode(match[0]));
+        found = true;
+        last = IMG_RE.lastIndex;
+        continue;
+      }
       const linkText = match[1].trim();
       const altText = match[2]?.trim() ?? "";
       const src = resolveImage(linkText);
@@ -592,12 +1164,13 @@ function renderImages(root, sourcePath, resolveImage) {
     textNode.replaceWith(frag);
   }
 }
-function showCellMenu(e, grid, r, c, toolbar, onCommit) {
+function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit) {
+  const grid = data.rows;
   const menu = new import_obsidian.Menu();
   const apply = (fn) => {
-    toolbar.hide();
+    flushCell();
     fn();
-    onCommit(serialize(grid));
+    onCommit();
   };
   menu.addItem((i) => i.setTitle("\u4E0A\u65B9\u63D2\u5165\u884C").setIcon("arrow-up").onClick(() => apply(() => insertRow(grid, r - 1))));
   menu.addItem((i) => i.setTitle("\u4E0B\u65B9\u63D2\u5165\u884C").setIcon("arrow-down").onClick(() => apply(() => insertRow(grid, r))));
@@ -612,15 +1185,21 @@ function showCellMenu(e, grid, r, c, toolbar, onCommit) {
   menu.addItem((i) => i.setTitle("\u62C6\u5206\u5355\u5143\u683C").setIcon("split-square-horizontal").onClick(() => apply(() => splitCell(grid, r, c))));
   menu.showAtMouseEvent(e);
 }
+function isWikiLinkInsideBackticks(text, matchIndex) {
+  const before = text.slice(0, matchIndex);
+  const tickCount = (before.match(/`/g) ?? []).length;
+  return tickCount % 2 === 1;
+}
 
 // src/bar.ts
 var Toolbar = class {
   constructor() {
     this.cell = null;
-    this.grid = null;
+    this.data = null;
     this.cellR = 0;
     this.cellC = 0;
     this.onCommit = null;
+    this.flushCell = null;
     this.onConvertToMd = null;
     this.onConvertToHtml = null;
     this.animated = false;
@@ -712,69 +1291,79 @@ var Toolbar = class {
       }, 200);
     });
   }
-  /** 执行结构操作 → 提交 → 隐藏工具栏（Obsidian 重新渲染） */
+  /** 执行结构操作 → 先保存当前格 → 提交（保持聚焦） */
   structExec(fn) {
-    if (!this.grid || !this.onCommit)
+    if (!this.data || !this.onCommit)
       return;
-    const g = this.grid;
+    this.flushCell?.();
+    const g = this.data.rows;
     const commit = this.onCommit;
     const r = this.cellR;
     const c = this.cellC;
-    this.hide();
     fn(g, r, c);
-    commit(serialize(g));
+    commit(serialize(this.data));
   }
   /* ===== 显示/隐藏/定位 ===== */
-  show(cell2, grid, r, c, onCommit, onConvertToMd, onConvertToHtml) {
+  show(cell2, data, r, c, onCommit, flushCell, onConvertToMd, onConvertToHtml) {
     this.cell = cell2;
-    this.grid = grid;
+    this.data = data;
     this.cellR = r;
     this.cellC = c;
     this.onCommit = onCommit;
+    this.flushCell = flushCell;
     this.onConvertToMd = onConvertToMd;
     this.onConvertToHtml = onConvertToHtml;
     if (this.animatedTimer !== null) {
       clearTimeout(this.animatedTimer);
       this.animatedTimer = null;
     }
-    if (!this.animated) {
-      this.el.style.transition = "none";
-      this.el.style.display = "flex";
-      this.el.style.transform = "scale(0.8) translateY(6px)";
-      this.el.style.opacity = "0.7";
-      if (!this.reposition()) {
-        this.el.style.display = "none";
-        return;
-      }
-      void this.el.offsetWidth;
-      this.el.style.transition = "";
+    const animate = !this.animated;
+    if (!this.prepareVisible(animate))
+      return;
+    if (animate) {
       this.animated = true;
+      this.el.style.transition = "";
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           this.el.style.transform = "scale(1) translateY(0)";
           this.el.style.opacity = "1";
+          this.reposition();
         });
       });
-    } else {
-      this.el.style.transition = "none";
-      this.el.style.display = "flex";
-      this.el.style.transform = "scale(1) translateY(0)";
-      this.el.style.opacity = "1";
-      if (!this.reposition()) {
-        this.el.style.display = "none";
-        return;
-      }
-      void this.el.offsetWidth;
-      this.el.style.transition = "";
     }
+    this.scheduleRepositionRetries();
+  }
+  /** 先隐藏布局再测量尺寸，避免首次显示时 offsetWidth 为 0 导致定位偏移 */
+  prepareVisible(animate) {
+    this.el.style.transition = "none";
+    this.el.style.visibility = "hidden";
+    this.el.style.display = "flex";
+    this.el.style.transform = animate ? "scale(0.8) translateY(6px)" : "scale(1) translateY(0)";
+    this.el.style.opacity = animate ? "0.7" : "1";
+    void this.el.offsetWidth;
+    if (!this.reposition()) {
+      this.el.style.display = "none";
+      this.el.style.visibility = "";
+      return false;
+    }
+    this.el.style.visibility = "visible";
+    void this.el.offsetWidth;
+    return true;
+  }
+  /** Obsidian 刚启动时编辑器布局可能尚未稳定，短延迟内重算位置 */
+  scheduleRepositionRetries() {
+    requestAnimationFrame(() => this.reposition());
+    window.setTimeout(() => this.reposition(), 0);
+    window.setTimeout(() => this.reposition(), 120);
   }
   hide() {
     this.el.style.transform = "";
     this.el.style.opacity = "";
     this.el.style.display = "none";
     this.cell = null;
-    this.grid = null;
+    this.data = null;
     this.onCommit = null;
+    this.flushCell = null;
     this.onConvertToMd = null;
     this.onConvertToHtml = null;
     if (this.animatedTimer !== null)
@@ -896,16 +1485,15 @@ function generateBarChart(grid) {
   const at = ".axis-label";
   const bv = ".bar-value";
   const xl = ".x-label";
-  const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}${mc}{text-align:center;font-size:28px;font-weight:700;margin:0 0 20px;color:#111}${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${bv}{fill:#111}${xl}{fill:#333}`;
+  const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}${mc}{text-align:center;font-size:28px;font-weight:700;margin:10px 0 24px;color:#111}${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${bv}{fill:#111}${xl}{fill:#333}`;
   let sBars = "";
   for (let i = 0; i < n; i++)
     sBars += `.bar-${i}{fill:${lightColors[i % lightColors.length]}}`;
-  const sDark = `@media(prefers-color-scheme:dark){${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}${mc}{color:#F9FAFB}${gl}{stroke:rgba(255,255,255,.08)}${al}{stroke:#6B7280}${at}{fill:#9CA3AF}${bv}{fill:#F9FAFB}${xl}{fill:#D1D5DB}`;
+  const sDark = `.theme-dark ${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}.theme-dark ${mc}{color:#F9FAFB}.theme-dark ${gl}{stroke:rgba(255,255,255,.08)}.theme-dark ${al}{stroke:#6B7280}.theme-dark ${at}{fill:#9CA3AF}.theme-dark ${bv}{fill:#F9FAFB}.theme-dark ${xl}{fill:#D1D5DB}`;
   let sBarsDark = "";
   for (let i = 0; i < n; i++)
-    sBarsDark += `.bar-${i}{fill:${darkColor}}`;
-  const sDarkClose = "}";
-  const style = sLight + sBars + sDark + sBarsDark + sDarkClose;
+    sBarsDark += `.theme-dark .bar-${i}{fill:${darkColor}}`;
+  const style = sLight + sBars + sDark + sBarsDark;
   const parts = [];
   const ySteps = 4;
   for (let i = 1; i <= ySteps; i++) {
@@ -1039,9 +1627,9 @@ function generateLineChart(grid) {
   const xl = ".x-label";
   const ln = ".line-path";
   const dot = ".data-dot";
-  const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}${mc}{text-align:center;font-size:28px;font-weight:700;margin:0 0 20px;color:#111}${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${dv}{fill:#111}${xl}{fill:#333}${ln}{fill:none;stroke:#111;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}${dot}{fill:#111}`;
-  const sDark = `@media(prefers-color-scheme:dark){${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}${mc}{color:#F9FAFB}${gl}{stroke:rgba(255,255,255,.08)}${al}{stroke:#6B7280}${at}{fill:#9CA3AF}${dv}{fill:#F9FAFB}${xl}{fill:#D1D5DB}${ln}{stroke:#60A5FA}${dot}{fill:#60A5FA}`;
-  const style = sLight + sDark + "}";
+  const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}${mc}{text-align:center;font-size:28px;font-weight:700;margin:10px 0 24px;color:#111}${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${dv}{fill:#111}${xl}{fill:#333}${ln}{fill:none;stroke:#111;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}${dot}{fill:#111}`;
+  const sDark = `.theme-dark ${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}.theme-dark ${mc}{color:#F9FAFB}.theme-dark ${gl}{stroke:rgba(255,255,255,.08)}.theme-dark ${al}{stroke:#6B7280}.theme-dark ${at}{fill:#9CA3AF}.theme-dark ${dv}{fill:#F9FAFB}.theme-dark ${xl}{fill:#D1D5DB}.theme-dark ${ln}{stroke:#60A5FA}.theme-dark ${dot}{fill:#60A5FA}`;
+  const style = sLight + sDark;
   const parts = [];
   const ySteps = 4;
   for (let i = 1; i <= ySteps; i++) {
@@ -1075,11 +1663,42 @@ function generateLineChart(grid) {
   return `<div class="chart-container"><style>${style}</style>${titleHtml}${svg}</div>`;
 }
 
+// src/charts.ts
+var CHART_HEADERS = {
+  bar: "vbarchart",
+  pie: "vpie",
+  line: "vline"
+};
+function detectChartType(grid) {
+  const h = grid[0]?.[0]?.t?.trim() ?? "";
+  if (h === CHART_HEADERS.bar)
+    return "bar";
+  if (h === CHART_HEADERS.pie)
+    return "pie";
+  if (h === CHART_HEADERS.line)
+    return "line";
+  return null;
+}
+function gridToChart(grid) {
+  const type = detectChartType(grid);
+  if (!type)
+    return null;
+  switch (type) {
+    case "bar":
+      return generateBarChart(grid);
+    case "pie":
+      return generatePieChart(grid);
+    case "line":
+      return generateLineChart(grid);
+  }
+}
+
 // src/main.ts
 var LANG = "vtable";
 var DEFAULT_SETTINGS = {
   enableDesktopToolbar: true,
-  enableMobileToolbar: true
+  enableMobileToolbar: true,
+  enableModeSwitcher: true
 };
 var VtPlugin = class extends import_obsidian2.Plugin {
   // 模板自动生成函数
@@ -1130,8 +1749,7 @@ var VtPlugin = class extends import_obsidian2.Plugin {
         const cursor = editor.getCursor();
         const currentLine = cursor.line;
         const currentLineText = editor.getLine(currentLine);
-        const isBlank = currentLineText.trim() === "";
-        if (!isBlank)
+        if (currentLineText.trim() !== "")
           return false;
         if (currentLine === 0)
           return false;
@@ -1201,20 +1819,17 @@ var VtPlugin = class extends import_obsidian2.Plugin {
       editorCallback: (ed) => this.vtableToHtml(ed)
     });
     this.addCommand({
-      id: "vt-to-barchart",
-      name: "\u8F6C\u6362\u4E3A\u67F1\u72B6\u56FE",
-      editorCallback: (ed) => this.vtableToBarChart(ed)
+      id: "vt-to-chart",
+      name: "\u8F6C\u6362\u4E3A\u56FE\u8868",
+      editorCallback: (ed) => this.vtableToChart(ed)
     });
     this.addCommand({
-      id: "vt-to-piechart",
-      name: "\u8F6C\u6362\u4E3A\u997C\u72B6\u56FE",
-      editorCallback: (ed) => this.vtableToPieChart(ed)
+      id: "vt-select-above",
+      name: "\u9009\u4E2D\u4E0A\u65B9 vtable \u8868\u683C",
+      editorCallback: (ed) => this.selectVtableAbove(ed)
     });
-    this.addCommand({
-      id: "vt-to-linechart",
-      name: "\u8F6C\u6362\u4E3A\u6298\u7EBF\u56FE",
-      editorCallback: (ed) => this.vtableToLineChart(ed)
-    });
+    this.registerCellNavCommands();
+    this.registerModeCommands();
     this.addRibbonIcon("table-2", "\u8F6C\u6362\u4E3A vtable", () => {
       const view = this.app.workspace.getActiveViewOfType(import_obsidian2.MarkdownView);
       if (view)
@@ -1230,6 +1845,51 @@ var VtPlugin = class extends import_obsidian2.Plugin {
   }
   onunload() {
     this.toolbar?.destroy();
+  }
+  registerCellNavCommands() {
+    const dirs = [
+      ["vt-cell-up", "vtable\uFF1A\u4E0A\u79FB\u5355\u5143\u683C", -1, 0],
+      ["vt-cell-down", "vtable\uFF1A\u4E0B\u79FB\u5355\u5143\u683C", 1, 0],
+      ["vt-cell-left", "vtable\uFF1A\u5DE6\u79FB\u5355\u5143\u683C", 0, -1],
+      ["vt-cell-right", "vtable\uFF1A\u53F3\u79FB\u5355\u5143\u683C", 0, 1]
+    ];
+    for (const [id, name, dr, dc] of dirs) {
+      this.addCommand({
+        id,
+        name,
+        checkCallback: (checking) => {
+          const ctrl = getActiveTableController();
+          if (!ctrl)
+            return false;
+          if (checking)
+            return true;
+          ctrl.moveCell(dr, dc);
+          return true;
+        }
+      });
+    }
+  }
+  registerModeCommands() {
+    const modes = [
+      ["vt-mode-ol", "vtable\uFF1AOL \u6362\u884C\u6A21\u5F0F", "OL"],
+      ["vt-mode-hs", "vtable\uFF1AHS \u6A2A\u5411\u62C9\u957F\u6A21\u5F0F", "HS"],
+      ["vt-mode-rc", "vtable\uFF1ARC \u81EA\u7531\u62D6\u62FD\u6A21\u5F0F", "RC"]
+    ];
+    for (const [id, name, mode] of modes) {
+      this.addCommand({
+        id,
+        name,
+        checkCallback: (checking) => {
+          const ctrl = getActiveTableController();
+          if (!ctrl)
+            return false;
+          if (checking)
+            return true;
+          ctrl.setMode(mode);
+          return true;
+        }
+      });
+    }
   }
   insertTable(ed) {
     const block = "```" + LANG + "\n" + blankSource(2, 2) + "\n```";
@@ -1260,7 +1920,8 @@ var VtPlugin = class extends import_obsidian2.Plugin {
     if (!range)
       return;
     const source = ed.getRange(range.contentFrom, range.contentTo);
-    const grid = parseSource(source);
+    const data = parseSource(source);
+    const grid = data.rows;
     const md = gridToMdTable(grid);
     ed.replaceRange(md, range.blockFrom, range.blockTo);
   }
@@ -1270,114 +1931,41 @@ var VtPlugin = class extends import_obsidian2.Plugin {
     if (!range)
       return;
     const source = ed.getRange(range.contentFrom, range.contentTo);
-    const grid = parseSource(source);
+    const data = parseSource(source);
+    const grid = data.rows;
     const html = gridToHtmlTable(grid);
     ed.replaceRange(html, range.blockFrom, range.blockTo);
   }
-  /** 把光标所在的 vtable 代码块转换为柱状图 HTML，插入在代码块下方 */
-  vtableToBarChart(ed) {
-    let range = findVtableBlock(ed);
-    if (!range)
-      range = findVtableBlockAnywhere(ed);
+  /** 转换为图表：自动检测类型 */
+  vtableToChart(ed) {
+    const range = findVtableBlock(ed);
     if (!range) {
-      new import_obsidian2.Notice("\u672A\u627E\u5230 vtable \u4EE3\u7801\u5757");
+      new import_obsidian2.Notice("\u672A\u627E\u5230\u53EF\u8F6C\u6362\u7684\u56FE\u8868 vtable \u6A21\u677F");
       return;
     }
     const source = ed.getRange(range.contentFrom, range.contentTo);
-    const grid = parseSource(source);
-    const headerLabels = ["vbarchart", "\u6807\u9898", "v%", "x\u8303\u56F4", "x", "y\u8303\u56F4", "y"];
-    if (grid.length < 8) {
-      new import_obsidian2.Notice(`\u8868\u683C\u884C\u6570\u4E0D\u8DB3\uFF08\u9700\u8981\u81F3\u5C11 8 \u884C\uFF0C\u5F53\u524D ${grid.length} \u884C\uFF09`);
+    const grid = parseSource(source).rows;
+    if (!detectChartType(grid)) {
+      new import_obsidian2.Notice("\u4E0D\u662F\u6709\u6548\u7684\u56FE\u8868\u6A21\u677F\uFF08\u8868\u5934\u5E94\u4E3A vbarchart / vpie / vline\uFF09");
       return;
     }
-    const colCount2 = grid[0]?.length ?? 0;
-    if (colCount2 < 2) {
-      new import_obsidian2.Notice(`\u8868\u683C\u81F3\u5C11\u9700\u8981 2 \u5217\uFF0C\u5F53\u524D\u4EC5 ${colCount2} \u5217`);
-      return;
-    }
-    for (let i = 0; i < headerLabels.length; i++) {
-      const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-      if (cellText !== headerLabels[i]) {
-        new import_obsidian2.Notice(`\u7B2C ${i + 1} \u884C\u7B2C 1 \u5217\u5E94\u4E3A "${headerLabels[i]}"\uFF0C\u5F53\u524D\u4E3A "${cellText}"`);
-        return;
-      }
-    }
-    const html = generateBarChart(grid);
-    if (!html) {
+    const output = gridToChart(grid);
+    if (!output) {
       new import_obsidian2.Notice("\u8868\u683C\u5F62\u5F0F\u4E0D\u89C4\u8303\uFF1A\u6570\u636E\u884C\u7F3A\u5931\u6216\u683C\u5F0F\u6709\u8BEF");
       return;
     }
-    ed.replaceRange("\n" + html + "\n", { line: range.blockTo.line + 1, ch: 0 });
+    const insertLine = range.blockTo.line;
+    ed.replaceRange("\n" + output + "\n", { line: insertLine + 1, ch: 0 });
   }
-  /** 把光标所在的 vtable 代码块转换为 Mermaid 饼状图代码块，插入在代码块下方 */
-  vtableToPieChart(ed) {
-    let range = findVtableBlock(ed);
-    if (!range)
-      range = findVtableBlockAnywhere(ed);
-    if (!range) {
-      new import_obsidian2.Notice("\u672A\u627E\u5230 vtable \u4EE3\u7801\u5757");
+  /** 选中光标上方最近的 vtable 代码块 */
+  selectVtableAbove(ed) {
+    const block = findVtableBlockAbove(ed);
+    if (!block) {
+      new import_obsidian2.Notice("\u4E0A\u65B9\u672A\u627E\u5230 vtable \u8868\u683C");
       return;
     }
-    const source = ed.getRange(range.contentFrom, range.contentTo);
-    const grid = parseSource(source);
-    const headerLabels = ["vpie", "\u6807\u9898"];
-    if (grid.length < 3) {
-      new import_obsidian2.Notice(`\u8868\u683C\u884C\u6570\u4E0D\u8DB3\uFF08\u9700\u8981\u81F3\u5C11 3 \u884C\uFF0C\u5F53\u524D ${grid.length} \u884C\uFF09`);
-      return;
-    }
-    const colCount2 = grid[0]?.length ?? 0;
-    if (colCount2 < 2) {
-      new import_obsidian2.Notice(`\u8868\u683C\u81F3\u5C11\u9700\u8981 2 \u5217\uFF0C\u5F53\u524D\u4EC5 ${colCount2} \u5217`);
-      return;
-    }
-    for (let i = 0; i < headerLabels.length; i++) {
-      const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-      if (cellText !== headerLabels[i]) {
-        new import_obsidian2.Notice(`\u7B2C ${i + 1} \u884C\u7B2C 1 \u5217\u5E94\u4E3A "${headerLabels[i]}"\uFF0C\u5F53\u524D\u4E3A "${cellText}"`);
-        return;
-      }
-    }
-    const mermaid = generatePieChart(grid);
-    if (!mermaid) {
-      new import_obsidian2.Notice("\u8868\u683C\u5F62\u5F0F\u4E0D\u89C4\u8303\uFF1A\u6570\u636E\u884C\u7F3A\u5931\u6216\u683C\u5F0F\u6709\u8BEF");
-      return;
-    }
-    ed.replaceRange("\n" + mermaid + "\n", { line: range.blockTo.line + 1, ch: 0 });
-  }
-  /** 把光标所在的 vtable 代码块转换为折线图 HTML，插入在代码块下方 */
-  vtableToLineChart(ed) {
-    let range = findVtableBlock(ed);
-    if (!range)
-      range = findVtableBlockAnywhere(ed);
-    if (!range) {
-      new import_obsidian2.Notice("\u672A\u627E\u5230 vtable \u4EE3\u7801\u5757");
-      return;
-    }
-    const source = ed.getRange(range.contentFrom, range.contentTo);
-    const grid = parseSource(source);
-    const headerLabels = ["vline", "\u6807\u9898", "x\u8303\u56F4", "x", "y\u8303\u56F4", "y"];
-    if (grid.length < 7) {
-      new import_obsidian2.Notice(`\u8868\u683C\u884C\u6570\u4E0D\u8DB3\uFF08\u9700\u8981\u81F3\u5C11 7 \u884C\uFF0C\u5F53\u524D ${grid.length} \u884C\uFF09`);
-      return;
-    }
-    const colCount2 = grid[0]?.length ?? 0;
-    if (colCount2 < 2) {
-      new import_obsidian2.Notice(`\u8868\u683C\u81F3\u5C11\u9700\u8981 2 \u5217\uFF0C\u5F53\u524D\u4EC5 ${colCount2} \u5217`);
-      return;
-    }
-    for (let i = 0; i < headerLabels.length; i++) {
-      const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-      if (cellText !== headerLabels[i]) {
-        new import_obsidian2.Notice(`\u7B2C ${i + 1} \u884C\u7B2C 1 \u5217\u5E94\u4E3A "${headerLabels[i]}"\uFF0C\u5F53\u524D\u4E3A "${cellText}"`);
-        return;
-      }
-    }
-    const html = generateLineChart(grid);
-    if (!html) {
-      new import_obsidian2.Notice("\u8868\u683C\u5F62\u5F0F\u4E0D\u89C4\u8303\uFF1A\u6570\u636E\u884C\u7F3A\u5931\u6216\u683C\u5F0F\u6709\u8BEF");
-      return;
-    }
-    ed.replaceRange("\n" + html + "\n", { line: range.blockTo.line + 1, ch: 0 });
+    ed.setSelection(block.blockFrom, block.blockTo);
+    ed.scrollIntoView(block.blockFrom, true);
   }
   /** 将新的表格源文本写回代码块内部（围栏之间的行） */
   writeBack(el, ctx, newSource) {
@@ -1444,6 +2032,10 @@ var VtSettingTab = class extends import_obsidian2.PluginSettingTab {
     }));
     new import_obsidian2.Setting(containerEl).setName("\u79FB\u52A8\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F").setDesc("\u5728\u624B\u673A/\u5E73\u677F\u8BBE\u5907\u4E0A\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F").addToggle((t) => t.setValue(this.plugin.settings.enableMobileToolbar).onChange(async (value) => {
       this.plugin.settings.enableMobileToolbar = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian2.Setting(containerEl).setName("\u6A21\u5F0F\u5207\u6362\u6309\u94AE").setDesc("\u7F16\u8F91\u8868\u683C\u65F6\u663E\u793A OL / HS / RC \u4E09\u79CD\u6A21\u5F0F\u7684\u5207\u6362\u6309\u94AE").addToggle((t) => t.setValue(this.plugin.settings.enableModeSwitcher).onChange(async (value) => {
+      this.plugin.settings.enableModeSwitcher = value;
       await this.plugin.saveSettings();
     }));
   }
@@ -1520,40 +2112,41 @@ function findVtableBlock(ed) {
     contentTo: { line: end, ch: 0 }
   };
 }
-function findVtableBlockAnywhere(ed) {
-  const fullText = ed.getValue();
-  const lines = fullText.split("\n");
-  const cursorLine = ed.getCursor().line;
+function getAllVtableBlocks(ed) {
+  const lines = ed.getValue().split("\n");
   const n = lines.length;
-  let best = null;
-  let bestDist = Infinity;
+  const blocks = [];
   let i = 0;
   while (i < n) {
-    const line = lines[i].trim();
-    if (line === "```vtable") {
-      const blockStart = i;
-      let blockEnd = i + 1;
-      while (blockEnd < n) {
-        if (lines[blockEnd].trim() === "```")
-          break;
-        blockEnd++;
+    if (lines[i].trim() === "```vtable") {
+      const start = i;
+      let end = i + 1;
+      while (end < n && lines[end].trim() !== "```")
+        end++;
+      if (end < n) {
+        blocks.push({
+          blockFrom: { line: start, ch: 0 },
+          blockTo: { line: end, ch: lines[end].length },
+          contentFrom: { line: start + 1, ch: 0 },
+          contentTo: { line: end, ch: 0 }
+        });
       }
-      if (blockEnd < n) {
-        const dist = Math.abs(blockStart - cursorLine);
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = {
-            blockFrom: { line: blockStart, ch: 0 },
-            blockTo: { line: blockEnd, ch: lines[blockEnd].length },
-            contentFrom: { line: blockStart + 1, ch: 0 },
-            contentTo: { line: blockEnd, ch: 0 }
-          };
-        }
-      }
-      i = blockEnd + 1;
+      i = end + 1;
     } else {
       i++;
     }
+  }
+  return blocks;
+}
+function findVtableBlockAbove(ed) {
+  const cur = ed.getCursor().line;
+  const blocks = getAllVtableBlocks(ed);
+  let best = null;
+  for (const b of blocks) {
+    if (b.blockTo.line < cur)
+      best = b;
+    else if (b.blockFrom.line > cur)
+      break;
   }
   return best;
 }

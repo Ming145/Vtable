@@ -1,11 +1,38 @@
 /* ===== vtable 代码块渲染的表格 ===== */
 
+.vtable-container {
+	position: relative;
+	margin: 0.4em 0;
+}
+
+.vt-table-wrap {
+	position: relative;
+	max-width: 100%;
+}
+
+/* HS/RC 模式启用横向滚动 */
+.vt-table-wrap.vt-hs-scroll,
+.vt-table-wrap.vt-rc-scroll {
+	overflow-x: auto;
+}
+
+/* HS/RC 模式：隐藏原生滚动条，使用自定义滚动条 */
+.vt-table-wrap.vt-hs-scroll,
+.vt-table-wrap.vt-rc-scroll {
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.vt-table-wrap.vt-hs-scroll::-webkit-scrollbar,
+.vt-table-wrap.vt-rc-scroll::-webkit-scrollbar {
+	display: none;
+}
+
 table.vt {
 	border-collapse: collapse;
 	width: 100%;
 	font-size: 0.95em;
-	margin: 0.4em 0;
-	border-top: 1px solid var(--table-border-color, #bbb);
+	margin: 0;
 }
 
 table.vt th,
@@ -14,9 +41,158 @@ table.vt td {
 	padding: 6px 10px;
 	min-width: 60px;
 	vertical-align: top;
+}
+
+/* OL 模式（默认） */
+table.vt-mode-ol td {
 	white-space: pre-wrap;
 	word-break: break-word;
 }
+
+/* HS 模式：横向延伸 + 底部可拖拽滚动条 */
+table.vt-mode-hs {
+	width: max-content !important;
+	min-width: 100%;
+}
+
+table.vt-mode-hs td {
+	white-space: nowrap !important;
+	word-break: normal !important;
+}
+
+.vt-hs-bar {
+	margin-top: 4px;
+	padding: 0 2px;
+}
+
+.vt-hs-track {
+	position: relative;
+	height: 6px;
+	background: rgba(120, 120, 128, 0.1);
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.vt-hs-thumb {
+	position: absolute;
+	top: 1px;
+	height: 4px;
+	background: rgba(120, 120, 128, 0.35);
+	border-radius: 2px;
+	cursor: grab;
+	touch-action: none;
+}
+
+.vt-hs-thumb:active {
+	cursor: grabbing;
+}
+
+.theme-dark .vt-hs-track {
+	background: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .vt-hs-thumb {
+	background: rgba(255, 255, 255, 0.25);
+}
+
+/* RC 模式 */
+table.vt-mode-rc {
+	table-layout: fixed;
+	width: 100%;
+}
+
+table.vt-mode-rc td {
+	white-space: pre-wrap;
+	word-break: break-word;
+	overflow: hidden;
+}
+
+/* RC 模式拖拽手柄覆盖层 */
+.vt-rc-overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+	z-index: 10;
+}
+
+.vt-rc-handle {
+	position: absolute;
+	background: transparent;
+	pointer-events: auto;
+}
+
+.vt-rc-handle-col {
+	width: 6px;
+	cursor: col-resize;
+	touch-action: none;
+}
+
+.vt-rc-handle-row {
+	height: 6px;
+	cursor: row-resize;
+	touch-action: none;
+}
+
+/* ===== 模式切换按钮（表格外左上方） ===== */
+
+.vt-mode-bar {
+	display: flex;
+	gap: 6px;
+	margin-bottom: 6px;
+}
+
+.vt-mode-btn {
+	padding: 3px 12px;
+	border: none;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	cursor: pointer;
+	background: rgba(120, 120, 128, 0.18);
+	color: var(--text-muted, #666);
+	-webkit-backdrop-filter: blur(12px);
+	backdrop-filter: blur(12px);
+	transition: background 0.15s ease, color 0.15s ease;
+}
+
+.vt-mode-btn.is-active {
+	background: rgba(var(--interactive-accent-rgb, 124, 58, 237), 0.35);
+	color: var(--text-normal, #222);
+}
+
+.theme-dark .vt-mode-btn {
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--text-muted, #aaa);
+}
+
+.theme-dark .vt-mode-btn.is-active {
+	background: rgba(var(--interactive-accent-rgb, 124, 58, 237), 0.45);
+	color: var(--text-normal, #eee);
+}
+
+/* ===== 待办语法 ===== */
+
+.vt-task-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	margin: 2px 0;
+}
+
+.vt-task-item input[type="checkbox"] {
+	margin-top: 3px;
+	flex-shrink: 0;
+	pointer-events: none;
+}
+
+.vt-task-item span {
+	flex: 1;
+}
+
 
 table.vt th {
 	background: var(--table-header-background, rgba(0, 0, 0, 0.05));
@@ -28,6 +204,29 @@ table.vt th {
 	background: rgba(255, 255, 255, 0.07);
 }
 
+.theme-dark table.vt td {
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+
+.theme-dark table.vt td:focus {
+	outline: 2px solid var(--interactive-accent, #7c3aed);
+	outline-offset: -2px;
+	background: var(--background-primary-alt, rgba(255, 255, 255, 0.04));
+}
+
+table.vt td code {
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	padding: 1px 4px;
+	border-radius: 4px;
+	background: var(--code-background, rgba(0, 0, 0, 0.06));
+}
+
+.theme-dark table.vt td code {
+	background: var(--code-background, rgba(255, 255, 255, 0.08));
+}
+
 /* ===== 悬浮格式化工具栏（毛玻璃质感） ===== */
 
 .vt-bar {
@@ -36,6 +235,8 @@ table.vt th {
 	align-items: center;
 	gap: 4px;
 	padding: 6px 8px;
+	max-width: min(560px, calc(100vw - 16px));
+	box-sizing: border-box;
 	background: rgba(255, 255, 255, 0.18);
 	-webkit-backdrop-filter: blur(20px) saturate(160%);
 	backdrop-filter: blur(20px) saturate(160%);
@@ -57,19 +258,27 @@ table.vt th {
 
 .vt-bar-row {
 	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
 	align-items: center;
 	gap: 4px;
+	max-width: 100%;
 }
 
 .vt-bar-btn {
 	min-width: 28px;
+	width: auto;
+	max-width: 48px;
+	flex: 0 1 auto;
 	height: 28px;
-	padding: 0 6px;
+	padding: 0 5px;
 	border: none;
 	border-radius: 6px;
 	background: rgba(255, 255, 255, 0.08);
 	color: var(--text-normal, #222);
-	font-size: 14px;
+	font-size: 13px;
+	line-height: 1;
+	white-space: nowrap;
 	cursor: pointer;
 	transition: background 0.15s ease;
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
@@ -101,66 +310,111 @@ table.vt th {
 	background: rgba(200, 200, 210, 0.22);
 }
 
-/* ===== 移动端 / 平板适配（iPad 等触屏设备） ===== */
+/* ===== 移动端 / 平板：横向滑动，保持正常字号 ===== */
 
 .is-mobile .vt-bar,
 .is-tablet .vt-bar {
-	padding: 5px 6px;
-	gap: 3px;
-	border-radius: 10px;
+	max-width: calc(100vw - 16px);
+	overflow-x: auto;
+	overflow-y: hidden;
+	-webkit-overflow-scrolling: touch;
+	scrollbar-width: thin;
 }
 
 .is-mobile .vt-bar-row,
 .is-tablet .vt-bar-row {
-	gap: 3px;
+	flex-wrap: nowrap;
+	width: max-content;
+	gap: 6px;
 }
 
 .is-mobile .vt-bar-btn,
 .is-tablet .vt-bar-btn {
-	min-width: 20px;
-	height: 26px;
-	padding: 0 2px;
-	font-size: 11px;
-	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.theme-dark .is-mobile .vt-bar-btn,
-.theme-dark .is-tablet .vt-bar-btn {
-	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
-.is-mobile .vt-bar-sep,
-.is-tablet .vt-bar-sep {
-	height: 18px;
-	margin: 0 3px;
+	flex: 0 0 auto;
+	min-width: 28px;
+	max-width: none;
+	width: auto;
+	height: 28px;
+	padding: 0 6px;
+	font-size: 13px;
 }
 
 @media (pointer: coarse) {
 	.vt-bar {
-		padding: 5px 6px;
-		gap: 3px;
-		border-radius: 10px;
+		max-width: calc(100vw - 16px);
+		overflow-x: auto;
+		overflow-y: hidden;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.vt-bar-row {
-		gap: 3px;
+		flex-wrap: nowrap;
+		width: max-content;
+		gap: 6px;
 	}
 
 	.vt-bar-btn {
-		min-width: 20px;
-		height: 26px;
-		padding: 0 2px;
-		font-size: 11px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+		flex: 0 0 auto;
+		min-width: 28px;
+		max-width: none;
+		width: auto;
+		height: 28px;
+		padding: 0 6px;
+		font-size: 13px;
 	}
+}
 
-	.theme-dark .vt-bar-btn {
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-	}
+/* ===== 图表容器（与 Obsidian 深色主题联动；内嵌 style 可能被过滤，此处为准） ===== */
 
-	.vt-bar-sep {
-		height: 18px;
-		margin: 0 3px;
-	}
+.chart-container .main-title {
+	text-align: center;
+	margin: 10px 0 24px;
+}
+
+.theme-dark .chart-container {
+	background: #111827;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+	color: #d1d5db;
+}
+
+.theme-dark .chart-container .main-title {
+	color: #f9fafb;
+}
+
+.theme-dark .chart-container svg .grid-line {
+	stroke: rgba(255, 255, 255, 0.08) !important;
+}
+
+.theme-dark .chart-container svg .axis-line {
+	stroke: #6b7280 !important;
+}
+
+.theme-dark .chart-container svg .axis-label {
+	fill: #9ca3af !important;
+}
+
+.theme-dark .chart-container svg .bar-value,
+.theme-dark .chart-container svg .data-value {
+	fill: #f9fafb !important;
+}
+
+.theme-dark .chart-container svg .x-label {
+	fill: #d1d5db !important;
+}
+
+.theme-dark .chart-container svg [class^="bar-"] {
+	fill: #60a5fa !important;
+}
+
+.theme-dark .chart-container svg .line-path {
+	stroke: #60a5fa !important;
+	fill: none !important;
+	stroke-width: 2.5 !important;
+	stroke-linejoin: round !important;
+	stroke-linecap: round !important;
+}
+
+.theme-dark .chart-container svg .data-dot {
+	fill: #60a5fa !important;
 }
 

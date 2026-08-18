@@ -16,6 +16,13 @@ export interface Cell {
 	cs: number;  // colspan（隐藏格为 0）
 }
 
+/** RC 拖拽手柄曾被写入单元格内容，读取时一并剔除，兼容旧数据 */
+const RC_HANDLE_RE = /<div\s+class="vt-rc-handle[^"]*"[^>]*>\s*<\/div>/gi;
+
+export function stripRcHandles(html: string): string {
+	return RC_HANDLE_RE.test(html) ? html.replace(RC_HANDLE_RE, '') : html;
+}
+
 /** 转义纯文本为 HTML，供 markdown/管道来源使用 */
 export function escapeHtml(s: string): string {
 	return s
@@ -43,8 +50,8 @@ export function mdInlineToHtml(s: string): string {
 	};
 	const escapeAttr = (v: string): string => escapeHtml(v).replace(/"/g, '&quot;');
 
-	// 1) 保护反引号代码段：`` code ``（须最先处理，避免内部符号被后续规则转换）
-	s = s.replace(/`([^`]+)`/g, (_, content) => protect('`' + escapeHtml(content) + '`'));
+	// 1) 保护反引号代码段：渲染为 <code>，避免内部 ![[图片]] 等被后续管线解析
+	s = s.replace(/`([^`]+)`/g, (_, content) => protect('<code>' + escapeHtml(content) + '</code>'));
 
 	// 2) 链接：[text](url)（须在粗斜体之前，避免 url 中的 _ / * 被误判为格式符）
 	s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, url) => {
@@ -79,6 +86,17 @@ export function mdInlineToHtml(s: string): string {
 
 export type Grid = Cell[][];
 
+export type VtMode = 'OL' | 'HS' | 'RC';
+
+export interface VtData {
+	mode: VtMode;
+	rows: Grid;
+	/** RC 模式列宽（px），仅 RC 生效 */
+	colWidths?: number[];
+	/** RC 模式行高（px），仅 RC 生效 */
+	rowHeights?: number[];
+}
+
 /** 该格是否可见（非被合并覆盖） */
 export function visible(cell: Cell): boolean {
 	return cell.rs > 0 && cell.cs > 0;
@@ -112,30 +130,50 @@ export function blankGrid(cols: number, rows: number): Grid {
 	return g;
 }
 
-/** grid → 代码块源文本（JSON） */
-export function serialize(grid: Grid): string {
-	return JSON.stringify({ rows: grid });
+/** VtData → 代码块源文本（JSON） */
+export function serialize(data: VtData): string {
+	const obj: Record<string, unknown> = { rows: data.rows };
+	if (data.mode !== 'OL') obj.mode = data.mode;
+	// 保留 RC 模式的列宽和行高数据，即使切换到其他模式也不丢失
+	if (data.colWidths?.length) obj.colWidths = data.colWidths;
+	if (data.rowHeights?.length) obj.rowHeights = data.rowHeights;
+	return JSON.stringify(obj);
 }
 
 /** 空白表格源文本 */
 export function blankSource(cols: number, rows: number): string {
-	return serialize(blankGrid(cols, rows));
+	return serialize({ mode: 'OL', rows: blankGrid(cols, rows) });
 }
 
-/** 代码块源文本 → grid，解析失败时回退到管道分隔文本 */
-export function parseSource(src: string): Grid {
+/** 代码块源文本 → VtData，解析失败时回退到管道分隔文本 */
+export function parseSource(src: string): VtData {
 	const trimmed = src.trim();
-	if (trimmed === '') return blankGrid(1, 1);
+	if (trimmed === '') return { mode: 'OL', rows: blankGrid(1, 1) };
 
 	try {
 		const obj = JSON.parse(trimmed);
 		if (obj && Array.isArray(obj.rows)) {
-			return normalize(obj.rows as Grid);
+			const mode = parseMode(obj.mode);
+			const rows = normalize(obj.rows as Grid);
+			const data: VtData = { mode, rows };
+			// 保留 RC 模式的列宽和行高数据，不管当前模式是什么
+			if (Array.isArray(obj.colWidths)) {
+				data.colWidths = obj.colWidths.filter((n: unknown) => typeof n === 'number');
+			}
+			if (Array.isArray(obj.rowHeights)) {
+				data.rowHeights = obj.rowHeights.filter((n: unknown) => typeof n === 'number');
+			}
+			return data;
 		}
 	} catch {
 		// 非 JSON，按管道分隔文本解析
 	}
-	return pipeToGrid(trimmed);
+	return { mode: 'OL', rows: pipeToGrid(trimmed) };
+}
+
+function parseMode(v: unknown): VtMode {
+	if (v === 'HS' || v === 'RC') return v;
+	return 'OL';
 }
 
 /** 补全每个 cell 缺省字段，保证是合法满矩阵 */
@@ -146,7 +184,7 @@ function normalize(rows: unknown[]): Grid {
 		const row: Cell[] = rawRow.map((x) => {
 			const o = x as Partial<Cell>;
 			return {
-				t: typeof o.t === 'string' ? o.t : '',
+				t: typeof o.t === 'string' ? stripRcHandles(o.t) : '',
 				rs: typeof o.rs === 'number' ? o.rs : 1,
 				cs: typeof o.cs === 'number' ? o.cs : 1,
 			};
@@ -181,7 +219,7 @@ export function mdTableToSource(md: string): string {
 	const lines = md.split('\n').filter(l => l.trim() !== '');
 	const rows = lines.filter(l => !isSeparator(l)).map(splitRow);
 	const grid: Grid = rows.map(r => r.map(t => cell(mdInlineToHtml(t))));
-	return serialize(grid.length ? grid : blankGrid(1, 1));
+	return serialize({ mode: 'OL', rows: grid.length ? grid : blankGrid(1, 1) });
 }
 
 /* ===== HTML 表格 → vtable 转换 ===== */
@@ -234,7 +272,7 @@ export function htmlTableToSource(html: string): string {
 		for (let c = 0; c < cols; c++) out.push(row[c] ?? cell());
 		return out;
 	});
-	return serialize(full);
+	return serialize({ mode: 'OL', rows: full });
 }
 
 /* ===== vtable → HTML 表格转换 ===== */
@@ -282,7 +320,7 @@ export function gridToMdTable(grid: Grid): string {
 
 /* ===== 行列结构操作（原地修改 grid） ===== */
 
-function colCount(grid: Grid): number {
+export function colCount(grid: Grid): number {
 	return grid[0]?.length ?? 0;
 }
 

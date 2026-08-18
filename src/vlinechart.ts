@@ -72,16 +72,17 @@ export function generateLineChart(grid: Grid): string | null {
 	const dot = '.data-dot';
 
 	const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}`
-		+ `${mc}{text-align:center;font-size:28px;font-weight:700;margin:0 0 20px;color:#111}`
+		+ `${mc}{text-align:center;font-size:28px;font-weight:700;margin:10px 0 24px;color:#111}`
 		+ `${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${dv}{fill:#111}${xl}{fill:#333}`
 		+ `${ln}{fill:none;stroke:#111;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}`
 		+ `${dot}{fill:#111}`;
 
-	const sDark = `@media(prefers-color-scheme:dark){${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}`
-		+ `${mc}{color:#F9FAFB}${gl}{stroke:rgba(255,255,255,.08)}${al}{stroke:#6B7280}${at}{fill:#9CA3AF}${dv}{fill:#F9FAFB}${xl}{fill:#D1D5DB}`
-		+ `${ln}{stroke:#60A5FA}${dot}{fill:#60A5FA}`;
+	const sDark = `.theme-dark ${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}`
+		+ `.theme-dark ${mc}{color:#F9FAFB}.theme-dark ${gl}{stroke:rgba(255,255,255,.08)}`
+		+ `.theme-dark ${al}{stroke:#6B7280}.theme-dark ${at}{fill:#9CA3AF}.theme-dark ${dv}{fill:#F9FAFB}.theme-dark ${xl}{fill:#D1D5DB}`
+		+ `.theme-dark ${ln}{stroke:#60A5FA}.theme-dark ${dot}{fill:#60A5FA}`;
 
-	const style = sLight + sDark + '}';
+	const style = sLight + sDark;
 
 	const parts: string[] = [];
 

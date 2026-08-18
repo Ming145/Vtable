@@ -3,22 +3,22 @@ import {
 	blankSource, mdTableToSource, htmlTableToSource,
 	parseSource, gridToMdTable, gridToHtmlTable, Grid,
 } from './builder';
-import { renderBlock } from './render';
+import { renderBlock, getActiveTableController } from './render';
 import { Toolbar } from './bar';
-import { generateBarChart } from './vbarchart';
-import { generatePieChart } from './vpiechart';
-import { generateLineChart } from './vlinechart';
+import { gridToChart, gridsToComboChart, detectChartType } from './charts';
 
 const LANG = 'vtable';
 
 export interface VtSettings {
 	enableDesktopToolbar: boolean;
 	enableMobileToolbar: boolean;
+	enableModeSwitcher: boolean;
 }
 
 const DEFAULT_SETTINGS: VtSettings = {
 	enableDesktopToolbar: true,
 	enableMobileToolbar: true,
+	enableModeSwitcher: true,
 };
 
 export default class VtPlugin extends Plugin {
@@ -84,19 +84,17 @@ export default class VtPlugin extends Plugin {
 				const cursor = editor.getCursor();
 				const currentLine = cursor.line;
 
-				// 1. 检查当前行是否是空行（或只包含空白字符）
+				// 1. 检查当前行是否是空行
 				const currentLineText = editor.getLine(currentLine);
-				const isBlank = currentLineText.trim() === '';
+				if (currentLineText.trim() !== '') return false;
 
-				if (!isBlank) return false; // 当前行不是空行，命令不可用
-
-				// 2. 向上查找，看上一行是否包含 ````vtable` 代码块的结束标记
+				// 2. 检查上一行是否是 ``` (vtable 的结束标记)
 				if (currentLine === 0) return false;
 				const prevLine = currentLine - 1;
 				const prevLineText = editor.getLine(prevLine);
-				if (prevLineText.trim() !== '```') return false; // 上一行不是代码块结束符
+				if (prevLineText.trim() !== '```') return false;
 
-				// 3. 继续向上查找对应的 ````vtable` 开始标记
+				// 3. 向上查找 ```vtable 开始标记
 				let startLine = -1;
 				let endLine = prevLine;
 				for (let i = prevLine - 1; i >= 0; i--) {
@@ -105,20 +103,18 @@ export default class VtPlugin extends Plugin {
 						startLine = i;
 						break;
 					}
-					// 如果遇到其他 ``` 或文档开头，停止
 					if (lineText.trim() === '```' && i !== prevLine) break;
 				}
-
 				if (startLine === -1) return false;
 
 				if (checking) return true;
 
-				// 4. 执行删除：从 startLine 到 endLine 全部删除
+				// 4. 执行删除
 				const from = { line: startLine, ch: 0 };
 				const to = { line: endLine, ch: editor.getLine(endLine).length };
 				editor.replaceRange('', from, to);
 
-				// 5. 删除后，如果删除位置现在是空行，也删掉（保持文档整洁）
+				// 5. 清理可能留下的空行
 				const afterLine = editor.getLine(startLine);
 				if (afterLine === '') {
 					editor.replaceRange('', { line: startLine, ch: 0 }, { line: startLine + 1, ch: 0 });
@@ -171,22 +167,19 @@ export default class VtPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: 'vt-to-barchart',
-			name: '转换为柱状图',
-			editorCallback: (ed: Editor) => this.vtableToBarChart(ed),
+			id: 'vt-to-chart',
+			name: '转换为图表',
+			editorCallback: (ed: Editor) => this.vtableToChart(ed),
 		});
 
 		this.addCommand({
-			id: 'vt-to-piechart',
-			name: '转换为饼状图',
-			editorCallback: (ed: Editor) => this.vtableToPieChart(ed),
+			id: 'vt-select-above',
+			name: '选中上方 vtable 表格',
+			editorCallback: (ed: Editor) => this.selectVtableAbove(ed),
 		});
 
-		this.addCommand({
-			id: 'vt-to-linechart',
-			name: '转换为折线图',
-			editorCallback: (ed: Editor) => this.vtableToLineChart(ed),
-		});
+		this.registerCellNavCommands();
+		this.registerModeCommands();
 
 		this.addRibbonIcon('table-2', '转换为 vtable', () => {
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -207,6 +200,49 @@ export default class VtPlugin extends Plugin {
 
 	onunload() {
 		this.toolbar?.destroy();
+	}
+
+	private registerCellNavCommands() {
+		const dirs: Array<[string, string, number, number]> = [
+			['vt-cell-up', 'vtable：上移单元格', -1, 0],
+			['vt-cell-down', 'vtable：下移单元格', 1, 0],
+			['vt-cell-left', 'vtable：左移单元格', 0, -1],
+			['vt-cell-right', 'vtable：右移单元格', 0, 1],
+		];
+		for (const [id, name, dr, dc] of dirs) {
+			this.addCommand({
+				id,
+				name,
+				checkCallback: (checking) => {
+					const ctrl = getActiveTableController();
+					if (!ctrl) return false;
+					if (checking) return true;
+					ctrl.moveCell(dr, dc);
+					return true;
+				},
+			});
+		}
+	}
+
+	private registerModeCommands() {
+		const modes: Array<[string, string, 'OL' | 'HS' | 'RC']> = [
+			['vt-mode-ol', 'vtable：OL 换行模式', 'OL'],
+			['vt-mode-hs', 'vtable：HS 横向拉长模式', 'HS'],
+			['vt-mode-rc', 'vtable：RC 自由拖拽模式', 'RC'],
+		];
+		for (const [id, name, mode] of modes) {
+			this.addCommand({
+				id,
+				name,
+				checkCallback: (checking) => {
+					const ctrl = getActiveTableController();
+					if (!ctrl) return false;
+					if (checking) return true;
+					ctrl.setMode(mode);
+					return true;
+				},
+			});
+		}
 	}
 
 	private insertTable(ed: Editor) {
@@ -240,7 +276,8 @@ export default class VtPlugin extends Plugin {
 		const range = findVtableBlock(ed);
 		if (!range) return;
 		const source = ed.getRange(range.contentFrom, range.contentTo);
-		const grid = parseSource(source);
+		const data = parseSource(source);
+		const grid = data.rows;
 		const md = gridToMdTable(grid);
 		ed.replaceRange(md, range.blockFrom, range.blockTo);
 	}
@@ -250,121 +287,47 @@ export default class VtPlugin extends Plugin {
 		const range = findVtableBlock(ed);
 		if (!range) return;
 		const source = ed.getRange(range.contentFrom, range.contentTo);
-		const grid = parseSource(source);
+		const data = parseSource(source);
+		const grid = data.rows;
 		const html = gridToHtmlTable(grid);
 		ed.replaceRange(html, range.blockFrom, range.blockTo);
 	}
 
-	/** 把光标所在的 vtable 代码块转换为柱状图 HTML，插入在代码块下方 */
-	private vtableToBarChart(ed: Editor) {
-		let range = findVtableBlock(ed);
-		if (!range) range = findVtableBlockAnywhere(ed);
+	/** 转换为图表：自动检测类型 */
+	private vtableToChart(ed: Editor) {
+		const range = findVtableBlock(ed);
 		if (!range) {
-			new Notice('未找到 vtable 代码块');
+			new Notice('未找到可转换的图表 vtable 模板');
 			return;
 		}
+
 		const source = ed.getRange(range.contentFrom, range.contentTo);
-		const grid = parseSource(source);
+		const grid = parseSource(source).rows;
 
-		// 详细验证并给出具体错误提示
-		const headerLabels = ['vbarchart', '标题', 'v%', 'x范围', 'x', 'y范围', 'y'];
-		if (grid.length < 8) {
-			new Notice(`表格行数不足（需要至少 8 行，当前 ${grid.length} 行）`);
+		if (!detectChartType(grid)) {
+			new Notice('不是有效的图表模板（表头应为 vbarchart / vpie / vline）');
 			return;
 		}
-		const colCount = grid[0]?.length ?? 0;
-		if (colCount < 2) {
-			new Notice(`表格至少需要 2 列，当前仅 ${colCount} 列`);
-			return;
-		}
-		for (let i = 0; i < headerLabels.length; i++) {
-			const cellText = grid[i]?.[0]?.t?.trim() ?? '';
-			if (cellText !== headerLabels[i]) {
-				new Notice(`第 ${i + 1} 行第 1 列应为 "${headerLabels[i]}"，当前为 "${cellText}"`);
-				return;
-			}
-		}
 
-		const html = generateBarChart(grid);
-		if (!html) {
+		const output = gridToChart(grid);
+		if (!output) {
 			new Notice('表格形式不规范：数据行缺失或格式有误');
 			return;
 		}
-		ed.replaceRange('\n' + html + '\n', { line: range.blockTo.line + 1, ch: 0 });
+
+		const insertLine = range.blockTo.line;
+		ed.replaceRange('\n' + output + '\n', { line: insertLine + 1, ch: 0 });
 	}
 
-	/** 把光标所在的 vtable 代码块转换为 Mermaid 饼状图代码块，插入在代码块下方 */
-	private vtableToPieChart(ed: Editor) {
-		let range = findVtableBlock(ed);
-		if (!range) range = findVtableBlockAnywhere(ed);
-		if (!range) {
-			new Notice('未找到 vtable 代码块');
+	/** 选中光标上方最近的 vtable 代码块 */
+	private selectVtableAbove(ed: Editor) {
+		const block = findVtableBlockAbove(ed);
+		if (!block) {
+			new Notice('上方未找到 vtable 表格');
 			return;
 		}
-		const source = ed.getRange(range.contentFrom, range.contentTo);
-		const grid = parseSource(source);
-
-		const headerLabels = ['vpie', '标题'];
-		if (grid.length < 3) {
-			new Notice(`表格行数不足（需要至少 3 行，当前 ${grid.length} 行）`);
-			return;
-		}
-		const colCount = grid[0]?.length ?? 0;
-		if (colCount < 2) {
-			new Notice(`表格至少需要 2 列，当前仅 ${colCount} 列`);
-			return;
-		}
-		for (let i = 0; i < headerLabels.length; i++) {
-			const cellText = grid[i]?.[0]?.t?.trim() ?? '';
-			if (cellText !== headerLabels[i]) {
-				new Notice(`第 ${i + 1} 行第 1 列应为 "${headerLabels[i]}"，当前为 "${cellText}"`);
-				return;
-			}
-		}
-
-		const mermaid = generatePieChart(grid);
-		if (!mermaid) {
-			new Notice('表格形式不规范：数据行缺失或格式有误');
-			return;
-		}
-		ed.replaceRange('\n' + mermaid + '\n', { line: range.blockTo.line + 1, ch: 0 });
-	}
-
-	/** 把光标所在的 vtable 代码块转换为折线图 HTML，插入在代码块下方 */
-	private vtableToLineChart(ed: Editor) {
-		let range = findVtableBlock(ed);
-		if (!range) range = findVtableBlockAnywhere(ed);
-		if (!range) {
-			new Notice('未找到 vtable 代码块');
-			return;
-		}
-		const source = ed.getRange(range.contentFrom, range.contentTo);
-		const grid = parseSource(source);
-
-		const headerLabels = ['vline', '标题', 'x范围', 'x', 'y范围', 'y'];
-		if (grid.length < 7) {
-			new Notice(`表格行数不足（需要至少 7 行，当前 ${grid.length} 行）`);
-			return;
-		}
-		const colCount = grid[0]?.length ?? 0;
-		if (colCount < 2) {
-			new Notice(`表格至少需要 2 列，当前仅 ${colCount} 列`);
-			return;
-		}
-		for (let i = 0; i < headerLabels.length; i++) {
-			const cellText = grid[i]?.[0]?.t?.trim() ?? '';
-			if (cellText !== headerLabels[i]) {
-				new Notice(`第 ${i + 1} 行第 1 列应为 "${headerLabels[i]}"，当前为 "${cellText}"`);
-				return;
-			}
-		}
-
-		const html = generateLineChart(grid);
-		if (!html) {
-			new Notice('表格形式不规范：数据行缺失或格式有误');
-			return;
-		}
-		ed.replaceRange('\n' + html + '\n', { line: range.blockTo.line + 1, ch: 0 });
+		ed.setSelection(block.blockFrom, block.blockTo);
+		ed.scrollIntoView(block.blockFrom, true);
 	}
 
 	/** 将新的表格源文本写回代码块内部（围栏之间的行） */
@@ -451,6 +414,16 @@ class VtSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.enableMobileToolbar)
 				.onChange(async (value) => {
 					this.plugin.settings.enableMobileToolbar = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('模式切换按钮')
+			.setDesc('编辑表格时显示 OL / HS / RC 三种模式的切换按钮')
+			.addToggle(t => t
+				.setValue(this.plugin.settings.enableModeSwitcher)
+				.onChange(async (value) => {
+					this.plugin.settings.enableModeSwitcher = value;
 					await this.plugin.saveSettings();
 				}));
 	}
@@ -578,6 +551,52 @@ function findVtableBlockAnywhere(ed: Editor): {
 		} else {
 			i++;
 		}
+	}
+	return best;
+}
+
+type VtBlockRange = {
+	blockFrom: EditorPosition;
+	blockTo: EditorPosition;
+	contentFrom: EditorPosition;
+	contentTo: EditorPosition;
+};
+
+/** 列出文档中全部 vtable 代码块 */
+function getAllVtableBlocks(ed: Editor): VtBlockRange[] {
+	const lines = ed.getValue().split('\n');
+	const n = lines.length;
+	const blocks: VtBlockRange[] = [];
+	let i = 0;
+	while (i < n) {
+		if (lines[i]!.trim() === '```vtable') {
+			const start = i;
+			let end = i + 1;
+			while (end < n && lines[end]!.trim() !== '```') end++;
+			if (end < n) {
+				blocks.push({
+					blockFrom: { line: start, ch: 0 },
+					blockTo: { line: end, ch: lines[end]!.length },
+					contentFrom: { line: start + 1, ch: 0 },
+					contentTo: { line: end, ch: 0 },
+				});
+			}
+			i = end + 1;
+		} else {
+			i++;
+		}
+	}
+	return blocks;
+}
+
+/** 查找光标上方最近的 vtable 块 */
+function findVtableBlockAbove(ed: Editor): VtBlockRange | null {
+	const cur = ed.getCursor().line;
+	const blocks = getAllVtableBlocks(ed);
+	let best: VtBlockRange | null = null;
+	for (const b of blocks) {
+		if (b.blockTo.line < cur) best = b;
+		else if (b.blockFrom.line > cur) break;
 	}
 	return best;
 }
