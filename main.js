@@ -906,7 +906,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         showCellMenu(e, data, r, c, toolbar, flushActiveCell, () => {
           pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
           onCommit(serialize(data));
-        });
+        }, setMode);
       });
     });
   });
@@ -1164,7 +1164,7 @@ function renderImages(root, sourcePath, resolveImage) {
     textNode.replaceWith(frag);
   }
 }
-function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit) {
+function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit, setMode) {
   const grid = data.rows;
   const menu = new import_obsidian.Menu();
   const apply = (fn) => {
@@ -1183,6 +1183,15 @@ function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit) {
   menu.addItem((i) => i.setTitle("\u5411\u53F3\u5408\u5E76").setIcon("arrow-right-to-line").onClick(() => apply(() => mergeRight(grid, r, c))));
   menu.addItem((i) => i.setTitle("\u5411\u4E0B\u5408\u5E76").setIcon("arrow-down-to-line").onClick(() => apply(() => mergeDown(grid, r, c))));
   menu.addItem((i) => i.setTitle("\u62C6\u5206\u5355\u5143\u683C").setIcon("split-square-horizontal").onClick(() => apply(() => splitCell(grid, r, c))));
+  menu.addSeparator();
+  const modes = ["OL", "HS", "RC"];
+  for (const mode of modes) {
+    menu.addItem(
+      (i) => i.setTitle(`\u5207\u6362\u5230 ${mode} \u6A21\u5F0F`).setChecked(data.mode === mode).onClick(() => {
+        setMode(mode);
+      })
+    );
+  }
   menu.showAtMouseEvent(e);
 }
 function isWikiLinkInsideBackticks(text, matchIndex) {
