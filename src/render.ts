@@ -281,7 +281,7 @@ export function renderBlock(
 				showCellMenu(e, data, r, c, toolbar, flushActiveCell, () => {
 					pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
 					onCommit(serialize(data));
-				});
+				}, setMode);
 			});
 		});
 	});
@@ -550,6 +550,7 @@ function showCellMenu(
 	toolbar: Toolbar,
 	flushCell: () => void,
 	onCommit: () => void,
+	setMode: (mode: VtMode) => void,
 ) {
 	const grid = data.rows;
 	const menu = new Menu();
@@ -570,6 +571,19 @@ function showCellMenu(
 	menu.addItem(i => i.setTitle('向右合并').setIcon('arrow-right-to-line').onClick(() => apply(() => mergeRight(grid, r, c))));
 	menu.addItem(i => i.setTitle('向下合并').setIcon('arrow-down-to-line').onClick(() => apply(() => mergeDown(grid, r, c))));
 	menu.addItem(i => i.setTitle('拆分单元格').setIcon('split-square-horizontal').onClick(() => apply(() => splitCell(grid, r, c))));
+
+	// 添加模式切换菜单项
+	menu.addSeparator();
+	const modes: VtMode[] = ['OL', 'HS', 'RC'];
+	for (const mode of modes) {
+		menu.addItem(i => i
+			.setTitle(`切换到 ${mode} 模式`)
+			.setChecked(data.mode === mode)
+			.onClick(() => {
+				setMode(mode);
+			})
+		);
+	}
 
 	menu.showAtMouseEvent(e);
 }
