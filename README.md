@@ -1,301 +1,187 @@
-# Vtable — Obsidian 增强表格插件
+# Vtable
 
-**版本：1.1.0**
+English | [中文](README_CN.md)
 
-> **告别原生表格的三大痛点：无法格内换行、无法合并单元格、无法公式计算**
+Enhanced editable tables for [Obsidian](https://obsidian.md). Create tables inside a ```vtable code block, edit cells directly in Live Preview, and go far beyond what native Markdown tables can do: in-cell line breaks, merged cells, Excel-style formulas, checkable task lists, images, math, charts, and one-click export.
 
-在 Obsidian 中创建**可视化、可编辑的表格**，支持富文本格式化、公式计算、图表导出等高级功能。
+Works on desktop, iPad, and mobile.
 
----
+## Features
 
-## 为什么需要 vtable？
+### Rich cell content
 
-Obsidian 原生 Markdown 表格存在明显局限：
+Anything you type in a cell renders on blur, exactly like Obsidian preview:
 
-| 痛点           | 原生表格                       | vtable                         |
-| -------------- | ------------------------------ | ------------------------------ |
-| **格内换行**   | ❌ 回车跳出单元格，无法多行输入 | ✅ 单元格内自由回车，内容不丢失 |
-| **合并单元格** | ❌ 完全不支持                   | ✅ 任意行列合并，一键操作       |
-| **公式计算**   | ❌ 手动计算，易出错             | ✅ Excel 风格公式，自动求值     |
-| **数据可视化** | ❌ 需借助其他工具               | ✅ 一键生成柱状图/饼图/折线图   |
+- Markdown inline styles: `**bold**`, `*italic*`, `==highlight==`, `~~strikethrough~~`, `` `code` ``, `[links](url)`
+- Obsidian embeds: `![[image.png]]` and `![[image.png|300]]` — grab an image's corner handle while editing to resize it; the width syntax updates automatically
+- Inline math: `$E=mc^2$`
+- Checkable task lists: `- [ ]` / `- [x]` — click the checkbox in preview mode and the source updates
+- Hand-written HTML where Markdown falls short (e.g. font sizes, colors)
 
----
+### Structure
 
-## 快速开始
+- Merge right / merge down / split, on single cells or whole selections
+- Insert and delete rows and columns anywhere
+- Drag row and column headers to reorder
+- Skip-over navigation: Tab, Enter, and arrow keys jump across merged cells correctly
+- Quick append: when the cursor is in the last row/column, a `+` bar appears at the table's bottom/right edge — click it to add a row/column
 
-### 创建表格
+### Selection and batch operations
 
-1. 打开命令面板（`Ctrl/Cmd + P`）
-2. 选择 **"创建 vtable"**
-3. 在笔记中即出现可编辑表格，直接输入内容
+- `Ctrl/Cmd+Shift` + click to start a selection, drag for a rubber-band range
+- Double-click a cell to select it; on mobile, double-tap accumulates a selection
+- Batch apply bold, italic, font size, alignment (left/center/right), background color, or clear content
+- Click a row/column drag handle without sliding to select the whole row/column; `Shift`+click adds it to the selection
+- `Ctrl/Cmd+Delete` deletes the rows/columns of a full-row or full-column selection
 
-### 转换已有表格
+### Grid copy & paste
 
-选中 Markdown 表格或 HTML 表格 → 执行 **"转换为 vtable"** → 一键转为可编辑表格
+Copy a rectangular region as a Markdown table, and paste any Markdown table back into the grid — across tables, notes, and even other apps:
 
----
+- With a selection active, `Ctrl/Cmd+C` copies the region as a standard Markdown table (`| a | b |` with a separator row)
+- Click a cell, then `Ctrl/Cmd+V` a Markdown table: it is written into the grid with the clicked cell as the top-left corner. Existing content is overwritten; anything beyond the current rows/columns is dropped (no rows or columns are added)
+- `Ctrl/Cmd+Alt+V` pastes the same way but extends the table with whole rows/columns to fit the clipboard content
+- Works between any two vtables (same note or different notes), and accepts Markdown tables copied from elsewhere. Pasting plain text keeps the original single-cell behavior
 
-## 核心优势
+### Series fill (desktop)
 
-### 1. 格内回车换行 — 终于可以在单元格里自由换行了
+Select a cell, grab the small triangle that appears at its bottom-right corner, and drag along a row or column:
 
-原生表格按下回车就会跳出单元格，vtable 让你在单元格内自由编辑多行内容，表格结构始终完整。
+- Plain text is copied; plain numbers fill incrementally (a small pop-up near the fill end flips the direction between increment and decrement)
+- Mixed text + numbers keep the text and increment the number (`Item 1, Item 2, …`)
+- Calendar-aware cycles: weekdays (`星期一…` / `Monday…`), months (`一月…` / `January…`) repeat in loops; dates like `1月1日` advance by the real calendar (leap years respected)
 
-### 2. 合并单元格 — 像 Excel 一样灵活
+### Diagonal split cells
 
-通过浮动工具栏或右键菜单，轻松实现**向下合并**、**向右合并**、**拆分还原**，制作复杂表头不再是噩梦。
+The **Diagonal split cell** command draws a top-left → bottom-right diagonal in the focused (or selected) cell and splits it into two single-line input areas — upper-right and lower-left. If a cell already contains text, it moves to the lower-left area. Press Enter or arrow keys to jump between the two areas and out of the cell.
 
-### 3. 公式计算 — 内置 Excel 风格函数
+### Table style presets
 
-![](https://gitee.com/vmsimab/obsidian_images/raw/master/imgs/数据函数.gif)
+Beyond the corner radius and header background, each table can take one of three line-style presets, plus zebra stripes:
 
-以 `=` 开头即可启用公式，支持 5 种常用聚合函数：
+- **Three-line table** — top rule, rule under the header, bottom rule; no vertical lines
+- **No grid lines** — all cell borders removed
+- **Horizontal lines only** — top/bottom edges and row separators kept, vertical lines removed
+- **Zebra stripes** — alternate-row tinting from the theme accent or a custom color; single-cell backgrounds always win. Starts at row 3 when the header background is on
 
-| 函数      | 说明     | 示例              |
-| --------- | -------- | ----------------- |
-| `SUM`     | 求和     | `=SUM(A1:C3)`     |
-| `AVERAGE` | 求平均值 | `=AVERAGE(A1:A5)` |
-| `COUNT`   | 计数     | `=COUNT(B2:B10)`  |
-| `MIN`     | 求最小值 | `=MIN(C1:C8)`     |
-| `MAX`     | 求最大值 | `=MAX(D5:D15)`    |
+Presets apply to the whole vault via Settings, or per table with the **Table style call**, **Remove table styles**, and **Zebra stripe style** commands (per-table overrides are stored with the table). Styles are display-only: cells return to their raw look while you are editing them.
 
-> 即使单元格包含 HTML 格式（如 `<b>123</b>`），公式也能正确提取数值。
+### Three display modes
 
-### 4. 一键图表 — 数据秒变可视化
+Switch anytime from the mode buttons above the table; the choice is stored per table.
 
-选中表格执行命令，即可生成**柱状图、饼图、折线图**，图表自动适配深色/浅色主题。
+- **OL** (default) — cells wrap freely, auto height
+- **HS** — cells stretch horizontally without wrapping, with a draggable custom scrollbar
+- **RC** — fixed column widths and row heights with dedicated drag handles; rows auto-grow when content overflows
 
-### 5. 自动模板生成 — 图表制作零门槛
+### Excel-style formulas
 
-不知道图表数据怎么填？**插件启用后自动帮你搞定**：
-
-- 插件会自动检测你的模板文件夹（优先读取 Obsidian 官方 Templates 核心插件的设置路径，若未启用则使用根目录下的 `TEMPLATE` 文件夹）
-- 自动创建三个现成模板：`柱状图模板.md`、`饼图模板.md`、`折线图模板.md`
-- **无需任何操作**，打开模板文件夹即可看到，直接使用或插入到笔记中
-
-**柱状图模板**（8 行标准结构）：
-```
-| vbarchart | |
-| 标题 | 图表标题 |
-| v% | 是 |
-| x范围 | |
-| x | X轴标签 |
-| y范围 | 0-100 |
-| y | Y轴标签 |
-| 数据项 | 数值 |
-```
-
-**饼图模板**（Mermaid 兼容格式）：
-```
-| vpie | |
-| 标题 | 饼图标题 |
-| 类别A | 30 |
-| 类别B | 70 |
-```
-
-**折线图模板**（7 行标准结构）：
+Start a cell with `=FUNC(range)` and it shows the computed result; focus the cell again to edit the original formula. Supported functions:
 
 ```
-| vline | |
-| 标题 | 图表标题 |
-| x范围 | |
-| x | X轴标签 |
-| y范围 | 0-100 |
-| y | Y轴标签 |
-| 数据点 | 数值 |
+=SUM(A1:A5)   =AVERAGE(B1:B3)   =COUNT(C1:C9)   =MIN(A1:A9)   =MAX(A1:A9)
 ```
 
-> 替换示例数据后执行对应图表命令，即可生成图表 SVG —— **从模板到图表，一步到位**。
+### Charts
 
----
+Turn table data into SVG charts that follow dark/light themes:
 
-## 功能详解
+- `vbarchart` bar charts, `vpie` pie charts, `vline` line charts
+- A **Convert to chart** command auto-detects the header type
+- Template files are generated automatically so you can start from a ready-made structure
 
-### 富文本与 Markdown 渲染
+### Conversions
 
-单元格内输入以下语法，失焦后自动渲染：
+- Markdown table or HTML table → Vtable
+- Vtable → Markdown table or HTML table
+- All edits auto-save back into the code block source
 
-| 语法                 | 效果              |
-| -------------------- | ----------------- |
-| `**粗体**`           | **粗体**          |
-| `*斜体*`             | *斜体*            |
-| `==高亮==`           | 高亮标记          |
-| `~~删除~~`           | ~~删除线~~        |
-| `` `代码` ``         | 行内代码          |
-| `[链接](url)`        | 可点击链接        |
-| `![[图片.png]]`      | Obsidian 图片嵌入 |
-| `$E=mc^2$`           | LaTeX 行内公式    |
-| `$$\sum_{i=1}^n$$`   | LaTeX 块公式      |
-| `- [ ] 待办` / `- [x] 已完成` | 待办复选框（预览态） |
+### Data storage
 
-### 三种显示模式（OL / HS / RC）
+Tables live inside a ` ```vtable ` code block and serialize to JSON, so everything survives round-trips:
 
-进入 Live Preview 编辑表格时，表格**左上方**会出现三个半透明圆角切换按钮：
+- Each cell stores its content plus `rs`/`cs` (row/column span) and optional alignment and background color
+- Extra fields keep per-table state: display mode, RC column widths and row heights, single-table line style and zebra stripe overrides
+- Cell content is Markdown with inline HTML as needed; line breaks are stored as `<br>`
+- Formulas store the original text (`=SUM(A1:B2)`) and evaluate at render time
+- Every edit writes back to the code block automatically; plain Markdown pipe tables pasted into the block are parsed and converted too
 
-| 模式 | 说明 |
-| ---- | ---- |
-| **OL** | 原始换行模式（默认）：单元格内回车换行，自动折行 |
-| **HS** | 横向拉长模式：文字不换行、持续向右延伸；表格下方有**可拖拽滚动条**（桌面/移动端均可拖动） |
-| **RC** | 自由拖拽模式：单元格右/下边缘出现**专用拖拽手柄**；内容增多自动撑高行 |
+### Keyboard and commands
 
-- 模式选择会**写入代码块 JSON** 并记忆，下次打开同一表格自动恢复
-- RC 模式的 `colWidths` / `rowHeights` **仅在 RC 下生效**，不影响 OL / HS 显示
-- 内容增多时 RC 模式**自动撑高行**（列宽不变）；内容减少时行高**不自动缩小**
-- 预览模式、源码模式、未聚焦单元格时，模式按钮自动隐藏
-- 可在设置中控制是否显示模式切换按钮
+| Key | Action |
+| --- | --- |
+| `Tab` / `Shift+Tab` | Next / previous cell |
+| `↑ ↓ ← →` | Move between cells (symmetric landing points) |
+| `Cmd+Delete` | Delete the current row (macOS) |
+| `Ctrl/Cmd+Delete` | Delete rows/columns of a full selection |
+| `Ctrl/Cmd+C` | Copy the active selection as a Markdown table |
+| `Ctrl/Cmd+V` | Paste a Markdown table into the grid (top-left = focused cell) |
+| `Ctrl/Cmd+Alt+V` | Paste a Markdown table and extend rows/columns as needed |
 
-### 键盘导航
+All commands can be bound to custom hotkeys in Obsidian settings, including create, conversions, chart generation, styling, diagonal split, and mode switching.
 
-在单元格聚焦时可用方向键切换：
+### Floating toolbar
 
-| 按键 | 功能 |
-| ---- | ---- |
-| `↑` `↓` `←` `→` | 移动到相邻单元格（跳过被合并覆盖的格） |
-| `Tab` / `Shift+Tab` | 向右 / 向左移动 |
+A two-row toolbar appears next to the focused cell: bold, italic, font size, merge/split, add/delete rows and columns, and one-click export. It can be enabled separately for desktop and mobile.
 
-可在 Obsidian 设置 → 快捷键中为以下命令绑定热键：
+### Right-click menu
 
-- `vtable：上移/下移/左移/右移单元格`
-- `vtable：OL 换行模式` / `HS 横向拉长模式` / `RC 自由拖拽模式`
+Quick access to insert/delete rows and columns, merge and split cells, copy / paste / cut / delete, and mode switching.
 
-### 浮动工具栏
+#### Customizing the context menu
 
-聚焦单元格时自动弹出，包含两行快捷按钮：
+The context menu is fully customizable in **Settings → vtable → 右键菜单自定义 (Context menu customization)**:
 
-**第一行 — 格式与合并：**
-`B` 加粗 · `I` 斜体 · `A−/A+` 调整字号 · `拆/合/合→` 单元格合并拆分
+- **Text mode**: one menu row per line; `---` inserts a separator line; `cmd:commandId` inserts any Obsidian command; append `|iconName` (a Lucide icon name) to override an item's icon.
+- **Lookup helper**: type a keyword to filter vtable actions and all Obsidian commands, click one, optionally enter an icon name, then copy the generated line and paste it into the text box.
+- Press **Save** to apply the layout to all tables immediately. Built-in action ids: `vt.copy`, `vt.paste`, `vt.cut`, `vt.delete`, `vt.clearContent`, `vt.bold`, `vt.italic`, `vt.alignL`, `vt.alignC`, `vt.alignR`, `vt.alignT`, `vt.alignM`, `vt.alignB`, `vt.pickColor`, `vt.insRowAbove`, `vt.insRowBelow`, `vt.delRow`, `vt.insColLeft`, `vt.insColRight`, `vt.delCol`, `vt.mergeRight`, `vt.mergeDown`, `vt.split`, `vt.modeOL`, `vt.modeHS`, `vt.modeRC`.
 
-**第二行 — 行列与导出：**
-`+行/+列` 插入 · `−行/−列` 删除 · `MD` 转 Markdown · `H5` 转 HTML
+### Settings
 
-> 可在设置中分别控制桌面端/移动端是否显示工具栏
+- UI language (中文 / English; floating toolbar abbreviations get an in-settings legend when English is selected). Command names follow the UI language — reload the plugin after switching
+- Show the floating toolbar on desktop / mobile independently
+- Show the OL/HS/RC mode switcher
+- **Table style** (collapsible section): table corner radius; header row background color (theme accent or custom); line-style presets (three-line / no grid / horizontal-only) with a global enable toggle; zebra stripes (theme or custom color, with the color picker shown when custom is selected) — plus per-table commands for header background and zebra stripes
+- Export: keep alignment & colors in Markdown export via nested HTML tags
+- Customizable context menu (see above)
 
-### 右键菜单
+## How to use
 
-在单元格上右键 → 快速访问：插入行列、删除行列、合并/拆分单元格
+1. Run **Create vtable** from the command palette (`Ctrl/Cmd+P`), or convert an existing Markdown/HTML table with **Convert to vtable**
+2. Click any cell to edit; press Enter for a new line inside the cell
+3. Everything is stored in the ```vtable code block as JSON — your notes stay portable
 
-### 格式互转
+## Installation
 
-| 命令                 | 功能                        |
-| -------------------- | --------------------------- |
-| 转换为 vtable        | Markdown/HTML 表格 → vtable |
-| 转换为 Markdown 表格 | vtable → 标准 Markdown 表格 |
-| 转换为 HTML 表格     | vtable → HTML `<table>`     |
+### From BRAT (recommended while in beta)
 
----
+1. Install the **BRAT** community plugin
+2. In BRAT settings, choose *Add beta plugin*
+3. Enter `https://github.com/Ming145/Vtable`
+4. Enable Vtable in community plugins
 
-## 全部命令
+### Manual
 
-| 命令                 | 功能                                       |
-| -------------------- | ------------------------------------------ |
-| 创建 vtable          | 插入空白可编辑表格                         |
-| 转换为 vtable        | 将 Markdown/HTML 表格转为 vtable           |
-| 转换为 Markdown 表格 | 导出为 Markdown 格式                       |
-| 转换为 HTML 表格     | 导出为 HTML 格式                           |
-| 转换为图表 | 自动识别 vbarchart / vpie / vline 表头类型并生成对应图表 |
-| 选中上方 vtable 表格 | 选中光标上方最近的 vtable 代码块 |
-| 删除当前Vtable表格   | 删除**在光标的上方**的表格，在表格内则无用 |
-| vtable：上移/下移/左移/右移单元格 | 方向键式单元格导航（需聚焦单元格） |
-| vtable：OL / HS / RC 模式 | 切换表格显示模式（需聚焦单元格） |
+1. Download `main.js`, `styles.css`, and `manifest.json` from the latest [Release](https://github.com/Ming145/Vtable/releases)
+2. Create the folder `.obsidian/plugins/vtable/` in your vault
+3. Copy the three files into it
+4. Reload Obsidian and enable **Vtable** in community plugins
 
-> 所有命令可在 Obsidian 设置 → 快捷键中绑定自定义热键
-
-> **粘贴提示**：单元格内粘贴已改为纯文本插入，避免复制后首部多出空格。
-
-> **移动端浮窗**：工具栏支持横向滑动浏览，字号与桌面一致。
-
----
-
-## 设置项
-
-| 选项             | 说明                          |
-| ---------------- | ----------------------------- |
-| 电脑端浮窗工具栏 | 桌面端编辑时显示浮动工具栏    |
-| 移动端浮窗工具栏 | 手机/平板编辑时显示浮动工具栏 |
-| 模式切换按钮     | 编辑表格时显示 OL / HS / RC 三种模式的切换按钮 |
-
-路径：Obsidian 设置 → 第三方插件 → vtable
-
----
-
-## 安装
-
-### 用BRAT安装（推荐）
-
-1. 在社区插件安装Obsidian-brat插件
-2. 打开插件设置，选择“添加新的Beta插件”
-3. 输入https://github.com/Ming145/Vtable ，选择最新版本
-4. 安装并启用
-
-### 手动安装
-
-页面已提供可直接使用的 `main.js`、`styles.css` 和 `manifest.json` 文件，**无需自行构建**：
-
-1. 从 Releases 下载上述三个文件
-2. 在 Obsidian 库的 `.obsidian/plugins/` 目录下创建 `vtable` 文件夹
-3. 将三个文件放入该文件夹
-4. 重启 Obsidian，在设置 → 第三方插件中启用
-
-### 从源码构建
-
-如需自行构建，可参考以下步骤：
+## Building from source
 
 ```bash
-git clone <仓库地址>
-cd vtable
+git clone https://github.com/Ming145/Vtable
+cd Vtable
 npm install
 npm run build
 ```
 
-将生成的 `main.js`、`styles.css` 和 `manifest.json` 复制到 `.obsidian/plugins/vtable/` 即可。
+Then copy `main.js`, `styles.css`, and `manifest.json` into `.obsidian/plugins/vtable/`.
 
----
+## AI skill
 
-## 技术架构
+Want an AI assistant (Claude, ChatGPT, …) to write Vtable source code for you? A ready-made skill covering the full source syntax — JSON schema, merged cells, line breaks, formulas, styles, charts and more, all with copy-paste examples — is available at [vtable-syntax](https://github.com/Ming145/vtable-syntax).
 
-```
-vtable/
-├── src/                        # 源代码目录
-│   ├── main.ts                 # 插件入口、命令注册、设置面板
-│   ├── builder.ts              # 数据模型、序列化、行列操作
-│   ├── render.ts               # 表格渲染、富文本、模式集成
-│   ├── modes.ts                # OL/HS/RC 模式切换与 RC 拖拽
-│   ├── bar.ts                  # 浮动工具栏 UI
-│   ├── formula.ts              # 公式引擎
-│   ├── vbarchart.ts            # 柱状图生成
-│   ├── vpiechart.ts            # 饼图生成
-│   └── vlinechart.ts           # 折线图生成
-├── main.js                     # 编译后的插件主文件
-├── styles.css                  # 插件样式
-├── manifest.json               # 插件清单
-├── package.json                # 项目依赖
-├── esbuild.config.mjs          # 构建配置
-├── tsconfig.json               # TypeScript 配置
-└── LICENSE                     # MIT 许可证
-```
+## License
 
----
-
-## 数据存储格式
-
-vtable 使用 JSON 存储表格数据（通常无需手动编辑）：
-
-```json
-{
-  "mode": "OL",
-  "rows": [
-    [{"t":"内容","rs":1,"cs":1}, {"t":"","rs":1,"cs":1}],
-    [{"t":"","rs":1,"cs":1}, {"t":"","rs":1,"cs":1}]
-  ],
-  "colWidths": [120, 80],
-  "rowHeights": [36, 48]
-}
-```
-
-- `mode` — 显示模式：`OL`（默认，可省略）| `HS` | `RC`
-- `t` — 单元格文本（支持 HTML）
-- `rs/cs` — 行/列合并数（默认 1，被合并单元格为 0）
-- `colWidths` / `rowHeights` — 仅 RC 模式使用的列宽/行高（像素），OL/HS 忽略
-
----
-**让 Obsidian 表格不再是短板。** 
+[MIT](LICENSE)
