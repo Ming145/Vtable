@@ -1,5 +1,7 @@
-import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath } from 'obsidian';
+import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath , createEl } from 'obsidian';
 import type { App } from 'obsidian';
+import type { EditorView } from '@codemirror/view';
+import type { EditorState } from '@codemirror/state';
 import {
         blankSource, mdTableToSource, htmlTableToSource,
         parseSource, gridToMdTable, gridToHtmlTable, Grid,
@@ -10,8 +12,6 @@ import type { UiLang } from './i18n';
 import { VT_MENU_ACTIONS } from './render';
 import { Toolbar } from './bar';
 import { gridToChart, gridsToComboChart, detectChartType } from './charts';
-// 样式随 main.js 分发：启动时注入最新 CSS（覆盖插件目录里可能过期的 styles.css）
-import cssText from '../styles.css';
 
 const LANG = 'vtable';
 
@@ -174,11 +174,7 @@ export default class VtPlugin extends Plugin {
                         getActiveTableController()?.flushCommit();
                 }));
 
-                // 样式随 main.js 分发：注入内嵌 CSS（晚于插件目录 styles.css 加载，同名规则以这里为准）
-                const styleEl = document.createElement('style');
-                styleEl.textContent = cssText;
-                document.head.appendChild(styleEl);
-                this.register(() => styleEl.remove());
+
 
                 // bug1：浮窗幽灵防护——焦点元素被摘除时 blur 不触发，靠全局事件兜底隐藏
                 this.registerDomEvent(window, 'blur', () => this.toolbar.hide());
@@ -220,7 +216,7 @@ export default class VtPlugin extends Plugin {
                                 },
                         );
                         // 阅读模式：渲染完成后缓存 section 行号（勾选等写回用；阅读模式下 CM 定位不可用）
-                        requestAnimationFrame(() => {
+                        window.requestAnimationFrame(() => {
                                 const info = ctx.getSectionInfo(el);
                                 if (info) this.sectionInfoCache.set(el, { lineStart: info.lineStart, lineEnd: info.lineEnd });
                         });
@@ -530,7 +526,7 @@ export default class VtPlugin extends Plugin {
          *  必须用 Prec.highest(keymap.of(...)) 把绑定排到全部 keymap 之前；require 失败时降级
          *  document 捕获（原生 addEventListener 显式 capture，registerDomEvent 的 options 转发不可靠） */
         private registerArrowIntoTable() {
-                const tryEnter = (key: 'ArrowDown' | 'ArrowUp', view: any): boolean => {
+                const tryEnter = (key: 'ArrowDown' | 'ArrowUp', view: EditorView): boolean => {
                         try {
                                 // 焦点必须真正在编辑内容上（搜索框/弹层输入框按方向键不劫持）
                                 const contentDOM = view?.contentDOM;
@@ -614,8 +610,8 @@ export default class VtPlugin extends Plugin {
                         const Prec = cmState?.Prec;
                         if (keymap?.of && Prec?.highest) {
                                 this.registerEditorExtension(Prec.highest(keymap.of([
-                                        { key: 'ArrowDown', run: (view: any) => tryEnter('ArrowDown', view) },
-                                        { key: 'ArrowUp', run: (view: any) => tryEnter('ArrowUp', view) },
+                                        { key: 'ArrowDown', run: (view: EditorView) => tryEnter('ArrowDown', view) },
+                                        { key: 'ArrowUp', run: (view: EditorView) => tryEnter('ArrowUp', view) },
                                 ])));
                                 registered = true;
                         }
@@ -627,9 +623,8 @@ export default class VtPlugin extends Plugin {
                                 if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
                                 const view = this.app.workspace.getActiveViewOfType(MarkdownView);
                                 if (!view) return;
-                                // Obsidian 的 Editor 持有 CM6 EditorView（非公开 API，社区插件通行用法）
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const cm = (view.editor as any).cm;
+                                // Obsidian 的 Editor 持有 CM6 EditorView（非公开 API，社区插件通行用法），最小化声明取用
+                                const cm = (view.editor as unknown as { cm: EditorView }).cm;
                                 if (!cm?.state || typeof cm.hasFocus !== 'function' || !cm.hasFocus) return;
                                 if (tryEnter(e.key, cm)) {
                                         e.preventDefault();
@@ -642,11 +637,11 @@ export default class VtPlugin extends Plugin {
         }
 
         /** 定位光标行紧邻的 vtable 渲染容器：路径1 光标行 cm-line 兄弟扫描 → 路径2 domAtPos 近邻 → 路径3 posAtDOM 反查 */
-        private locateTableEl(key: 'ArrowDown' | 'ArrowUp', view: any, doc: any, fenceLine: number): HTMLElement | null {
+        private locateTableEl(key: 'ArrowDown' | 'ArrowUp', view: EditorView, doc: EditorState, fenceLine: number): HTMLElement | null {
                 // 路径1：光标所在 cm-line 的相邻兄弟（live preview 中 embed-block 紧邻围栏行）
                 try {
                         const at = view.domAtPos(view.state.selection.main.head);
-                        let node: any = at.node;
+                        let node: Node | null = at.node;
                         if (node && node.nodeType !== 1) node = node.parentElement;
                         const lineEl = (node as HTMLElement)?.closest?.('.cm-line') as HTMLElement | null;
                         if (lineEl) {
@@ -864,16 +859,15 @@ export default class VtPlugin extends Plugin {
                                         scroller.scrollTop = before.top;
                                 }
                         };
-                        requestAnimationFrame(() => requestAnimationFrame(check));
+                        window.requestAnimationFrame(() => window.requestAnimationFrame(check));
                         window.setTimeout(check, 300);
                 }
         }
 
         /** 任务7：live preview 下 getSectionInfo 为 null 时，用 CM6 从渲染容器反查代码块行号范围 */
         private locateBlockByDom(el: HTMLElement, view: MarkdownView): { lineStart: number; lineEnd: number } | null {
-                // Obsidian 的 Editor 持有 CM6 EditorView（非公开 API，社区插件通行用法）
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const cm = (view.editor as any).cm;
+                // Obsidian 的 Editor 持有 CM6 EditorView（非公开 API，社区插件通行用法），最小化声明取用
+                const cm = (view.editor as unknown as { cm: EditorView }).cm;
                 if (!cm || typeof cm.posAtDOM !== 'function') return null;
                 try {
                         const doc = cm.state.doc;
@@ -941,7 +935,7 @@ export default class VtPlugin extends Plugin {
 class VtSettingTab extends PluginSettingTab {
         private plugin: VtPlugin;
 
-        constructor(app: any, plugin: VtPlugin) {
+        constructor(app: App, plugin: VtPlugin) {
                 super(app, plugin);
                 this.plugin = plugin;
         }
@@ -949,7 +943,7 @@ class VtSettingTab extends PluginSettingTab {
         display(): void {
                 const { containerEl } = this;
                 containerEl.empty();
-                containerEl.createEl('h2', { text: t('vtable 设置', 'vtable Settings') });
+                new Setting(containerEl).setName(t('vtable 设置', 'vtable Settings')).setHeading();
 
                 // ===== 界面语言（默认中文）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
                 new Setting(containerEl)
@@ -1043,19 +1037,19 @@ class VtSettingTab extends PluginSettingTab {
                         const colorSetting = new Setting(styleSection)
                                 .setName(t('自定义表头颜色', 'Custom header color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #4a90d9', 'Hex color, e.g. #4a90d9'));
-                        const preview = document.createElement('span');
+                        const preview = createEl('span');
                         preview.className = 'vt-color-preview';
-                        preview.style.background = this.plugin.settings.headerColor;
+                        preview.setCssProps({ background: this.plugin.settings.headerColor });
                         colorSetting.nameEl.appendChild(preview);
                         colorSetting.addText(t => t
                                 .setValue(this.plugin.settings.headerColor)
-                                .setPlaceholder('#RRGGBB')
+                                .setPlaceholder(t('颜色值（颜色名或十六进制）', 'Color name or hex value'))
                                 .onChange(async (value) => {
                                         this.plugin.settings.headerColor = value.trim();
                                         await this.plugin.saveSettings();
                                         refreshAllTableAppearance();
                                         if (CSS.supports('background-color', value.trim())) {
-                                                preview.style.background = value.trim();
+                                                preview.setCssProps({ background: value.trim() });
                                         }
                                 }));
                 }
@@ -1117,19 +1111,19 @@ class VtSettingTab extends PluginSettingTab {
                         const zcSetting = new Setting(styleSection)
                                 .setName(t('隔行变色自定义颜色', 'Custom zebra color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #e8f0fe。颜色过深时文字自动反白。', 'Hex color, e.g. #e8f0fe. Dark colors get white text automatically.'));
-                        const zcPreview = document.createElement('span');
+                        const zcPreview = createEl('span');
                         zcPreview.className = 'vt-color-preview';
-                        zcPreview.style.background = this.plugin.settings.zebraColor;
+                        zcPreview.setCssProps({ background: this.plugin.settings.zebraColor });
                         zcSetting.nameEl.appendChild(zcPreview);
                         zcSetting.addText(t => t
                                 .setValue(this.plugin.settings.zebraColor)
-                                .setPlaceholder('#RRGGBB')
+                                .setPlaceholder(t('颜色值（颜色名或十六进制）', 'Color name or hex value'))
                                 .onChange(async (value) => {
                                         this.plugin.settings.zebraColor = value.trim();
                                         await this.plugin.saveSettings();
                                         refreshAllTableAppearance();
                                         if (CSS.supports('background-color', value.trim())) {
-                                                zcPreview.style.background = value.trim();
+                                                zcPreview.setCssProps({ background: value.trim() });
                                         }
                                 }));
                 }
@@ -1151,7 +1145,7 @@ class VtSettingTab extends PluginSettingTab {
 
         /** 右键菜单自定义板块：文本框（一行一项，"---"=分隔线）+ 保存按钮 + 对照表 */
         private displayContextMenuSection(containerEl: HTMLElement) {
-                containerEl.createEl('h3', { text: t('右键菜单自定义', 'Context menu customization') });
+                new Setting(containerEl).setName(t('右键菜单自定义', 'Context menu customization')).setHeading();
 
                 // 文本框：编辑不即时保存，点保存才生效。
                 // 布局：说明行只占一行，textarea 独占全宽（放 Setting control 里会被左侧说明挤成半栏）
@@ -1165,7 +1159,7 @@ class VtSettingTab extends PluginSettingTab {
                         .then((s) => {
                                 s.settingEl.classList.add('vt-menu-ta-setting');
                         });
-                const ta = document.createElement('textarea');
+                const ta = createEl('textarea');
                 ta.className = 'text-input vt-menu-ta';
                 ta.value = this.plugin.settings.contextMenu;
                 taSetting.settingEl.insertAdjacentElement('afterend', ta);
@@ -1191,11 +1185,11 @@ class VtSettingTab extends PluginSettingTab {
                 });
                 const search = wrap.createEl('input', { type: 'text' });
                 search.placeholder = t('输入关键词筛选（vtable 动作 + Obsidian 命令）…', 'Filter (vtable actions + Obsidian commands)…');
-                search.style.width = '100%';
+                search.setCssProps({ width: '100%' });
                 const listBox = wrap.createEl('div', { cls: 'vt-menu-lookup-list' });
                 const genIcon = wrap.createEl('input', { type: 'text' });
                 genIcon.placeholder = t('图标名（可选，lucide 名称，如 bold）', 'Icon (optional lucide name, e.g. bold)');
-                genIcon.style.width = '100%';
+                genIcon.setCssProps({ width: '100%' });
                 const genLine = wrap.createEl('div', { cls: 'vt-menu-lookup-line', text: t('（尚未选择命令）', '(no command selected)') });
                 let selectedLine = '';
                 const copyBtn = wrap.createEl('button', { text: t('复制生成的行', 'Copy generated line') });
@@ -1457,13 +1451,13 @@ class VtColorModal extends Modal {
                 const select = (el: HTMLElement, color: string | null) => {
                         this.selected = color;
                         this.inputEl.value = color ?? '';
-                        preview.style.background = color || 'transparent';
+                        preview.setCssProps({ background: color || 'transparent' });
                         swatches.forEach(s => s.removeClass('is-selected'));
                         el.addClass('is-selected');
                 };
                 for (const [hex] of presets) {
                         const sw = grid.createEl('button', { cls: 'vt-color-swatch' });
-                        sw.style.background = hex;
+                        sw.setCssProps({ background: hex });
                         sw.title = hex;
                         sw.addEventListener('click', () => select(sw, hex));
                         swatches.push(sw);
@@ -1479,14 +1473,15 @@ class VtColorModal extends Modal {
                 // 颜色编码输入 + 预览
                 const row = contentEl.createDiv({ cls: 'vt-color-input-row' });
                 const preview = row.createSpan({ cls: 'vt-color-preview' });
-                preview.style.background = this.selected || 'transparent';
+                preview.setCssProps({ background: this.selected || 'transparent' });
                 this.inputEl = row.createEl('input', { type: 'text', value: this.selected ?? '' });
-                this.inputEl.placeholder = '#RRGGBB 或 red 等颜色名';
+                this.inputEl.placeholder = t('颜色值（颜色名或十六进制）', 'Color name or hex value');
+                
                 this.inputEl.addEventListener('input', () => {
                         const v = this.inputEl.value.trim();
                         if (v && CSS.supports('background-color', v)) {
                                 this.selected = v;
-                                preview.style.background = v;
+                                preview.setCssProps({ background: v });
                                 swatches.forEach(s => s.removeClass('is-selected'));
                         }
                 });

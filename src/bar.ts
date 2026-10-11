@@ -32,7 +32,7 @@ export class Toolbar {
 
         constructor() {
                 this.el = document.body.createEl('div', { cls: 'vt-bar' });
-                this.el.style.display = 'none';
+                this.el.setCssProps({ display: 'none' });
                 this.buildRows();
         }
 
@@ -60,7 +60,7 @@ export class Toolbar {
                                 e.preventDefault();
                                 document.body.dataset.vtBarClick = '1';
                                 fn();
-                                setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
+                                window.setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
                         });
                 }
                 row1.createEl('span', { cls: 'vt-bar-sep' });
@@ -113,7 +113,7 @@ export class Toolbar {
                         document.body.dataset.vtBarClick = '1';
                         this.hide();
                         if (convert) convert();
-                        setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
+                        window.setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
                 });
 
                 const htmlBtn = row2.createEl('button', { cls: 'vt-bar-btn', text: 'H5' });
@@ -124,7 +124,7 @@ export class Toolbar {
                         document.body.dataset.vtBarClick = '1';
                         this.hide();
                         if (convert) convert();
-                        setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
+                        window.setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
                 });
         }
 
@@ -210,7 +210,7 @@ export class Toolbar {
 
                 // 如果 hide() 的延时重置尚未触发，取消它（说明仍在表格内切换）
                 if (this.animatedTimer !== null) {
-                        clearTimeout(this.animatedTimer);
+                        window.clearTimeout(this.animatedTimer);
                         this.animatedTimer = null;
                 }
 
@@ -219,11 +219,11 @@ export class Toolbar {
 
                 if (animate) {
                         this.animated = true;
-                        this.el.style.transition = '';
-                        requestAnimationFrame(() => {
-                                requestAnimationFrame(() => {
-                                        this.el.style.transform = 'scale(1) translateY(0)';
-                                        this.el.style.opacity = '1';
+                        this.el.setCssProps({ transition: '' });
+                        window.requestAnimationFrame(() => {
+                                window.requestAnimationFrame(() => {
+                                        this.el.setCssProps({ transform: 'scale(1) translateY(0)' });
+                                        this.el.setCssProps({ opacity: '1' });
                                         this.reposition();
                                 });
                         });
@@ -233,35 +233,35 @@ export class Toolbar {
 
         /** 先隐藏布局再测量尺寸，避免首次显示时 offsetWidth 为 0 导致定位偏移 */
         private prepareVisible(animate: boolean): boolean {
-                this.el.style.transition = 'none';
-                this.el.style.visibility = 'hidden';
-                this.el.style.display = 'flex';
-                this.el.style.transform = animate ? 'scale(0.8) translateY(6px)' : 'scale(1) translateY(0)';
-                this.el.style.opacity = animate ? '0.7' : '1';
+                this.el.setCssProps({ transition: 'none' });
+                this.el.setCssProps({ visibility: 'hidden' });
+                this.el.setCssProps({ display: 'flex' });
+                this.el.setCssProps({ transform: animate ? 'scale(0.8) translateY(6px)' : 'scale(1) translateY(0)' });
+                this.el.setCssProps({ opacity: animate ? '0.7' : '1' });
 
                 void this.el.offsetWidth;
                 if (!this.reposition()) {
-                        this.el.style.display = 'none';
-                        this.el.style.visibility = '';
+                        this.el.setCssProps({ display: 'none' });
+                        this.el.setCssProps({ visibility: '' });
                         return false;
                 }
 
-                this.el.style.visibility = 'visible';
+                this.el.setCssProps({ visibility: 'visible' });
                 void this.el.offsetWidth;
                 return true;
         }
 
         /** Obsidian 刚启动时编辑器布局可能尚未稳定，短延迟内重算位置 */
         private scheduleRepositionRetries() {
-                requestAnimationFrame(() => this.reposition());
+                window.requestAnimationFrame(() => this.reposition());
                 window.setTimeout(() => this.reposition(), 0);
                 window.setTimeout(() => this.reposition(), 120);
         }
 
         hide() {
-                this.el.style.transform = '';
-                this.el.style.opacity = '';
-                this.el.style.display = 'none';
+                this.el.setCssProps({ transform: '' });
+                this.el.setCssProps({ opacity: '' });
+                this.el.setCssProps({ display: 'none' });
                 this.cell = null;
                 this.data = null;
                 this.onCommit = null;
@@ -271,7 +271,7 @@ export class Toolbar {
                 this.selOps = null;
 
                 // 延时重置动画标记：若短时间内再次 show（表格内切单元格），取消此计时器
-                if (this.animatedTimer !== null) clearTimeout(this.animatedTimer);
+                if (this.animatedTimer !== null) window.clearTimeout(this.animatedTimer);
                 this.animatedTimer = window.setTimeout(() => {
                         this.animated = false;
                         this.animatedTimer = null;
@@ -299,10 +299,10 @@ export class Toolbar {
                         refRect.left + (refRect.width - w) / 2,
                         window.innerWidth - w - 8,
                 ));
-                this.el.style.position = 'fixed';
-                this.el.style.left = `${left}px`;
-                this.el.style.top = `${sRect.top + sRect.height * 0.8}px`;
-                this.el.style.zIndex = '9999';
+                this.el.setCssProps({ position: 'fixed' });
+                this.el.setCssProps({ left: `${left}px` });
+                this.el.setCssProps({ top: `${sRect.top + sRect.height * 0.8}px` });
+                this.el.setCssProps({ zIndex: '9999' });
                 return true;
         }
 
@@ -325,16 +325,16 @@ export class Toolbar {
                 const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
                 const next = Math.max(8, Math.min(72, cur + delta));
                 if (!sel.isCollapsed) {
-                        const span = document.createElement('span');
-                        span.style.fontSize = `${next}px`;
+                        const span = createEl('span');
+                        span.setCssProps({ fontSize: `${next}px` });
                         try { range.surroundContents(span); } catch { /* 跨节点选区忽略 */ }
                 } else if (this.cell) {
-                        this.cell.style.fontSize = `${next}px`;
+                        this.cell.setCssProps({ fontSize: `${next}px` });
                 }
         }
 
         destroy() {
-                if (this.animatedTimer !== null) clearTimeout(this.animatedTimer);
+                if (this.animatedTimer !== null) window.clearTimeout(this.animatedTimer);
                 this.el.remove();
         }
 }

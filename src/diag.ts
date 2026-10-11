@@ -29,9 +29,9 @@ export function isDiag(cd: { dg?: string } | undefined | null): boolean {
 
 /** HTML/源文本 → 纯文本（<br> → 换行，其余标签剥除）——开斜分时把存量 t 降为纯文本 */
 export function diagPlainText(html: string): string {
-        const div = document.createElement('div');
-        div.innerHTML = html.replace(/<br\s*\/?>/gi, '\n');
-        return (div.textContent ?? '').replace(/\n+/g, ' ').trim();
+        // DOMParser 独立文档解析（不执行脚本/不加载资源），替代 innerHTML 剥标签取纯文本
+        const doc = new DOMParser().parseFromString(html.replace(/<br\s*\/?>/gi, '\n'), 'text/html');
+        return (doc.body.textContent ?? '').replace(/\n+/g, ' ').trim();
 }
 
 /** 斜分格显示用的纯文本（防御：万一 t 里混入了标签/换行，剥掉保证单行） */
@@ -71,10 +71,10 @@ export function buildDiagDom(td: HTMLTableCellElement, dg: string, t: string): D
         svg.appendChild(line);
         td.appendChild(svg);
 
-        const zoneA = document.createElement('div');
+        const zoneA = createEl('div');
         zoneA.className = 'vt-diag-zone vt-diag-a';
         zoneA.contentEditable = 'true';
-        const zoneB = document.createElement('div');
+        const zoneB = createEl('div');
         zoneB.className = 'vt-diag-zone vt-diag-b';
         zoneB.contentEditable = 'true';
         td.appendChild(zoneA);
@@ -82,10 +82,10 @@ export function buildDiagDom(td: HTMLTableCellElement, dg: string, t: string): D
 
         // 占位：两行（区1、区2）普通流元素，visibility:hidden——
         // 参与表格布局：撑列宽（单行 nowrap 最宽者）与行高（两行）
-        const probe = document.createElement('div');
+        const probe = createEl('div');
         probe.className = 'vt-diag-probe';
-        const probeA = document.createElement('span');
-        const probeB = document.createElement('span');
+        const probeA = createEl('span');
+        const probeB = createEl('span');
         probe.appendChild(probeA);
         probe.appendChild(probeB);
         td.appendChild(probe);

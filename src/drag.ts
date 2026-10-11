@@ -108,23 +108,23 @@ export function bindRowColDrag(
         }
         /** 落点指示线（挂 wrap：内容坐标随滚动） */
         const dropLine = wrap.createDiv({ cls: 'vt-drop-line' });
-        dropLine.style.display = 'none';
+        dropLine.setCssProps({ display: 'none' });
 
-        const hideLine = () => { dropLine.style.display = 'none'; };
+        const hideLine = () => { dropLine.setCssProps({ display: 'none' }); };
         const showLine = (horizontal: boolean, pos: number, cross: number, bad: boolean) => {
-                dropLine.style.display = 'block';
+                dropLine.setCssProps({ display: 'block' });
                 dropLine.classList.toggle('vt-drop-h', horizontal);
                 dropLine.classList.toggle('vt-drop-bad', bad);
                 if (horizontal) {
-                        dropLine.style.left = '0px';
-                        dropLine.style.width = `${cross}px`;
-                        dropLine.style.top = `${pos}px`;
-                        dropLine.style.height = '2px';
+                        dropLine.setCssProps({ left: '0px' });
+                        dropLine.setCssProps({ width: `${cross}px` });
+                        dropLine.setCssProps({ top: `${pos}px` });
+                        dropLine.setCssProps({ height: '2px' });
                 } else {
-                        dropLine.style.top = '0px';
-                        dropLine.style.height = `${cross}px`;
-                        dropLine.style.left = `${pos}px`;
-                        dropLine.style.width = '2px';
+                        dropLine.setCssProps({ top: '0px' });
+                        dropLine.setCssProps({ height: `${cross}px` });
+                        dropLine.setCssProps({ left: `${pos}px` });
+                        dropLine.setCssProps({ width: '2px' });
                 }
         };
 
@@ -153,14 +153,14 @@ export function bindRowColDrag(
                         const visT = Math.max(b.top, wr.top, 0);
                         const visB = Math.min(b.bottom, wr.bottom, vh - 2);
                         const visH = visB - visT;
-                        if (visH <= 0) { g.style.display = 'none'; return; }
-                        g.style.display = '';
+                        if (visH <= 0) { g.setCssProps({ display: 'none' }); return; }
+                        g.setCssProps({ display: '' });
                         // 水平：下界 = wr.left - GRIP - GAP——允许把手悬在可视区左外侧（正常悬浮语义，未滚动时原样）；
                         // 仅当表格左缘滚出视口才把把手拉回贴边（宽/长拖动符跑到编辑区左侧的修复）
-                        g.style.left = `${Math.max(wr.left - GRIP - GAP, Math.min(Math.max(GAP, b.left - GRIP - GAP), wr.right - GRIP))}px`;
-                        g.style.top = `${visT}px`;
-                        g.style.width = `${GRIP}px`;
-                        g.style.height = `${visH}px`;
+                        g.setCssProps({ left: `${Math.max(wr.left - GRIP - GAP, Math.min(Math.max(GAP, b.left - GRIP - GAP), wr.right - GRIP))}px` });
+                        g.setCssProps({ top: `${visT}px` });
+                        g.setCssProps({ width: `${GRIP}px` });
+                        g.setCssProps({ height: `${visH}px` });
                 });
                 colGrips.forEach((g, c) => {
                         if (!g.classList.contains('vt-drag-on')) return;
@@ -170,12 +170,12 @@ export function bindRowColDrag(
                         const visL = Math.max(cl, wr.left);
                         const visR = Math.min(cl + colW(c), rightLimit);
                         const visW = visR - visL;
-                        if (visW <= 0) { g.style.display = 'none'; return; }
-                        g.style.display = '';
-                        g.style.left = `${visL}px`;
-                        g.style.top = `${Math.max(GAP, Math.min(tb.top - GRIP_COL - GAP, vh - GRIP_COL - 2))}px`;
-                        g.style.width = `${visW}px`;
-                        g.style.height = `${GRIP_COL}px`;
+                        if (visW <= 0) { g.setCssProps({ display: 'none' }); return; }
+                        g.setCssProps({ display: '' });
+                        g.setCssProps({ left: `${visL}px` });
+                        g.setCssProps({ top: `${Math.max(GAP, Math.min(tb.top - GRIP_COL - GAP, vh - GRIP_COL - 2))}px` });
+                        g.setCssProps({ width: `${visW}px` });
+                        g.setCssProps({ height: `${GRIP_COL}px` });
                 });
         };
 
@@ -400,7 +400,7 @@ export function bindRowColDrag(
                 const wr = wrapRect();
                 if (drag.dir === 'col') {
                         // 把手跟手 = 鼠标位置 - 抓取偏移（按下瞬间不跳变），钳制在 wrap 可视区水平范围内
-                        g!.style.left = `${Math.max(wr.left, Math.min(e.clientX - drag.grabD, wr.right - drag.gripSpan))}px`;
+                        g!.setCssProps({ left: `${Math.max(wr.left, Math.min(e.clientX - drag.grabD, wr.right - drag.gripSpan))}px` });
                         const b0 = edgeAt(e.clientX);
                         let b = b0 <= drag.from ? b0 : b0 - 1;
                         b = Math.max(0, Math.min(cols - 1, b));
@@ -412,7 +412,7 @@ export function bindRowColDrag(
                         showLine(false, lx, table.offsetHeight, bad);
                 } else {
                         // 行把手：垂直跟手（同款抓取偏移），水平位置由 placeGrips 保持贴左缘
-                        g!.style.top = `${Math.max(wr.top, Math.min(e.clientY - drag.grabD, wr.bottom - drag.gripSpan))}px`;
+                        g!.setCssProps({ top: `${Math.max(wr.top, Math.min(e.clientY - drag.grabD, wr.bottom - drag.gripSpan))}px` });
                         const b0 = edgeAt(e.clientY);
                         let b = b0 <= drag.from ? b0 : b0 - 1;
                         b = Math.max(0, Math.min(rows.length - 1, b));
@@ -496,7 +496,7 @@ export function bindRowColDrag(
         const uid = Symbol('vtDrag');
         activeUid = uid;
         const tick = () => {
-                requestAnimationFrame(tick);
+                window.requestAnimationFrame(tick);
                 if (activeUid !== uid) return; // 已被新实例接管：本实例 tick 停止（把手由 cleanup 移除）
                 if (!table.isConnected) { cleanup(); return; }
                 if (drag) return; // 拖动中把手位置由 onDragMove 跟手控制，每帧校准会把把手拉回边缘（"把手不跟手"根因）
@@ -504,7 +504,7 @@ export function bindRowColDrag(
                         placeGrips();
                 }
         };
-        requestAnimationFrame(tick);
+        window.requestAnimationFrame(tick);
         const onScroll = () => { if (!drag && rowGrips.some(g => g.classList.contains('vt-drag-on'))) placeGrips(); };
         wrap.addEventListener('scroll', onScroll, { passive: true });
 

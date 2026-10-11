@@ -390,7 +390,7 @@ export class SelOverlay {
 
         private stopLiveSync() {
                 if (this.rafId) {
-                        cancelAnimationFrame(this.rafId);
+                        window.cancelAnimationFrame(this.rafId);
                         this.rafId = 0;
                 }
         }
@@ -433,9 +433,9 @@ export class SelOverlay {
                                         this.redraw(); // redraw 内含 placeLayer 更新快照；处理完继续巡检
                                 }
                         }
-                        this.rafId = requestAnimationFrame(tick);
+                        this.rafId = window.requestAnimationFrame(tick);
                 };
-                this.rafId = requestAnimationFrame(tick);
+                this.rafId = window.requestAnimationFrame(tick);
         }
         /** 首个选中格相对表格的锚点（巡检漂移检测用） */
         private cellAnchor: { x: number; y: number } = { x: -1, y: -1 };
@@ -443,13 +443,13 @@ export class SelOverlay {
         private redraw() {
                 if (!this.rects.length) {
                         this.stopLiveSync();
-                        if (this.layer) this.layer.style.display = 'none';
+                        if (this.layer) this.layer.setCssProps({ display: 'none' });
                         return;
                 }
                 this.ensureLayer();
                 const d = this.buildPath();
                 if (!d) {
-                        this.layer!.style.display = 'none';
+                        this.layer!.setCssProps({ display: 'none' });
                         return;
                 }
                 this.placeLayer();
@@ -467,11 +467,11 @@ export class SelOverlay {
                         height: tRect.height,
                 };
                 const layer = this.layer!;
-                layer.style.display = 'block';
-                layer.style.left = `${tRect.left - B}px`;
-                layer.style.top = `${tRect.top - B}px`;
-                layer.style.width = `${tRect.width + B * 2}px`;
-                layer.style.height = `${tRect.height + B * 2}px`;
+                layer.setCssProps({ display: 'block' });
+                layer.setCssProps({ left: `${tRect.left - B}px` });
+                layer.setCssProps({ top: `${tRect.top - B}px` });
+                layer.setCssProps({ width: `${tRect.width + B * 2}px` });
+                layer.setCssProps({ height: `${tRect.height + B * 2}px` });
                 const w = Math.max(1, tRect.width + B * 2);
                 const h = Math.max(1, tRect.height + B * 2);
                 this.svg!.setAttribute('width', String(w));
@@ -488,21 +488,21 @@ export class SelOverlay {
                 // 都会裁掉贴边描边（“开了圆角后选框边缘被裁”的根因）；body 直挂免疫一切容器裁剪，
                 // 视口坐标直接定位，滚动/缩放由活巡检逐帧跟随
                 this.layer = document.body.createDiv({ cls: 'vt-sel-layer' });
-                this.layer.style.position = 'fixed';
-                this.layer.style.pointerEvents = 'none';
-                this.layer.style.overflow = 'visible';
-                this.layer.style.zIndex = '1000';
+                this.layer.setCssProps({ position: 'fixed' });
+                this.layer.setCssProps({ pointerEvents: 'none' });
+                this.layer.setCssProps({ overflow: 'visible' });
+                this.layer.setCssProps({ zIndex: '1000' });
                 this.svg = document.createElementNS(SVG_NS, 'svg') as unknown as SVGSVGElement;
-                this.svg.style.overflow = 'visible';
+                this.svg.setCssProps({ overflow: 'visible' });
                 this.path = document.createElementNS(SVG_NS, 'path') as unknown as SVGPathElement;
                 // 主题色：纯色圆角外框 + 极浅半透明底色
                 // 底色与外框用同一个 --interactive-accent 变量（部分主题没有 -rgb 变量，
                 // rgba(var(--interactive-accent-rgb)) 会落到默认紫），透明度用 fill-opacity 独立控制
-                this.path.style.fill = 'var(--interactive-accent, #7c3aed)';
-                this.path.style.fillOpacity = '0.10';
-                this.path.style.fillRule = 'evenodd';
-                this.path.style.stroke = 'var(--interactive-accent, #7c3aed)';
-                this.path.style.strokeWidth = '2';
+                this.path.setCssProps({ fill: 'var(--interactive-accent, #7c3aed)' });
+                this.path.setCssProps({ fillOpacity: '0.10' });
+                this.path.setCssProps({ fillRule: 'evenodd' });
+                this.path.setCssProps({ stroke: 'var(--interactive-accent, #7c3aed)' });
+                this.path.setCssProps({ strokeWidth: '2' });
                 this.svg.appendChild(this.path);
                 this.layer.appendChild(this.svg);
         }

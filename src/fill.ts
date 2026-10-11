@@ -173,7 +173,7 @@ export function genSeries(v0: string, n: number, sign: 1 | -1, year: number = ne
 
 /** 标准 DOM 助手（本文件不依赖 Obsidian 扩展，可在裸页面测试） */
 const mkDiv = (cls: string, parent: HTMLElement): HTMLElement => {
-        const d = document.createElement('div');
+        const d = createEl('div');
         d.className = cls;
         parent.appendChild(d);
         return d;
@@ -204,32 +204,32 @@ const mkTri = (size: number): [HTMLElement, HTMLElement] => {
         // - draw：可见小三角，同一条 path 做 clip 与背景；pointer-events:none，命中由 hit 承担
         // 两者都由调用方定位（柄场景相对壳、dots 场景 fixed）
         const e = HIT_PAD;
-        const hit = document.createElement('div');
+        const hit = createEl('div');
         hit.className = 'vt-fill-tri-hit';
-        hit.style.position = 'absolute';
-        hit.style.left = '0';
-        hit.style.top = '0';
-        hit.style.width = `${size + 2 * e}px`;
-        hit.style.height = `${size + 2 * e}px`;
+        hit.setCssProps({ position: 'absolute' });
+        hit.setCssProps({ left: '0' });
+        hit.setCssProps({ top: '0' });
+        hit.setCssProps({ width: `${size + 2 * e}px` });
+        hit.setCssProps({ height: `${size + 2 * e}px` });
         // pointer-events 是继承属性：壳为 none 时必须显式 auto，否则 hit 继承 none 永不命中
-        hit.style.pointerEvents = 'auto';
+        hit.setCssProps({ pointerEvents: 'auto' });
         // 命中区=可见三角向外膨胀 e：右边/底边外移到 size+e，斜边向左上平移（远离直角顶点）
         // 至 x+y=size-e·√2；polygon 五点（斜边与盒相交处截断），draw 三角完整包含+外圈
         const s2 = size + e;
         const t = Math.max(0, size - e * 1.414);
-        hit.style.clipPath = `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t}px, ${t}px 0)`;
-        const draw = document.createElement('div');
+        hit.setCssProps({ clipPath: `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t}px, ${t}px 0)` });
+        const draw = createEl('div');
         draw.className = 'vt-fill-tri-draw';
-        draw.style.position = 'absolute';
-        draw.style.left = '0';
-        draw.style.top = '0';
-        draw.style.width = `${size}px`;
-        draw.style.height = `${size}px`;
-        draw.style.pointerEvents = 'none';
+        draw.setCssProps({ position: 'absolute' });
+        draw.setCssProps({ left: '0' });
+        draw.setCssProps({ top: '0' });
+        draw.setCssProps({ width: `${size}px` });
+        draw.setCssProps({ height: `${size}px` });
+        draw.setCssProps({ pointerEvents: 'none' });
         const d = triPathD(size);
-        draw.style.clipPath = `path('${d}')`;
-        draw.style.background = 'var(--interactive-accent, #7c3aed)';
-        draw.style.opacity = '0.55';
+        draw.setCssProps({ clipPath: `path('${d}')` });
+        draw.setCssProps({ background: 'var(--interactive-accent, #7c3aed)' });
+        draw.setCssProps({ opacity: '0.55' });
         return [hit, draw];
 };
 
@@ -263,8 +263,8 @@ export class FillHandle {
 
         private onScroll = () => {
                 if (this.disposed) return;
-                cancelAnimationFrame(this.rafId);
-                this.rafId = requestAnimationFrame(() => this.reposition());
+                window.cancelAnimationFrame(this.rafId);
+                this.rafId = window.requestAnimationFrame(() => this.reposition());
         };
         private onDocPointerDown = (e: PointerEvent) => {
                 if (!this.menuState) return;
@@ -290,11 +290,11 @@ export class FillHandle {
                 const [hHit, hDraw] = mkTri(HANDLE_SIZE);
                 this.el.appendChild(hHit);
                 this.el.appendChild(hDraw);
-                this.el.style.display = 'none';
+                this.el.setCssProps({ display: 'none' });
                 this.dots = mkDiv('vt-fill-dots', document.body);
-                this.dots.style.display = 'none';
+                this.dots.setCssProps({ display: 'none' });
                 this.menu = mkDiv('vt-fill-menu', document.body);
-                this.menu.style.display = 'none';
+                this.menu.setCssProps({ display: 'none' });
 
                 this.el.addEventListener('pointerdown', (e) => this.onHandleDown(e));
                 this.el.addEventListener('pointermove', (e) => this.onHandleMove(e));
@@ -322,7 +322,7 @@ export class FillHandle {
                 if (this.disposed) return;
                 this.disposed = true;
                 this.ro.disconnect();
-                cancelAnimationFrame(this.rafId);
+                window.cancelAnimationFrame(this.rafId);
                 this.anchor = null;
                 this.drag = null;
                 this.menuState = null;
@@ -353,7 +353,7 @@ export class FillHandle {
                 if (this.drag) return; // 拖动中不隐藏
                 this.anchor = null;
                 this.ro.disconnect();
-                this.el.style.display = 'none';
+                this.el.setCssProps({ display: 'none' });
                 this.clearDots();
         }
 
@@ -368,22 +368,22 @@ export class FillHandle {
                 const a = this.anchor!;
                 const td = this.deps.cellTd(a.r, a.c);
                 if (!td || !td.isConnected) {
-                        this.el.style.display = 'none';
+                        this.el.setCssProps({ display: 'none' });
                         return;
                 }
                 const rect = td.getBoundingClientRect();
                 if (rect.width === 0 && rect.height === 0) {
-                        this.el.style.display = 'none';
+                        this.el.setCssProps({ display: 'none' });
                         return;
                 }
                 const S = HANDLE_SIZE;
-                this.el.style.display = 'block';
+                this.el.setCssProps({ display: 'block' });
                 // 完全在格子内部：垂直间隙 4px（19:51 下移 2px）；水平间隙 2px
                 const cs = getComputedStyle(td);
                 const vgap = (parseFloat(cs.borderBottomWidth) || 0) + 4;
                 const hgap = (parseFloat(cs.borderRightWidth) || 0) + 2;
-                this.el.style.left = `${Math.round(rect.right - hgap - S)}px`;
-                this.el.style.top = `${Math.round(rect.bottom - vgap - S)}px`;
+                this.el.setCssProps({ left: `${Math.round(rect.right - hgap - S)}px` });
+                this.el.setCssProps({ top: `${Math.round(rect.bottom - vgap - S)}px` });
         }
 
         /* ---------- 拖动 ---------- */
@@ -509,7 +509,7 @@ export class FillHandle {
                 if (!d) return;
                 this.clearDots();
                 if (d.cells.length <= 1) return;
-                this.dots.style.display = 'block';
+                this.dots.setCssProps({ display: 'block' });
                 for (let i = 1; i < d.cells.length; i++) {
                         const cell = d.cells[i]!;
                         const td = this.deps.cellTd(cell.r, cell.c);
@@ -523,17 +523,17 @@ export class FillHandle {
                         // 兄弟双层同位：可见三角右下顶点=(rect.right-hgap, rect.bottom-vgap)
                         const left = Math.round(rect.right - hgap - DOT_SIZE);
                         const top = Math.round(rect.bottom - vgap - DOT_SIZE);
-                        hit.style.left = `${left}px`;
-                        hit.style.top = `${top}px`;
-                        draw.style.left = `${left}px`;
-                        draw.style.top = `${top}px`;
+                        hit.setCssProps({ left: `${left}px` });
+                        hit.setCssProps({ top: `${top}px` });
+                        draw.setCssProps({ left: `${left}px` });
+                        draw.setCssProps({ top: `${top}px` });
                         this.dots.appendChild(hit);
                         this.dots.appendChild(draw);
                 }
         }
 
         private clearDots() {
-                this.dots.style.display = 'none';
+                this.dots.setCssProps({ display: 'none' });
                 emptyEl(this.dots);
         }
 
@@ -543,11 +543,11 @@ export class FillHandle {
                 const m = this.menuState;
                 if (!m) return;
                 emptyEl(this.menu);
-                const btnAsc = document.createElement('button');
+                const btnAsc = createEl('button');
                 btnAsc.className = 'vt-fill-menu-btn';
                 btnAsc.textContent = t('递增', 'Inc');
                 btnAsc.addEventListener('click', () => this.applyMenu(1));
-                const btnDesc = document.createElement('button');
+                const btnDesc = createEl('button');
                 btnDesc.className = 'vt-fill-menu-btn';
                 btnDesc.textContent = t('递减', 'Dec');
                 btnDesc.addEventListener('click', () => this.applyMenu(-1));
@@ -555,19 +555,19 @@ export class FillHandle {
                 this.menu.appendChild(btnDesc);
 
                 this.placeMenu();
-                this.menu.style.transition = 'none';
-                this.menu.style.visibility = 'hidden';
-                this.menu.style.display = 'flex';
-                this.menu.style.transform = 'scale(0.8) translateY(6px)';
-                this.menu.style.opacity = '0.7';
+                this.menu.setCssProps({ transition: 'none' });
+                this.menu.setCssProps({ visibility: 'hidden' });
+                this.menu.setCssProps({ display: 'flex' });
+                this.menu.setCssProps({ transform: 'scale(0.8) translateY(6px)' });
+                this.menu.setCssProps({ opacity: '0.7' });
                 void this.menu.offsetWidth;
-                this.menu.style.visibility = 'visible';
-                requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
+                this.menu.setCssProps({ visibility: 'visible' });
+                window.requestAnimationFrame(() => {
+                        window.requestAnimationFrame(() => {
                                 if (!this.menuState) return;
-                                this.menu.style.transition = '';
-                                this.menu.style.transform = 'scale(1) translateY(0)';
-                                this.menu.style.opacity = '1';
+                                this.menu.setCssProps({ transition: '' });
+                                this.menu.setCssProps({ transform: 'scale(1) translateY(0)' });
+                                this.menu.setCssProps({ opacity: '1' });
                         });
                 });
                 this.refreshMenuHighlight();
@@ -580,14 +580,14 @@ export class FillHandle {
                 // 尺寸：隐藏测量
                 const wasDisplay = this.menu.style.display;
                 if (wasDisplay === 'none') {
-                        this.menu.style.display = 'flex';
-                        this.menu.style.visibility = 'hidden';
+                        this.menu.setCssProps({ display: 'flex' });
+                        this.menu.setCssProps({ visibility: 'hidden' });
                 }
                 const mw = this.menu.offsetWidth;
                 const mh = this.menu.offsetHeight;
                 if (wasDisplay === 'none') {
-                        this.menu.style.display = 'none';
-                        this.menu.style.visibility = '';
+                        this.menu.setCssProps({ display: 'none' });
+                        this.menu.setCssProps({ visibility: '' });
                 }
                 const vw = window.innerWidth;
                 const vh = window.innerHeight;
@@ -596,8 +596,8 @@ export class FillHandle {
                 let top = rect.bottom + 6;
                 if (top + mh > vh - 8) top = rect.top - mh - 6; // 下方放不下 → 上方
                 top = Math.max(8, top);
-                this.menu.style.left = `${Math.round(left)}px`;
-                this.menu.style.top = `${Math.round(top)}px`;
+                this.menu.setCssProps({ left: `${Math.round(left)}px` });
+                this.menu.setCssProps({ top: `${Math.round(top)}px` });
         }
 
         private refreshMenuHighlight() {
@@ -627,7 +627,7 @@ export class FillHandle {
         private closeMenu() {
                 if (!this.menuState) return;
                 this.menuState = null;
-                this.menu.style.display = 'none';
+                this.menu.setCssProps({ display: 'none' });
                 emptyEl(this.menu);
         }
 }

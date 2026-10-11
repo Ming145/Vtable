@@ -23,6 +23,7 @@
 
 import { escapeHtml, normalizeCellNewlines } from './builder';
 import { parseMarkdownTable } from './paste-grid';
+import { parseTrustedHtml } from './html';
 
 export interface WysiwygCtx {
         sourcePath: string;
@@ -196,7 +197,7 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
         // 没有它，末尾 br 是 td 末尾的孤立真元素、后面无可编辑锚点，光标放不进去
         //（实测：Enter 加空行离焦再进格，空的换行点不到）。空段投影输出空串，零污染
         if (td.lastChild instanceof HTMLBRElement) {
-                const tail = document.createElement('span');
+                const tail = createEl('span');
                 tail.className = SEG_CLS;
                 tail.dataset.kind = 'text';
                 tail.dataset.view = 'src';
@@ -223,16 +224,16 @@ function buildSegEl(seg: Seg, ctx: WysiwygCtx): HTMLElement {
         // data-vt-br 标记"重放的换行 br"：与浏览器运行时自插的占位 br 区分开
         //（Chromium 删空段后会在空段前插占位 br 保光标，投影时按此标记剔除占位）
         if (seg.kind === 'br') {
-                const br = document.createElement('br') as unknown as HTMLElement;
+                const br = createEl('br') as unknown as HTMLElement;
                 br.dataset.vtBr = '1';
                 return br;
         }
         // 全部用 span：块级 fence 用 display:block。
         // 不用 div —— Chromium 在"块级元素后缘"打字会把字符插进 div 内部（beforeinput 都不触发），
         // 渲染段投影走 data-src → 字符静默丢失；inline span 后缘输入落在 td 直下，数据安全
-        const el = document.createElement('span');
+        const el = createEl('span');
         el.className = SEG_CLS;
-        if (seg.kind === 'fence') el.style.display = 'block';
+        if (seg.kind === 'fence') el.setCssProps({ display: 'block' });
         el.dataset.kind = seg.kind;
         el.dataset.src = seg.raw;
         el.dataset.s = String(seg.start);
@@ -260,14 +261,23 @@ function attachImgResize(seg: HTMLElement): void {
         const img = seg.querySelector('img');
         if (!img) return;
         seg.classList.add('vt-img-seg');
-        const grip = document.createElement('div');
+        const grip = createEl('div');
         grip.className = 'vt-img-resize';
         grip.setAttribute('aria-hidden', 'true');
         // L 形折角（用户 2026-10-07 定稿形状，21:50 调细）：竖臂在上、横臂在左，圆头细线圆拐角；
         // 浅灰（表格边缘同色）走 CSS currentColor，命中区为更大的圆形（见 styles.css）
-        grip.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
-                + '<path d="M17 5 L17 17 L5 17" stroke="currentColor" stroke-width="2.75" '
-                + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('aria-hidden', 'true');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M17 5 L17 17 L5 17');
+        path.setAttribute('stroke', 'currentColor');
+        path.setAttribute('stroke-width', '2.75');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(path);
+        grip.appendChild(svg);
         seg.appendChild(grip);
 
         grip.addEventListener('pointerdown', (e) => {
@@ -277,7 +287,7 @@ function attachImgResize(seg: HTMLElement): void {
                 const startW = img.getBoundingClientRect().width;
                 const onMove = (ev: PointerEvent) => {
                         const w = Math.max(24, Math.round(startW + (ev.clientX - startX)));
-                        img.style.width = `${w}px`;
+                        img.setCssProps({ width: `${w}px` });
                         syncImgSrcWidth(seg, w);
                 };
                 const onUp = () => {
@@ -306,22 +316,23 @@ function renderSegContent(el: HTMLElement, seg: Seg, ctx: WysiwygCtx): void {
         el.dataset.src = seg.raw;
         switch (seg.kind) {
                 case 'void-entity':
-                        el.innerHTML = '&nbsp;';
+                        el.textContent = '\u00A0';
                         break;
                 case 'void-img':
-                        el.innerHTML = seg.raw;
+                        el.replaceChildren(...parseTrustedHtml(seg.raw).childNodes);
                         ctx.renderPasses(el, ctx);
                         attachImgResize(el);
                         break;
                 case 'fence': {
                         const body = seg.raw.replace(/^```[^\n]*\n?/, '').replace(/```\s*$/, '');
-                        el.innerHTML = `<pre class="vt-code"><code>${escapeHtml(body)}</code></pre>`;
+                        const pre = el.createEl('pre', { cls: 'vt-code' });
+                        pre.createEl('code', { text: body });
                         break;
                 }
                 default: {
                         // md / text：HTML 直通 + 行内渲染 pass（与 populateCell 行为一致）。
                         // 行内段不含 <br>（换行在解析阶段已按行分隔放行为真 br 元素）
-                        el.innerHTML = seg.raw;
+                        el.replaceChildren(...parseTrustedHtml(seg.raw).childNodes);
                         ctx.renderPasses(el, ctx);
                 }
         }
@@ -818,16 +829,16 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                 st.composing = true;
                 // 兜底：部分安卓 IME 中断时不派发 compositionend（拼字会话已死但标志卡 true），
                 // 长时间无 composition 更新即静默复位（不重建，等下一次输入自然触发）
-                if (st.compTimer) clearTimeout(st.compTimer);
-                st.compTimer = setTimeout(() => { st.composing = false; st.compTimer = null; }, 3000);
+                if (st.compTimer) window.clearTimeout(st.compTimer);
+                st.compTimer = window.setTimeout(() => { st.composing = false; st.compTimer = null; }, 3000);
         });
         td.addEventListener('compositionupdate', () => {
-                if (st.compTimer) clearTimeout(st.compTimer);
-                st.compTimer = setTimeout(() => { st.composing = false; st.compTimer = null; }, 3000);
+                if (st.compTimer) window.clearTimeout(st.compTimer);
+                st.compTimer = window.setTimeout(() => { st.composing = false; st.compTimer = null; }, 3000);
         });
         td.addEventListener('compositionend', (e) => {
                 st.composing = false;
-                if (st.compTimer) { clearTimeout(st.compTimer); st.compTimer = null; }
+                if (st.compTimer) { window.clearTimeout(st.compTimer); st.compTimer = null; }
                 // Win 桌面版 Obsidian 智能标点：中文冒号提交后被宿主擅自替换为英文":"，
                 // 光标被弄到冒号【前面】（win 100%，移动端无此转换）。内容是宿主的功能不纠正，
                 // 只修光标：提交"："后多拍检查，若光标停在某个':'之前则拨回其后。
@@ -845,9 +856,9 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                                 // 光标恰好停在某个':'之前（宿主转换把光标丢在冒号前）→ 拨到冒号后
                                 if (src[off] === ':') placeSuppressed(td, st, off + 1);
                         };
-                        setTimeout(fixColonCaret, 60);
-                        setTimeout(fixColonCaret, 300);
-                        setTimeout(fixColonCaret, 800);
+                        window.setTimeout(fixColonCaret, 60);
+                        window.setTimeout(fixColonCaret, 300);
+                        window.setTimeout(fixColonCaret, 800);
                 }
                 scheduleRebuild(td, st, false); // compEnd 派发过程会重置选区，快照不可信
         });
@@ -1278,7 +1289,7 @@ function revealSegmentsInRange(td: HTMLElement, st: TdState, range: Range): void
         if (touched) {
                 st.suppress = true;
                 setRangeAtSourceOffsets(td, lo, hi);
-                setTimeout(() => { st.suppress = false; }, 0);
+                window.setTimeout(() => { st.suppress = false; }, 0);
         }
 }
 
@@ -1291,7 +1302,7 @@ function placeSuppressed(td: HTMLElement, st: TdState, off: number): void {
                 const loc = locateStart(td, sel.getRangeAt(0));
                 st.lastLoc = loc.el ? { el: loc.el, where: loc.where, innerF: loc.innerF } : null;
         }
-        setTimeout(() => { st.suppress = false; }, 0);
+        window.setTimeout(() => { st.suppress = false; }, 0);
 }
 
 let rebuildQueued = false;
@@ -1383,7 +1394,7 @@ function scheduleRebuild(td: HTMLElement, st: TdState, trustSnapshot = true, car
         }
         rebuildQueued = true;
         st.queuedCaret = snap;
-        setTimeout(() => {
+        window.setTimeout(() => {
                 rebuildQueued = false;
                 if (!isWysiwyg(td)) return;
                 // 安卓 IME 连续输入：compositionend 排队的重建执行时下一个 composition 可能已开始，

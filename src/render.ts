@@ -3,7 +3,7 @@
  * vtable 代码块处理器：可编辑表格、模式切换、富文本渲染
  */
 
-import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon } from 'obsidian';
+import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon , createEl } from 'obsidian';
 import { t } from './i18n';
 import {
         parseSource, serialize, visible, Grid, VtData, VtMode, normalizeCellNewlines,
@@ -44,6 +44,7 @@ import {
         setupHsScrollBar,
 } from './modes';
 import type { VtSettings } from './main';
+import { parseTrustedHtml } from './html';
 
 let mathJaxReady: Promise<void> | null = null;
 function ensureMathJax(): Promise<void> {
@@ -105,6 +106,9 @@ let activeController: TableController | null = null;
 const appearanceRegistry = new Map<HTMLElement, () => void>();
 
 /** 设置变更后调用：刷新所有已渲染表格的圆角与表头底色 */
+
+/** 受控 HTML → DocumentFragment：统一走 parseTrustedHtml（html.ts，官方 eslint 合规路径） */
+
 export function refreshAllTableAppearance() {
         for (const [host, refresh] of appearanceRegistry) {
                 if (!host.isConnected) { appearanceRegistry.delete(host); continue; }
@@ -178,8 +182,8 @@ function resolveThemeAccent(el: HTMLElement): string | null {
                 }
         }
         // 探针：浏览器解析嵌套 var() 后的最终色（恒为 rgb()/rgba()，能识别全部主题写法）
-        const probe = document.createElement('span');
-        probe.style.color = 'var(--interactive-accent, var(--accent-color, transparent))';
+        const probe = createEl('span');
+        probe.setCssProps({ color: 'var(--interactive-accent, var(--accent-color, transparent))' });
         el.appendChild(probe);
         const computed = getComputedStyle(probe).color;
         probe.remove();
@@ -345,12 +349,13 @@ function preserveVisualSnapshot(el: HTMLElement) {
         const ghost = old.cloneNode(true) as HTMLElement;
         ghost.classList.add('vt-ghost');
         ghost.setAttribute('aria-hidden', 'true');
-        ghost.style.cssText += [
-                `position:fixed`, `left:${r.left}px`, `top:${r.top}px`,
-                `width:${r.width}px`, `height:${r.height}px`, `margin:0`,
-                `z-index:999`, `pointer-events:none`, `overflow:hidden`,
-                `background:var(--background-primary, #ffffff)`,
-        ].join(';');
+        // 拖动幽灵快照的定位样式：clone 副本自身无 inline 样式，逐条设置等价原写法
+        for (const [p, v] of [
+                ['position', 'fixed'], ['left', `${r.left}px`], ['top', `${r.top}px`],
+                ['width', `${r.width}px`], ['height', `${r.height}px`], ['margin', '0'],
+                ['z-index', '999'], ['pointer-events', 'none'], ['overflow', 'hidden'],
+                ['background', 'var(--background-primary, #ffffff)'],
+        ] as const) ghost.style.setProperty(p, v);
         document.body.appendChild(ghost);
         ghostMap.set(el, ghost);
         window.setTimeout(() => clearVisualSnapshot(el), 600); // 兜底（正常由渲染完成回调清除）
@@ -385,7 +390,7 @@ export function renderBlock(
         const table = wrap.createEl('table', { cls: 'vt' });
         const tbody = table.createEl('tbody');
         const hsBar = el.createDiv({ cls: 'vt-hs-bar' });
-        hsBar.style.display = 'none';
+        hsBar.setCssProps({ display: 'none' });
         const hsTrack = hsBar.createDiv({ cls: 'vt-hs-track' });
         hsTrack.createDiv({ cls: 'vt-hs-thumb' });
         setupHsScrollBar(wrap, hsBar);
@@ -566,7 +571,7 @@ export function renderBlock(
                 //（症状：能打字但光标不显现，敲一个字后才出现；桌面/Android 无此行为）。
                 // 焦点稳定后（下一帧）重设选区，caret 才真正落位；桌面主路径不变
                 if (Platform.isIosApp) {
-                        requestAnimationFrame(() => {
+                        window.requestAnimationFrame(() => {
                                 if (td.isConnected && document.activeElement === td) place();
                         });
                 }
@@ -659,13 +664,13 @@ export function renderBlock(
         let clampRaf: number | null = null;
         let clampLast = 0;
         const stopScrollClamp = () => {
-                if (clampRaf !== null) { cancelAnimationFrame(clampRaf); clampRaf = null; }
+                if (clampRaf !== null) { window.cancelAnimationFrame(clampRaf); clampRaf = null; }
         };
         const startScrollClamp = () => {
                 if (clampRaf !== null) return;
                 const tick = (t: number) => {
                         if (!el.isConnected) { clampRaf = null; return; } // 表格被移除：自清理防泄漏
-                        clampRaf = requestAnimationFrame(tick);
+                        clampRaf = window.requestAnimationFrame(tick);
                         if (t - clampLast < 120) return; // 节流
                         clampLast = t;
                         if (Date.now() - lastTouchScrollAt < 800) return; // 惯性静默期绝不写
@@ -676,7 +681,7 @@ export function renderBlock(
                         ));
                         if (wrap.scrollLeft > cap) wrap.scrollLeft = cap;
                 };
-                clampRaf = requestAnimationFrame(tick);
+                clampRaf = window.requestAnimationFrame(tick);
         };
 
         /** 表格样式应用（三线表/无格线/全横线 + 隔行变色）。
@@ -693,8 +698,8 @@ export function renderBlock(
 
                 table.querySelectorAll<HTMLElement>('td.vt-zebra-tint').forEach((td) => {
                         td.classList.remove('vt-zebra-tint');
-                        td.style.background = '';
-                        td.style.color = '';
+                        td.setCssProps({ background: '' });
+                        td.setCssProps({ color: '' });
                 });
                 if (editing) return;
 
@@ -710,8 +715,8 @@ export function renderBlock(
                                 tr.querySelectorAll<HTMLElement>('td').forEach((td) => {
                                         if (td.style.background) return; // 单格底色/表头色优先
                                         td.classList.add('vt-zebra-tint');
-                                        td.style.background = tint.bg;
-                                        if (tint.fg) td.style.color = tint.fg;
+                                        td.setCssProps({ background: tint.bg });
+                                        if (tint.fg) td.setCssProps({ color: tint.fg });
                                 });
                         });
                 }
@@ -1236,7 +1241,7 @@ export function renderBlock(
                                         const td = cellMap[r]?.[c];
                                         if (!td) continue;
                                         const cur = parseFloat(getComputedStyle(td).fontSize) || 16;
-                                        td.style.fontSize = `${Math.max(8, Math.min(72, cur + delta))}px`;
+                                        td.setCssProps({ fontSize: `${Math.max(8, Math.min(72, cur + delta))}px` });
                                 }
                         }
                         clearSelection();
@@ -1415,20 +1420,20 @@ export function renderBlock(
                 // HS/RC 托条显示时下移让开（托条高+间隙），平时精确 5px；
                 // 视口下方空间不足（软键盘顶起等）时吸视口底，保证可点
                 const hsH = hsBar.offsetHeight > 0 ? hsBar.offsetHeight + 6 : 0;
-                addRowBar.style.left = `${Math.round(wr.left)}px`;
-                addRowBar.style.top = `${Math.round(Math.min(wr.bottom + 5 + hsH, vh - 18))}px`;
-                addRowBar.style.width = `${Math.round(wr.width)}px`;
+                addRowBar.setCssProps({ left: `${Math.round(wr.left)}px` });
+                addRowBar.setCssProps({ top: `${Math.round(Math.min(wr.bottom + 5 + hsH, vh - 18))}px` });
+                addRowBar.setCssProps({ width: `${Math.round(wr.width)}px` });
                 // 右条：贴 min(内容右缘, wrap 可视右缘)——普通窄表/滚到最右时贴内容右缘；
                 // 末列超宽且未滚到时钉在 wrap 可视右缘（贴着可见边缘"等待"），不随不可见内容浮空
                 const wrapRightVis = wr.left + wrap.clientWidth;
-                addColBar.style.top = `${Math.round(wr.top)}px`;
-                addColBar.style.left = `${Math.round(Math.min(tr.right + 2, wrapRightVis + 2))}px`;
-                addColBar.style.height = `${Math.round(wr.height)}px`;
+                addColBar.setCssProps({ top: `${Math.round(wr.top)}px` });
+                addColBar.setCssProps({ left: `${Math.round(Math.min(tr.right + 2, wrapRightVis + 2))}px` });
+                addColBar.setCssProps({ height: `${Math.round(wr.height)}px` });
         };
 
         // rAF 轮询：位置每帧同步（条隐藏时仅轻检查，无 rect 读取）；宿主销毁/被新渲染替换时自清理
         const edgeTick = () => {
-                requestAnimationFrame(edgeTick);
+                window.requestAnimationFrame(edgeTick);
                 if (addRowBar.dataset.vtUid !== (el.dataset.vtEdgeUid ?? '')) {
                         addRowBar.remove();
                         addColBar.remove();
@@ -1441,7 +1446,7 @@ export function renderBlock(
                 }
                 if (addRowBar.classList.contains('vt-edge-on') || addColBar.classList.contains('vt-edge-on')) placeEdgeBars();
         };
-        requestAnimationFrame(edgeTick);
+        window.requestAnimationFrame(edgeTick);
 
         /** 焦点变化后刷新两条的显隐与位置（无表内焦点 = 全隐藏） */
         const updateEdgeBars = () => {
@@ -1487,7 +1492,7 @@ export function renderBlock(
         const exitTable = (td: HTMLElement, direction: -1 | 1) => {
                 if (selRects.length) clearSelection();
                 td.blur();
-                setTimeout(() => onExitTable(direction), 0);
+                window.setTimeout(() => onExitTable(direction), 0);
         };
 
         /** 任务6：待办勾选点击写回——切换源文本中的第 idx 个待办标记并提交重渲染 */
@@ -1546,14 +1551,14 @@ export function renderBlock(
                         if (c === domFirstCol && c > 0) td.addClass('vt-prot-left');
                         if (c === domLastCol && c + cellData.cs < colCount(grid)) td.addClass('vt-prot-right');
                         // 单元格级对齐/底色（任务1/2）
-                        if (cellData.a) td.style.textAlign = cellData.a === 'c' ? 'center' : cellData.a === 'r' ? 'right' : 'left';
+                        if (cellData.a) td.setCssProps({ textAlign: cellData.a === 'c' ? 'center' : cellData.a === 'r' ? 'right' : 'left' });
                         // 垂直对齐（t=顶/m=中/b=底；缺省=顶=CSS 默认不写）。斜分格两区贴角，不适用
                         if (cellData.va && !isDiag(cellData)) {
-                                td.style.verticalAlign = cellData.va === 'm' ? 'middle' : cellData.va === 'b' ? 'bottom' : 'top';
+                                td.setCssProps({ verticalAlign: cellData.va === 'm' ? 'middle' : cellData.va === 'b' ? 'bottom' : 'top' });
                         }
                         if (cellData.bg) {
-                                td.style.background = cellData.bg;
-                                td.style.color = contrastTextColor(cellData.bg);
+                                td.setCssProps({ background: cellData.bg });
+                                td.setCssProps({ color: contrastTextColor(cellData.bg) });
                         }
 
                         if (isDiag(cellData)) {
@@ -1618,7 +1623,7 @@ export function renderBlock(
                                         },
                                         onZoneLeave: () => {
                                                 // 区失焦且目标可能在格外：延迟一拍按焦点实际落点收尾
-                                                setTimeout(() => {
+                                                window.setTimeout(() => {
                                                         if (td.contains(document.activeElement)) return;
                                                         finishDiagEdit();
                                                 }, 0);
@@ -1767,7 +1772,7 @@ export function renderBlock(
                                                 updateEdgeBars();
                                         }
                                 } else {
-                                        setTimeout(() => {
+                                        window.setTimeout(() => {
                                                 if (!table.isConnected) return; // 表格已被销毁/替换（重渲染）：旧实例不再写回，防覆盖新内容
                                                 if (table.contains(document.activeElement)) return; // 切格：焦点仍在表内
                                                 // iPad bug3：刚点过表内格子（触摸聚焦慢一拍，新格 focus 还在路上）
@@ -1954,14 +1959,14 @@ export function renderBlock(
                         if (!td) continue;
                         const cd = grid[0]![c]!;
                         if (bg) {
-                                td.style.background = bg;
-                                td.style.color = contrastTextColor(bg);
+                                td.setCssProps({ background: bg });
+                                td.setCssProps({ color: contrastTextColor(bg) });
                         } else if (cd.bg) { // 还原单元格自身底色（避免误清）
-                                td.style.background = cd.bg;
-                                td.style.color = contrastTextColor(cd.bg);
+                                td.setCssProps({ background: cd.bg });
+                                td.setCssProps({ color: contrastTextColor(cd.bg) });
                         } else {
-                                td.style.background = '';
-                                td.style.color = '';
+                                td.setCssProps({ background: '' });
+                                td.setCssProps({ color: '' });
                         }
                 }
         };
@@ -1970,10 +1975,10 @@ export function renderBlock(
         const refreshAppearance = () => {
                 const radius = Math.max(0, Math.min(24, Math.round(settings.tableRadius ?? 0)));
                 if (radius > 0) {
-                        wrap.style.borderRadius = `${radius}px`;
+                        wrap.setCssProps({ borderRadius: `${radius}px` });
                         wrap.addClass('vt-radius');
                 } else {
-                        wrap.style.borderRadius = '';
+                        wrap.setCssProps({ borderRadius: '' });
                         wrap.removeClass('vt-radius');
                 }
                 refreshHeader();
@@ -2022,7 +2027,7 @@ export function renderBlock(
                                 td.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                         }
                 };
-                requestAnimationFrame(bringBack);
+                window.requestAnimationFrame(bringBack);
                 window.setTimeout(bringBack, 250);
         };
         latestRenderSource = source;
@@ -2074,7 +2079,7 @@ export function renderBlock(
                                         if (!yieldsToUser) window.setTimeout(tryInitialFocus, 150);
                                 }
                         };
-                        requestAnimationFrame(tryInitialFocus);
+                        window.requestAnimationFrame(tryInitialFocus);
                 }
         }
 
@@ -2095,14 +2100,14 @@ export function renderBlock(
                                 anchor.scroller.scrollTop = target;
                         }
                 };
-                requestAnimationFrame(() => requestAnimationFrame(restore));
+                window.requestAnimationFrame(() => window.requestAnimationFrame(restore));
                 for (const t of [100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200, 4000]) {
                         window.setTimeout(restore, t);
                 }
         }
 
         // 渲染就绪：两帧后撤掉视觉冻结快照（新内容已上屏，600ms 兜底见 preserveVisualSnapshot）
-        requestAnimationFrame(() => requestAnimationFrame(() => clearVisualSnapshot(el)));
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => clearVisualSnapshot(el)));
 }
 
 /* ===== 光标位置探测（方向键智能跳格用） ===== */
@@ -2335,7 +2340,7 @@ function populateCell(
         onTodoToggle?: (idx: number, checked: boolean) => void,
         onOpenLink?: (linkText: string) => void,
 ) {
-        td.innerHTML = raw;
+        td.replaceChildren(...parseTrustedHtml(raw).childNodes);
         if (/^=[A-Z]+\(/i.test(raw)) {
                 td.textContent = evalFormula(grid, raw);
         }
@@ -2408,8 +2413,7 @@ function renderHtml(root: HTMLElement) {
         for (const textNode of targets) {
                 const text = textNode.textContent!;
                 if (!/<[a-z][a-z0-9]*\b[^>]*>/i.test(text) && !/<\/[a-z]+>/i.test(text)) continue;
-                const frag = document.createRange().createContextualFragment(text);
-                textNode.replaceWith(frag);
+                textNode.replaceWith(...parseTrustedHtml(text).childNodes);
         }
 }
 
@@ -2427,9 +2431,7 @@ function renderMarkdown(root: HTMLElement) {
         for (const textNode of targets) {
                 const html = mdInlineToHtml(textNode.textContent!);
                 if (html === textNode.textContent) continue;
-                const frag = document.createDocumentFragment();
-                frag.append(document.createRange().createContextualFragment(html));
-                textNode.replaceWith(frag);
+                textNode.replaceWith(...parseTrustedHtml(html).childNodes);
         }
 }
 
@@ -2448,9 +2450,7 @@ function renderInlineCode(root: HTMLElement) {
                 if (!/`[^`]+`/.test(textNode.textContent!)) continue;
                 const html = mdInlineToHtml(textNode.textContent!);
                 if (html === textNode.textContent) continue;
-                const frag = document.createDocumentFragment();
-                frag.append(document.createRange().createContextualFragment(html));
-                textNode.replaceWith(frag);
+                textNode.replaceWith(...parseTrustedHtml(html).childNodes);
         }
 }
 
@@ -2475,9 +2475,9 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
 
                 const buildTaskItem = (m: RegExpMatchArray) => {
                         hasTodo = true;
-                        const item = document.createElement('div');
+                        const item = createEl('div');
                         item.className = 'vt-task-item';
-                        const cb = document.createElement('input');
+                        const cb = createEl('input');
                         cb.type = 'checkbox';
                         cb.checked = m[1] !== ' ';
                         // 任务7：状态自跟踪——不依赖浏览器对 input 的自动翻转行为
@@ -2487,23 +2487,23 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         // 对齐用内联样式：input 的 margin 会被 Obsidian 全局规则吃掉（CSS 对抗不稳）；
                         // box-sizing + 显式尺寸锁定绘制盒（防主题框溢出导致偏上），
                         // border/padding 不动——主题自绘 checkbox 靠它们画框，清掉会让未勾选框消失
-                        cb.style.margin = '0.225em 0 0';
+                        cb.setCssProps({ margin: '0.225em 0 0' });
                         // font-size 显式继承：<input> 的 UA 默认样式不继承 font-size，1em 会参照浏览器
                         // 默认字号——iPad（新默认大字号）下复选框不随系统字号放大（桌面被 Obsidian
                         // 全局规则归一所以正常）。钉死继承后 1em/0.225em 全部跟随文字字号
-                        cb.style.fontSize = 'inherit';
-                        cb.style.width = '1em';
-                        cb.style.height = '1em';
-                        cb.style.boxSizing = 'border-box';
+                        cb.setCssProps({ fontSize: 'inherit' });
+                        cb.setCssProps({ width: '1em' });
+                        cb.setCssProps({ height: '1em' });
+                        cb.setCssProps({ boxSizing: 'border-box' });
                         // iPad 触控：1em 视觉盒太小难点中——外包均匀 5px 热区（负 margin 抵消，视觉位置不变）
-                        const hit = document.createElement('span');
+                        const hit = createEl('span');
                         hit.className = 'vt-cb-hit';
-                        hit.style.display = 'inline-flex';
-                        hit.style.padding = '5px';
-                        hit.style.margin = '-5px';
-                        hit.style.marginTop = 'calc(-5px + 0.1em)';
-                        hit.style.cursor = 'pointer';
-                        hit.style.borderRadius = '4px';
+                        hit.setCssProps({ display: 'inline-flex' });
+                        hit.setCssProps({ padding: '5px' });
+                        hit.setCssProps({ margin: '-5px' });
+                        hit.setCssProps({ marginTop: 'calc(-5px + 0.1em)' });
+                        hit.setCssProps({ cursor: 'pointer' });
+                        hit.setCssProps({ borderRadius: '4px' });
                         hit.addEventListener('mousedown', (e) => e.preventDefault());
                         // 任务6：点框打勾——不聚焦 td（保持渲染态）、不触发选区/清选区手势
                         if (onTodoToggle) {
@@ -2526,7 +2526,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         }
                         hit.appendChild(cb);
                         item.appendChild(hit);
-                        const span = document.createElement('span');
+                        const span = createEl('span');
                         span.textContent = m[2] ?? '';
                         item.appendChild(span);
                         return item;
@@ -2628,11 +2628,11 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                         const src = resolveImage(linkText);
 
                         if (src) {
-                                const img = document.createElement('img');
+                                const img = createEl('img');
                                 img.src = src;
                                 img.alt = altText || linkText;
-                                img.style.maxWidth = '100%';
-                                if (sizeNum !== null) img.style.width = `${sizeNum}px`;
+                                img.setCssProps({ maxWidth: '100%' });
+                                if (sizeNum !== null) img.setCssProps({ width: `${sizeNum}px` });
                                 frag.appendChild(img);
                         } else {
                                 frag.appendChild(document.createTextNode(match[0]));
@@ -2675,7 +2675,7 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                         if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
                         const linkText = m[1]!.trim();
                         const display = (m[2]?.trim() || linkText);
-                        const a = document.createElement('a');
+                        const a = createEl('a');
                         a.className = 'internal-link';
                         a.href = linkText;
                         a.textContent = display;
@@ -2731,9 +2731,7 @@ type MenuAction = {
 
 /** 单元格 html → 纯文本（<br> → 换行，其余标签剥除） */
 function cellPlainText(html: string): string {
-        const div = document.createElement('div');
-        div.innerHTML = html.replace(/<br\s*\/?>/gi, '\n');
-        return div.textContent ?? '';
+        return parseTrustedHtml(html.replace(/<br\s*\/?>/gi, '\n')).textContent ?? '';
 }
 
 /** 复制菜单位置（选区 → 逐矩形 TSV；单格 → 格内容）到剪贴板 */
