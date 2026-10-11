@@ -87,7 +87,7 @@ export default class VtPlugin extends Plugin {
                 }
 
                 // 2. 确保文件夹存在
-                const folderExists = app.vault.getAbstractFileByPath(normalizePath(templateFolder)) != null;
+                const folderExists = vault.getAbstractFileByPath(normalizePath(templateFolder)) != null;
                 if (!folderExists) {
                         await vault.createFolder(templateFolder);
                 }
@@ -111,7 +111,7 @@ export default class VtPlugin extends Plugin {
                 // 4. 逐个检查并创建缺失的文件（不覆盖已有文件）
                 for (const tpl of templates) {
                         const filePath = `${templateFolder}/${tpl.name}`;
-                        const fileExists = app.vault.getAbstractFileByPath(normalizePath(filePath)) != null;
+                        const fileExists = vault.getAbstractFileByPath(normalizePath(filePath)) != null;
                         if (!fileExists) {
                                 await vault.create(filePath, tpl.content);
                         }
@@ -184,7 +184,7 @@ export default class VtPlugin extends Plugin {
                 this.registerDomEvent(document, 'focusin', (e: FocusEvent) => {
                         const t = e.target;
                         if (this.toolbar.el.style.display !== 'none'
-                                && t instanceof Element
+                                && (t != null && t.instanceOf(Element))
                                 && !t.closest('table.vt, .vt-bar, .vt-mode-bar')) {
                                 this.toolbar.hide();
                         }
@@ -602,9 +602,12 @@ export default class VtPlugin extends Plugin {
 
                 let registered = false;
                 try {
-                        // @ts-ignore —— @codemirror/* 运行时由 Obsidian 提供，devDependencies 未装类型包
+                        // @ts-ignore —— @codemirror/* 运行时由 Obsidian 提供，devDependencies 未装类型包；
+                        // 保留 require 动态获取：失败时走下方 document 捕获降级路径，静态导入会砍掉兜底
+                        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 动态获取保留失败降级设计
                         const cmView = require('@codemirror/view');
                         // @ts-ignore
+                        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上
                         const cmState = require('@codemirror/state');
                         const keymap = cmView?.keymap;
                         const Prec = cmState?.Prec;

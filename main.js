@@ -1292,7 +1292,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
       return { r: Math.max(0, r), c: Math.max(0, c) };
     };
     const probe = document.elementFromPoint(x, y);
-    const hit = probe instanceof HTMLElement ? probe.closest("td,th") : null;
+    const hit = probe != null && probe.instanceOf(HTMLElement) ? probe.closest("td,th") : null;
     if (hit && table.contains(hit))
       return resolve(hit);
     let fallback = null;
@@ -2672,7 +2672,7 @@ function enterWysiwyg(td, src, ctx) {
   for (const seg of parseSegments(src)) {
     td.appendChild(buildSegEl(seg, ctx));
   }
-  if (td.lastChild instanceof HTMLBRElement) {
+  if (td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement)) {
     const tail = createEl("span");
     tail.className = SEG_CLS;
     tail.dataset.kind = "text";
@@ -2800,7 +2800,7 @@ function setSegSource(el, raw) {
 function projectSource(td) {
   let out = "";
   for (const child of Array.from(td.childNodes)) {
-    if (!(child instanceof HTMLElement) || !child.classList.contains(SEG_CLS)) {
+    if (!(child != null && child.instanceOf(HTMLElement)) || !child.classList.contains(SEG_CLS)) {
       out += looseNodeSource(child);
       continue;
     }
@@ -2813,16 +2813,16 @@ function projectSource(td) {
 }
 function atTailAnchor(td, off) {
   const last = td.lastChild;
-  if (!(last instanceof HTMLElement) || last.dataset.src !== "" || !last.classList.contains(SEG_CLS))
+  if (!(last != null && last.instanceOf(HTMLElement)) || last.dataset.src !== "" || !last.classList.contains(SEG_CLS))
     return false;
   return parseInt(last.dataset.s ?? "-1", 10) === off;
 }
 function looseNodeSource(n) {
   if (n.nodeType === Node.TEXT_NODE)
     return n.textContent ?? "";
-  if (n instanceof HTMLBRElement)
+  if (n != null && n.instanceOf(HTMLBRElement))
     return "<br>";
-  if (n instanceof HTMLElement) {
+  if (n != null && n.instanceOf(HTMLElement)) {
     const isBlock = /^(DIV|P|LI|UL|OL|H[1-6])$/i.test(n.tagName);
     const inner = Array.from(n.childNodes).map(looseNodeSource).join("");
     return isBlock ? "<br>" + inner : inner;
@@ -2835,9 +2835,9 @@ function srcTextOf(el) {
   for (const n of Array.from(el.childNodes)) {
     if (n.nodeType === Node.TEXT_NODE)
       out += n.textContent ?? "";
-    else if (n instanceof HTMLBRElement)
+    else if (n != null && n.instanceOf(HTMLBRElement))
       out += "<br>";
-    else if (n instanceof HTMLElement && /^(DIV|P|LI|UL|OL|H[1-6])$/i.test(n.tagName)) {
+    else if (n != null && n.instanceOf(HTMLElement) && /^(DIV|P|LI|UL|OL|H[1-6])$/i.test(n.tagName)) {
       out += "<br>" + Array.from(n.childNodes).map(looseNodeSource).join("");
     } else
       out += n.textContent ?? "";
@@ -2846,7 +2846,7 @@ function srcTextOf(el) {
 }
 function segEls(td) {
   return Array.from(td.children).filter(
-    (c) => c instanceof HTMLElement && c.classList.contains(SEG_CLS)
+    (c) => c != null && c.instanceOf(HTMLElement) && c.classList.contains(SEG_CLS)
   );
 }
 function locateStart(td, range) {
@@ -2854,7 +2854,7 @@ function locateStart(td, range) {
   const offset = range.startOffset;
   if (node.nodeType === Node.TEXT_NODE) {
     const host2 = node.parentElement?.closest(`.${SEG_CLS}`);
-    if (host2 instanceof HTMLElement && td.contains(host2)) {
+    if (host2 != null && host2.instanceOf(HTMLElement) && td.contains(host2)) {
       const f = textOffsetWithin(host2, node, offset);
       return { el: host2, kind: host2.dataset.kind ?? "text", where: "inner", innerF: f };
     }
@@ -2862,8 +2862,8 @@ function locateStart(td, range) {
   }
   if (node === td) {
     const childNodes = Array.from(td.childNodes);
-    const next = childNodes[offset] instanceof HTMLElement && childNodes[offset].classList.contains(SEG_CLS) ? childNodes[offset] : null;
-    const prev = offset > 0 && childNodes[offset - 1] instanceof HTMLElement && childNodes[offset - 1].classList.contains(SEG_CLS) ? childNodes[offset - 1] : null;
+    const next = childNodes[offset] != null && childNodes[offset].instanceOf(HTMLElement) && childNodes[offset].classList.contains(SEG_CLS) ? childNodes[offset] : null;
+    const prev = offset > 0 && (childNodes[offset - 1] != null && childNodes[offset - 1].instanceOf(HTMLElement)) && childNodes[offset - 1].classList.contains(SEG_CLS) ? childNodes[offset - 1] : null;
     const isRenderable = (el) => el.dataset.view !== "src" && el.dataset.kind !== "text";
     if (next && isRenderable(next))
       return { el: next, kind: next.dataset.kind, where: "front", innerF: 0 };
@@ -2875,8 +2875,8 @@ function locateStart(td, range) {
       return { el: prev, kind: prev.dataset.kind, where: "back", innerF: 0 };
     return { el: null, kind: null, where: "inner", innerF: 0 };
   }
-  const host = (node instanceof HTMLElement ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
-  if (host instanceof HTMLElement && td.contains(host)) {
+  const host = (node != null && node.instanceOf(HTMLElement) ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
+  if (host != null && host.instanceOf(HTMLElement) && td.contains(host)) {
     const elChildren = Array.from(host.childNodes);
     const nextInSeg = elChildren[offset];
     const prevInSeg = offset > 0 ? elChildren[offset - 1] : null;
@@ -2894,11 +2894,11 @@ function locateStart(td, range) {
   return { el: null, kind: null, where: "inner", innerF: 0 };
 }
 function isVoidRenderEl(n) {
-  if (!(n instanceof HTMLElement))
+  if (!(n != null && n.instanceOf(HTMLElement)))
     return false;
-  if (n instanceof HTMLBRElement)
+  if (n != null && n.instanceOf(HTMLBRElement))
     return true;
-  if (n instanceof HTMLImageElement)
+  if (n != null && n.instanceOf(HTMLImageElement))
     return true;
   return n.classList.contains(SEG_CLS) && n.dataset.view === "render" && (n.dataset.kind ?? "").startsWith("void");
 }
@@ -2919,13 +2919,13 @@ function srcOffsetWithin(el, target, offset) {
     if (n === target) {
       if (n.nodeType === Node.TEXT_NODE)
         return acc + offset;
-      if (n instanceof HTMLBRElement)
+      if (n != null && n.instanceOf(HTMLBRElement))
         return acc + (offset > 0 ? 4 : 0);
       return acc + Math.min(offset, n.textContent?.length ?? 0);
     }
     if (n.nodeType === Node.TEXT_NODE)
       acc += n.textContent?.length ?? 0;
-    else if (n instanceof HTMLBRElement)
+    else if (n != null && n.instanceOf(HTMLBRElement))
       acc += 4;
     else
       acc += n.textContent?.length ?? 0;
@@ -2939,9 +2939,9 @@ function looseOffsetAt(td, idx) {
     if (i === idx)
       break;
     const n = childNodes[i];
-    if (n instanceof HTMLElement && n.classList.contains(SEG_CLS))
+    if (n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS))
       acc = parseInt(n.dataset.e ?? "0", 10);
-    else if (n instanceof HTMLBRElement)
+    else if (n != null && n.instanceOf(HTMLBRElement))
       acc += 4;
     else
       acc += n.textContent?.length ?? 0;
@@ -2963,9 +2963,9 @@ function caretSourceOffset(td) {
         acc0 += range.startOffset;
         break;
       }
-      if (n instanceof HTMLElement && n.classList.contains(SEG_CLS))
+      if (n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS))
         acc0 = parseInt(n.dataset.e ?? "0", 10);
-      else if (n instanceof HTMLBRElement)
+      else if (n != null && n.instanceOf(HTMLBRElement))
         acc0 += 4;
       else
         acc0 += n.textContent?.length ?? 0;
@@ -2981,9 +2981,9 @@ function caretSourceOffset(td) {
       const n = childNodes[i];
       if (i === idx)
         break;
-      if (n instanceof HTMLElement && n.classList.contains(SEG_CLS))
+      if (n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS))
         acc = parseInt(n.dataset.e ?? "0", 10);
-      else if (n instanceof HTMLBRElement)
+      else if (n != null && n.instanceOf(HTMLBRElement))
         acc += 4;
       else
         acc += n.textContent?.length ?? 0;
@@ -3048,8 +3048,8 @@ function rangeOffset(td, node, offset) {
   } catch {
     return null;
   }
-  const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof HTMLElement ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
-  if (host instanceof HTMLElement && td.contains(host)) {
+  const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node != null && node.instanceOf(HTMLElement) ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
+  if (host != null && host.instanceOf(HTMLElement) && td.contains(host)) {
     const s = parseInt(host.dataset.s ?? "0", 10);
     if (host.dataset.view === "src")
       return s + srcOffsetWithin(host, node, offset);
@@ -3062,10 +3062,10 @@ function rangeOffset(td, node, offset) {
   if (node === td) {
     const childNodes = Array.from(td.childNodes);
     const next = childNodes[offset];
-    if (next instanceof HTMLElement && next.classList.contains(SEG_CLS))
+    if (next != null && next.instanceOf(HTMLElement) && next.classList.contains(SEG_CLS))
       return parseInt(next.dataset.s ?? "0", 10);
     const prev = offset > 0 ? childNodes[offset - 1] : null;
-    if (prev instanceof HTMLElement && prev.classList.contains(SEG_CLS))
+    if (prev != null && prev.instanceOf(HTMLElement) && prev.classList.contains(SEG_CLS))
       return parseInt(prev.dataset.e ?? "0", 10);
     return offset <= 0 ? 0 : totalLen(td);
   }
@@ -3088,7 +3088,7 @@ function placeCaretAtSourceOffset(td, off) {
     const nodes = Array.from(td.childNodes);
     let acc = 0;
     for (const n of nodes) {
-      if (n instanceof HTMLBRElement) {
+      if (n != null && n.instanceOf(HTMLBRElement)) {
         const brS = acc;
         const brE = acc + 4;
         if (off <= brE) {
@@ -3108,7 +3108,7 @@ function placeCaretAtSourceOffset(td, off) {
         acc = brE;
         continue;
       }
-      if (n instanceof HTMLElement && n.classList.contains(SEG_CLS)) {
+      if (n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS)) {
         const e2 = parseInt(n.dataset.e ?? "0", 10);
         const s2 = parseInt(n.dataset.s ?? "0", 10);
         if (off < s2 && off <= acc) {
@@ -3182,7 +3182,7 @@ function placeCaretAtSourceOffset(td, off) {
 function srcDomPos(el, local) {
   let acc = 0;
   for (const n of Array.from(el.childNodes)) {
-    const len = n.nodeType === Node.TEXT_NODE ? n.textContent?.length ?? 0 : n instanceof HTMLBRElement ? 4 : n.textContent?.length ?? 0;
+    const len = n.nodeType === Node.TEXT_NODE ? n.textContent?.length ?? 0 : n != null && n.instanceOf(HTMLBRElement) ? 4 : n.textContent?.length ?? 0;
     if (acc + len >= local) {
       if (n.nodeType === Node.TEXT_NODE)
         return { node: n, offset: local - acc };
@@ -3407,7 +3407,7 @@ function attachWysiwyg(td, ctx) {
             del.deleteContents();
           } else if (r.startContainer.nodeType === Node.TEXT_NODE) {
             const t2 = r.startContainer;
-            t2.textContent = t2.textContent?.slice(0, r.startOffset) + t2.textContent?.slice(r.startOffset + len);
+            t2.textContent = (t2.textContent?.slice(0, r.startOffset) ?? "") + (t2.textContent?.slice(r.startOffset + len) ?? "");
           } else {
             renderSegContent(hostSeg, {
               kind: hostSeg.dataset.kind,
@@ -3743,7 +3743,7 @@ function promoteTailNewlines(td, src) {
     const n = kids[i];
     if (n.nodeType === Node.TEXT_NODE && !(n.textContent ?? "").trim())
       continue;
-    return n instanceof HTMLElement && n.classList.contains(SEG_CLS) && n.dataset.view === "render" ? src.replace(/\n+$/, (m) => "<br>".repeat(m.length)) : src;
+    return n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS) && n.dataset.view === "render" ? src.replace(/\n+$/, (m) => "<br>".repeat(m.length)) : src;
   }
   return src;
 }
@@ -4548,7 +4548,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   };
   const flushDiagZone = () => {
     const z = document.activeElement;
-    if (!z || !(z instanceof Element) || !z.classList.contains("vt-diag-zone") || !table.contains(z))
+    if (!z || !(z != null && z.instanceOf(Element)) || !z.classList.contains("vt-diag-zone") || !table.contains(z))
       return;
     const td = z.closest("td");
     if (!td)
@@ -5113,7 +5113,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       return;
     if (selGesture)
       return;
-    const target = e.target instanceof Element ? e.target : null;
+    const target = e.target != null && e.target.instanceOf(Element) ? e.target : null;
     const td = target?.closest("td");
     if (!td || !table.contains(td))
       return;
@@ -5566,7 +5566,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const onTodoToggle = (r, c) => (idx, checked) => {
     flushActiveCell();
     const active = document.activeElement;
-    if (active instanceof HTMLElement && table.contains(active))
+    if (active != null && active.instanceOf(HTMLElement) && table.contains(active))
       active.blur();
     const cd = grid[r][c];
     const next = toggleTodoMark(cd.t, idx, checked);
@@ -6092,7 +6092,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           return;
         if (req.expires !== void 0 && Date.now() < req.expires) {
           const holder = document.activeElement;
-          const yieldsToUser = holder instanceof HTMLElement && holder !== document.body && !holder.closest(".cm-editor");
+          const yieldsToUser = holder != null && holder.instanceOf(HTMLElement) && holder !== document.body && !holder.closest(".cm-editor");
           if (!yieldsToUser)
             window.setTimeout(tryInitialFocus, 150);
         }
@@ -7036,8 +7036,8 @@ function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit, setMode, sel,
     fn();
     onCommit(shift);
   };
-  const focusR = () => document.activeElement instanceof HTMLElement ? parseInt(document.activeElement.dataset.vtR ?? "-1", 10) : -1;
-  const focusC = () => document.activeElement instanceof HTMLElement ? parseInt(document.activeElement.dataset.vtC ?? "-1", 10) : -1;
+  const focusR = () => document.activeElement != null && document.activeElement.instanceOf(HTMLElement) ? parseInt(document.activeElement.dataset.vtR ?? "-1", 10) : -1;
+  const focusC = () => document.activeElement != null && document.activeElement.instanceOf(HTMLElement) ? parseInt(document.activeElement.dataset.vtC ?? "-1", 10) : -1;
   const ctx = { r, c, grid, data, apply, sel, setMode, focusR, focusC };
   buildCellMenu(settings, ctx, obsidianCommand).showAtMouseEvent(e);
 }
@@ -7376,7 +7376,7 @@ function generateBarChart(grid) {
       continue;
     if (/^…+/.test(label))
       continue;
-    const value = parseFloat(valStr.replace(/[^0-9.\-]/g, ""));
+    const value = parseFloat(valStr.replace(/[^0-9.-]/g, ""));
     if (isNaN(value))
       continue;
     data.push({ label, value });
@@ -7464,7 +7464,7 @@ function generatePieChart(grid) {
       continue;
     if (/^…+/.test(label))
       continue;
-    const value = parseFloat(valStr.replace(/[^0-9.\-]/g, ""));
+    const value = parseFloat(valStr.replace(/[^0-9.-]/g, ""));
     if (isNaN(value) || value <= 0)
       continue;
     data.push({ label, value });
@@ -7512,7 +7512,7 @@ function generateLineChart(grid) {
       continue;
     if (/^…+/.test(label))
       continue;
-    const value = parseFloat(valStr.replace(/[^0-9.\-]/g, ""));
+    const value = parseFloat(valStr.replace(/[^0-9.-]/g, ""));
     if (isNaN(value))
       continue;
     data.push({ label, value });
@@ -7666,7 +7666,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
       if (folder)
         templateFolder = folder;
     }
-    const folderExists = app.vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(templateFolder)) != null;
+    const folderExists = vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(templateFolder)) != null;
     if (!folderExists) {
       await vault.createFolder(templateFolder);
     }
@@ -7686,7 +7686,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
     ];
     for (const tpl of templates) {
       const filePath = `${templateFolder}/${tpl.name}`;
-      const fileExists = app.vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(filePath)) != null;
+      const fileExists = vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(filePath)) != null;
       if (!fileExists) {
         await vault.create(filePath, tpl.content);
       }
@@ -7746,7 +7746,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
     });
     this.registerDomEvent(document, "focusin", (e) => {
       const t2 = e.target;
-      if (this.toolbar.el.style.display !== "none" && t2 instanceof Element && !t2.closest("table.vt, .vt-bar, .vt-mode-bar")) {
+      if (this.toolbar.el.style.display !== "none" && (t2 != null && t2.instanceOf(Element)) && !t2.closest("table.vt, .vt-bar, .vt-mode-bar")) {
         this.toolbar.hide();
       }
     });
@@ -8433,8 +8433,8 @@ var VtPlugin = class extends import_obsidian4.Plugin {
   }
 };
 var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
-  constructor(app2, plugin) {
-    super(app2, plugin);
+  constructor(app, plugin) {
+    super(app, plugin);
     this.plugin = plugin;
   }
   display() {
@@ -8743,8 +8743,8 @@ function findVtableBlockAbove(ed) {
   return best;
 }
 var VtColorModal = class extends import_obsidian4.Modal {
-  constructor(app2, initial, onOk) {
-    super(app2);
+  constructor(app, initial, onOk) {
+    super(app);
     this.selected = null;
     this.onOk = onOk;
     this.selected = initial || null;

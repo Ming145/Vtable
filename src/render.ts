@@ -441,7 +441,7 @@ export function renderBlock(
         /** 斜分格：zone 仍是 activeElement 时（容器被隐藏但未失焦），把编辑内容写回 grid */
         const flushDiagZone = () => {
                 const z = document.activeElement as HTMLElement | null;
-                if (!z || !(z instanceof Element) || !z.classList.contains('vt-diag-zone') || !table.contains(z)) return;
+                if (!z || !((z != null && z.instanceOf(Element))) || !z.classList.contains('vt-diag-zone') || !table.contains(z)) return;
                 const td = z.closest('td') as HTMLTableCellElement | null;
                 if (!td) return;
                 const p = tdCoords(td);
@@ -1037,7 +1037,7 @@ export function renderBlock(
         wrap.addEventListener('pointerup', (e) => {
                 if (e.button !== 0) return;
                 if (selGesture) return; // 手势收尾的 up 由 window 监听处理
-                const target = e.target instanceof Element ? e.target : null;
+                const target = (e.target != null && e.target.instanceOf(Element)) ? e.target : null;
                 const td = target?.closest('td');
                 if (!td || !table.contains(td)) return;
                 const { r, c } = tdCoords(td);
@@ -1501,7 +1501,7 @@ export function renderBlock(
                 // 勾选触发整表重建：先让聚焦格干净失焦，否则重建摘除 DOM 后
                 // iOS 会把插入符绘制成异常的缩小版（贴在 checkbox 附近）
                 const active = document.activeElement;
-                if (active instanceof HTMLElement && table.contains(active)) active.blur();
+                if ((active != null && active.instanceOf(HTMLElement)) && table.contains(active)) active.blur();
                 const cd = grid[r]![c]!;
                 const next = toggleTodoMark(cd.t, idx, checked);
                 if (next === cd.t) return;
@@ -2073,7 +2073,7 @@ export function renderBlock(
                                 // 有效期内每 150ms 重夺一次；用户主动聚焦别处（非编辑器/非 body）则让位
                                 if (req.expires !== undefined && Date.now() < req.expires) {
                                         const holder = document.activeElement;
-                                        const yieldsToUser = holder instanceof HTMLElement
+                                        const yieldsToUser = (holder != null && holder.instanceOf(HTMLElement))
                                                 && holder !== document.body
                                                 && !holder.closest('.cm-editor');
                                         if (!yieldsToUser) window.setTimeout(tryInitialFocus, 150);
@@ -3026,9 +3026,9 @@ function showCellMenu(
                 fn();
                 onCommit(shift);
         };
-        const focusR = () => (document.activeElement instanceof HTMLElement
+        const focusR = () => ((document.activeElement != null && document.activeElement.instanceOf(HTMLElement))
                 ? parseInt(document.activeElement.dataset.vtR ?? '-1', 10) : -1);
-        const focusC = () => (document.activeElement instanceof HTMLElement
+        const focusC = () => ((document.activeElement != null && document.activeElement.instanceOf(HTMLElement))
                 ? parseInt(document.activeElement.dataset.vtC ?? '-1', 10) : -1);
         const ctx: MenuCtx = { r, c, grid, data, apply, sel, setMode, focusR, focusC };
         buildCellMenu(settings, ctx, obsidianCommand).showAtMouseEvent(e);

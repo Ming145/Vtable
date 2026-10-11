@@ -215,7 +215,7 @@ export function bindRowColDrag(
                         return { r: Math.max(0, r), c: Math.max(0, c) };
                 };
                 const probe = document.elementFromPoint(x, y);
-                const hit = probe instanceof HTMLElement ? (probe.closest('td,th') as HTMLElement | null) : null;
+                const hit = (probe != null && probe.instanceOf(HTMLElement)) ? (probe.closest('td,th') as HTMLElement | null) : null;
                 if (hit && table.contains(hit)) return resolve(hit);
                 // 兜底：浮层/把手遮挡等导致 hit-test 落空时回退全量遍历
                 let fallback: HTMLElement | null = null;

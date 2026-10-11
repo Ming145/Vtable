@@ -52,7 +52,7 @@ export function generateBarChart(grid: Grid): string | null {
 		const valStr = grid[i]?.[1]?.t?.trim();
 		if (!label || !valStr) continue;
 		if (/^…+/.test(label)) continue; // 跳过占位描述行
-		const value = parseFloat(valStr.replace(/[^0-9.\-]/g, ''));
+		const value = parseFloat(valStr.replace(/[^0-9.-]/g, ''));
 		if (isNaN(value)) continue;
 		data.push({ label, value });
 	}

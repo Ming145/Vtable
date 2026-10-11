@@ -95,6 +95,8 @@ export function mdInlineToHtml(s: string): string {
         s = escapeHtml(s);
 
         // 9) 恢复保护的内容
+        // \x00/\x01 是 mdInlineToHtml 保护段的哨兵字节，正文不可能出现，必须原样匹配
+        // eslint-disable-next-line no-control-regex -- 哨兵字节匹配为序列化保护机制所必需
         return s.replace(/\x00(\d+)\x01/g, (_, idx) => protectedSpans[parseInt(idx)]!);
 }
 
@@ -340,6 +342,8 @@ function splitRow(line: string): string[] {
         // 转义竖线 \| = 字面竖线（与导出端 escapeMdCell 成对）：不占位分列，防列数错拆
         return s.replace(/\\\|/g, '\x00VTESC\x00')
                 .split('|')
+                // \x00VTESC\x00 是 splitRow 的转义占位哨兵，同样为机制必需
+                // eslint-disable-next-line no-control-regex -- 哨兵字节匹配为管道转义机制所必需
                 .map(c => c.trim().replace(/\x00VTESC\x00/g, '|'));
 }
 

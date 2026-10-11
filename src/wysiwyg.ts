@@ -196,7 +196,7 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
         // 末尾锚点：源码以换行结尾（末尾空行）时，末尾 br 后补一个空文本段——
         // 没有它，末尾 br 是 td 末尾的孤立真元素、后面无可编辑锚点，光标放不进去
         //（实测：Enter 加空行离焦再进格，空的换行点不到）。空段投影输出空串，零污染
-        if (td.lastChild instanceof HTMLBRElement) {
+        if ((td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement))) {
                 const tail = createEl('span');
                 tail.className = SEG_CLS;
                 tail.dataset.kind = 'text';
@@ -352,7 +352,7 @@ function setSegSource(el: HTMLElement, raw: string): void {
 export function projectSource(td: HTMLElement): string {
         let out = '';
         for (const child of Array.from(td.childNodes)) {
-                if (!(child instanceof HTMLElement) || !child.classList.contains(SEG_CLS)) {
+                if (!((child != null && child.instanceOf(HTMLElement))) || !child.classList.contains(SEG_CLS)) {
                         out += looseNodeSource(child); // 防御：浏览器插入的游离节点（含 Enter 产生的 <div>/<br>）
                         continue;
                 }
@@ -365,7 +365,7 @@ export function projectSource(td: HTMLElement): string {
 /** 光标是否停在末尾锚点边界：最后节点是空锚点段、且光标偏移正好等于它的源码位置 */
 function atTailAnchor(td: HTMLElement, off: number): boolean {
         const last = td.lastChild;
-        if (!(last instanceof HTMLElement) || last.dataset.src !== '' || !last.classList.contains(SEG_CLS)) return false;
+        if (!((last != null && last.instanceOf(HTMLElement))) || last.dataset.src !== '' || !last.classList.contains(SEG_CLS)) return false;
         return parseInt(last.dataset.s ?? '-1', 10) === off;
 }
 
@@ -374,8 +374,8 @@ function atTailAnchor(td: HTMLElement, off: number): boolean {
  *  其它 inline 元素 → textContent */
 function looseNodeSource(n: Node): string {
         if (n.nodeType === Node.TEXT_NODE) return n.textContent ?? '';
-        if (n instanceof HTMLBRElement) return '<br>';
-        if (n instanceof HTMLElement) {
+        if ((n != null && n.instanceOf(HTMLBRElement))) return '<br>';
+        if ((n != null && n.instanceOf(HTMLElement))) {
                 const isBlock = /^(DIV|P|LI|UL|OL|H[1-6])$/i.test(n.tagName);
                 const inner = Array.from(n.childNodes).map(looseNodeSource).join('');
                 return isBlock ? '<br>' + inner : inner;
@@ -390,8 +390,8 @@ function srcTextOf(el: HTMLElement): string {
         let out = '';
         for (const n of Array.from(el.childNodes)) {
                 if (n.nodeType === Node.TEXT_NODE) out += n.textContent ?? '';
-                else if (n instanceof HTMLBRElement) out += '<br>';
-                else if (n instanceof HTMLElement && /^(DIV|P|LI|UL|OL|H[1-6])$/i.test(n.tagName)) {
+                else if ((n != null && n.instanceOf(HTMLBRElement))) out += '<br>';
+                else if ((n != null && n.instanceOf(HTMLElement)) && /^(DIV|P|LI|UL|OL|H[1-6])$/i.test(n.tagName)) {
                         out += '<br>' + Array.from(n.childNodes).map(looseNodeSource).join('');
                 } else out += n.textContent ?? '';
         }
@@ -404,7 +404,7 @@ function srcTextOf(el: HTMLElement): string {
 
 function segEls(td: HTMLElement): HTMLElement[] {
         return Array.from(td.children).filter(
-                (c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains(SEG_CLS),
+                (c): c is HTMLElement => (c != null && c.instanceOf(HTMLElement)) && c.classList.contains(SEG_CLS),
         );
 }
 
@@ -423,7 +423,7 @@ function locateStart(td: HTMLElement, range: Range): LocateResult {
 
         if (node.nodeType === Node.TEXT_NODE) {
                 const host = node.parentElement?.closest(`.${SEG_CLS}`);
-                if (host instanceof HTMLElement && td.contains(host)) {
+                if ((host != null && host.instanceOf(HTMLElement)) && td.contains(host)) {
                         const f = textOffsetWithin(host, node, offset);
                         return { el: host, kind: (host.dataset.kind as SegKind) ?? 'text', where: 'inner', innerF: f };
                 }
@@ -434,9 +434,9 @@ function locateStart(td: HTMLElement, range: Range): LocateResult {
                 const childNodes = Array.from(td.childNodes);
                 // offset 处的段 → 前缘；offset-1 处的段 → 后缘。
                 // 边界歧义（一段后缘 = 另一段前缘）：渲染段优先 —— 用户站在渲染块边缘时应看到块源码
-                const next = childNodes[offset] instanceof HTMLElement && (childNodes[offset] as HTMLElement).classList.contains(SEG_CLS)
+                const next = (childNodes[offset] != null && childNodes[offset].instanceOf(HTMLElement)) && (childNodes[offset] as HTMLElement).classList.contains(SEG_CLS)
                         ? (childNodes[offset] as HTMLElement) : null;
-                const prev = offset > 0 && childNodes[offset - 1] instanceof HTMLElement && (childNodes[offset - 1] as HTMLElement).classList.contains(SEG_CLS)
+                const prev = offset > 0 && (childNodes[offset - 1] != null && childNodes[offset - 1].instanceOf(HTMLElement)) && (childNodes[offset - 1] as HTMLElement).classList.contains(SEG_CLS)
                         ? (childNodes[offset - 1] as HTMLElement) : null;
                 const isRenderable = (el: HTMLElement) => el.dataset.view !== 'src' && el.dataset.kind !== 'text';
                 if (next && isRenderable(next)) return { el: next, kind: next.dataset.kind as SegKind, where: 'front', innerF: 0 };
@@ -447,8 +447,8 @@ function locateStart(td: HTMLElement, range: Range): LocateResult {
         }
 
         // 元素（段本身或段内元素）
-        const host = (node instanceof HTMLElement ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
-        if (host instanceof HTMLElement && td.contains(host)) {
+        const host = ((node != null && node.instanceOf(HTMLElement)) ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
+        if ((host != null && host.instanceOf(HTMLElement)) && td.contains(host)) {
                 const elChildren = Array.from(host.childNodes);
                 const nextInSeg = elChildren[offset];
                 const prevInSeg = offset > 0 ? elChildren[offset - 1] : null;
@@ -466,9 +466,9 @@ function locateStart(td: HTMLElement, range: Range): LocateResult {
 }
 
 function isVoidRenderEl(n: Node | undefined): boolean {
-        if (!(n instanceof HTMLElement)) return false;
-        if (n instanceof HTMLBRElement) return true;
-        if (n instanceof HTMLImageElement) return true;
+        if (!((n != null && n.instanceOf(HTMLElement)))) return false;
+        if ((n != null && n.instanceOf(HTMLBRElement))) return true;
+        if ((n != null && n.instanceOf(HTMLImageElement))) return true;
         return n.classList.contains(SEG_CLS) && n.dataset.view === 'render' && (n.dataset.kind ?? '').startsWith('void');
 }
 
@@ -490,11 +490,11 @@ function srcOffsetWithin(el: HTMLElement, target: Node, offset: number): number 
         for (const n of Array.from(el.childNodes)) {
                 if (n === target) {
                         if (n.nodeType === Node.TEXT_NODE) return acc + offset;
-                        if (n instanceof HTMLBRElement) return acc + (offset > 0 ? 4 : 0);
+                        if ((n != null && n.instanceOf(HTMLBRElement))) return acc + (offset > 0 ? 4 : 0);
                         return acc + Math.min(offset, n.textContent?.length ?? 0);
                 }
                 if (n.nodeType === Node.TEXT_NODE) acc += n.textContent?.length ?? 0;
-                else if (n instanceof HTMLBRElement) acc += 4;
+                else if ((n != null && n.instanceOf(HTMLBRElement))) acc += 4;
                 else acc += n.textContent?.length ?? 0;
         }
         return acc;
@@ -509,8 +509,8 @@ function looseOffsetAt(td: HTMLElement, idx: number): number {
         for (let i = 0; i < childNodes.length; i++) {
                 if (i === idx) break;
                 const n = childNodes[i]!;
-                if (n instanceof HTMLElement && n.classList.contains(SEG_CLS)) acc = parseInt(n.dataset.e ?? '0', 10);
-                else if (n instanceof HTMLBRElement) acc += 4;
+                if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) acc = parseInt(n.dataset.e ?? '0', 10);
+                else if ((n != null && n.instanceOf(HTMLBRElement))) acc += 4;
                 else acc += n.textContent?.length ?? 0;
         }
         return acc;
@@ -529,8 +529,8 @@ export function caretSourceOffset(td: HTMLElement): number | null {
                 let acc0 = 0;
                 for (const n of Array.from(td.childNodes)) {
                         if (n === tn) { acc0 += range.startOffset; break; }
-                        if (n instanceof HTMLElement && n.classList.contains(SEG_CLS)) acc0 = parseInt(n.dataset.e ?? '0', 10);
-                        else if (n instanceof HTMLBRElement) acc0 += 4;
+                        if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) acc0 = parseInt(n.dataset.e ?? '0', 10);
+                        else if ((n != null && n.instanceOf(HTMLBRElement))) acc0 += 4;
                         else acc0 += n.textContent?.length ?? 0;
                 }
                 return acc0;
@@ -545,8 +545,8 @@ export function caretSourceOffset(td: HTMLElement): number | null {
                 for (let i = 0; i < childNodes.length; i++) {
                         const n = childNodes[i]!;
                         if (i === idx) break; // 光标在本节点之前 → acc 即偏移
-                        if (n instanceof HTMLElement && n.classList.contains(SEG_CLS)) acc = parseInt(n.dataset.e ?? '0', 10);
-                        else if (n instanceof HTMLBRElement) acc += 4; // 换行 <br> = 源码 4 字符
+                        if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) acc = parseInt(n.dataset.e ?? '0', 10);
+                        else if ((n != null && n.instanceOf(HTMLBRElement))) acc += 4; // 换行 <br> = 源码 4 字符
                         else acc += n.textContent?.length ?? 0; // 段间游离 text（浏览器临时插入物）
                 }
                 return acc;
@@ -607,8 +607,8 @@ function rangeOffset(td: HTMLElement, node: Node, offset: number): number | null
         } catch { return null; }
         // 用投影法：把 td 内容按「源码」投影到临时容器再量长度——开销大；
         // 改用段级累加：定位 node 所在段 + 段内偏移 + data-s
-        const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof HTMLElement ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
-        if (host instanceof HTMLElement && td.contains(host)) {
+        const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node != null && node.instanceOf(HTMLElement)) ? node : node.parentElement)?.closest(`.${SEG_CLS}`);
+        if ((host != null && host.instanceOf(HTMLElement)) && td.contains(host)) {
                 const s = parseInt(host.dataset.s ?? '0', 10);
                 if (host.dataset.view === 'src') return s + srcOffsetWithin(host, node, offset);
                 const f = textOffsetWithin(host, node, offset);
@@ -620,9 +620,9 @@ function rangeOffset(td: HTMLElement, node: Node, offset: number): number | null
         if (node === td) {
                 const childNodes = Array.from(td.childNodes);
                 const next = childNodes[offset];
-                if (next instanceof HTMLElement && next.classList.contains(SEG_CLS)) return parseInt(next.dataset.s ?? '0', 10);
+                if ((next != null && next.instanceOf(HTMLElement)) && next.classList.contains(SEG_CLS)) return parseInt(next.dataset.s ?? '0', 10);
                 const prev = offset > 0 ? childNodes[offset - 1] : null;
-                if (prev instanceof HTMLElement && prev.classList.contains(SEG_CLS)) return parseInt(prev.dataset.e ?? '0', 10);
+                if ((prev != null && prev.instanceOf(HTMLElement)) && prev.classList.contains(SEG_CLS)) return parseInt(prev.dataset.e ?? '0', 10);
                 return offset <= 0 ? 0 : totalLen(td);
         }
         return null;
@@ -650,7 +650,7 @@ export function placeCaretAtSourceOffset(td: HTMLElement, off: number): void {
                 const nodes = Array.from(td.childNodes);
                 let acc = 0;
                 for (const n of nodes) {
-                        if (n instanceof HTMLBRElement) {
+                        if ((n != null && n.instanceOf(HTMLBRElement))) {
                                 const brS = acc;
                                 const brE = acc + 4;
                                 if (off <= brE) {
@@ -666,7 +666,7 @@ export function placeCaretAtSourceOffset(td: HTMLElement, off: number): void {
                                 acc = brE;
                                 continue;
                         }
-                        if (n instanceof HTMLElement && n.classList.contains(SEG_CLS)) {
+                        if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) {
                                 const e2 = parseInt(n.dataset.e ?? '0', 10);
                                 const s2 = parseInt(n.dataset.s ?? '0', 10);
                                 if (off < s2 && off <= acc) {
@@ -736,7 +736,7 @@ export function placeCaretAtSourceOffset(td: HTMLElement, off: number): void {
 function srcDomPos(el: HTMLElement, local: number): { node: Node; offset: number } | null {
         let acc = 0;
         for (const n of Array.from(el.childNodes)) {
-                const len = n.nodeType === Node.TEXT_NODE ? (n.textContent?.length ?? 0) : n instanceof HTMLBRElement ? 4 : (n.textContent?.length ?? 0);
+                const len = n.nodeType === Node.TEXT_NODE ? (n.textContent?.length ?? 0) : (n != null && n.instanceOf(HTMLBRElement)) ? 4 : (n.textContent?.length ?? 0);
                 if (acc + len >= local) {
                         if (n.nodeType === Node.TEXT_NODE) return { node: n, offset: local - acc };
                         return { node: n, offset: 0 };
@@ -1004,7 +1004,7 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                                                 del.deleteContents();
                                         } else if (r.startContainer.nodeType === Node.TEXT_NODE) {
                                                 const t = r.startContainer as Text;
-                                                t.textContent = t.textContent?.slice(0, r.startOffset) + t.textContent?.slice(r.startOffset + len) ?? '';
+                                                t.textContent = (t.textContent?.slice(0, r.startOffset) ?? '') + (t.textContent?.slice(r.startOffset + len) ?? '');
                                         } else {
                                                 renderSegContent(hostSeg, {
                                                         kind: hostSeg.dataset.kind as SegKind,
@@ -1420,7 +1420,7 @@ export function promoteTailNewlines(td: HTMLElement, src: string): string {
                 // 尾部空白游离节点（Chromium 刚插的字面 \n 还在 DOM 里）：跳过往前找
                 if (n.nodeType === Node.TEXT_NODE && !(n.textContent ?? '').trim()) continue;
                 // 唯一相关的形态：块（渲染段）是内容末尾；文字段/锚点段（view=src）不在此列
-                return n instanceof HTMLElement && n.classList.contains(SEG_CLS) && n.dataset.view === 'render'
+                return (n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS) && n.dataset.view === 'render'
                         ? src.replace(/\n+$/, m => '<br>'.repeat(m.length))
                         : src;
         }

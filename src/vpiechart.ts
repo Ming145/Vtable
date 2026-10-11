@@ -22,7 +22,7 @@ export function generatePieChart(grid: Grid): string | null {
 		const valStr = grid[i]?.[1]?.t?.trim();
 		if (!label || !valStr) continue;
 		if (/^…+/.test(label)) continue;
-		const value = parseFloat(valStr.replace(/[^0-9.\-]/g, ''));
+		const value = parseFloat(valStr.replace(/[^0-9.-]/g, ''));
 		if (isNaN(value) || value <= 0) continue;
 		data.push({ label, value });
 	}
