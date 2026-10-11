@@ -1,4 +1,4 @@
-import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath  } from 'obsidian';
+import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath } from 'obsidian';
 import type { App } from 'obsidian';
 import type { EditorView } from '@codemirror/view';
 import type { Text } from '@codemirror/state';
@@ -79,9 +79,15 @@ export default class VtPlugin extends Plugin {
                 }
 
                 // 2. 确保文件夹存在
-                const folderExists = vault.getAbstractFileByPath(normalizePath(templateFolder)) != null;
-                if (!folderExists) {
-                        await vault.createFolder(templateFolder);
+                //    启动早期 vault 文件索引可能尚未就绪：getAbstractFileByPath 对磁盘上已存在的文件夹
+                //    误判 null，createFolder 随即报 already exists 并炸掉整个 onload（首次启动必现、
+                //    重开因索引已建而正常）。createFolder 幂等化：already exists 视为目标状态达成
+                if (vault.getAbstractFileByPath(normalizePath(templateFolder)) == null) {
+                        try {
+                                await vault.createFolder(templateFolder);
+                        } catch (err) {
+                                if (!String((err as { message?: string }).message ?? err).includes('already exists')) throw err;
+                        }
                 }
 
                 // 3. 三个模板的内容（第二列全部留空，让用户自己填）
@@ -100,17 +106,33 @@ export default class VtPlugin extends Plugin {
                         }
                 ];
 
-                // 4. 逐个检查并创建缺失的文件（不覆盖已有文件）
+                // 4. 逐个检查并创建缺失的文件（不覆盖已有文件；create 的 already exists 同上幂等处理）
                 for (const tpl of templates) {
                         const filePath = `${templateFolder}/${tpl.name}`;
-                        const fileExists = vault.getAbstractFileByPath(normalizePath(filePath)) != null;
-                        if (!fileExists) {
-                                await vault.create(filePath, tpl.content);
+                        if (vault.getAbstractFileByPath(normalizePath(filePath)) == null) {
+                                try {
+                                        await vault.create(filePath, tpl.content);
+                                } catch (err) {
+                                        if (!String((err as { message?: string }).message ?? err).includes('already exists')) throw err;
+                                }
                         }
                 }
         }
 
+        /** 官方"加载失败"提示不带技术细节：onload 全量捕获，错误消息直达 Notice 供真机定位 */
         async onload() {
+                try {
+                        await this.onloadInner();
+                } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        const first = e instanceof Error && e.stack ? (e.stack.split('\n')[1] || '').trim() : '';
+                        console.error('[Vtable] onload 失败：', e);
+                        new Notice(`Vtable 加载失败：${msg}\n${first}`, 0);
+                        throw e;
+                }
+        }
+
+        private async onloadInner() {
 
                 // 语言必须先于任何 addCommand 初始化：命令名在注册时求值（t() 即时返回），
                 // 晚于注册再切语言只会改到设置面板文本，命令名仍是注册时的旧语言
@@ -1032,7 +1054,7 @@ class VtSettingTab extends PluginSettingTab {
                         const colorSetting = new Setting(styleSection)
                                 .setName(t('自定义表头颜色', 'Custom header color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #4a90d9', 'Hex color, e.g. #4a90d9'));
-                        const preview = createSpan();
+                        const preview = document.createElement('span');
                         preview.className = 'vt-color-preview';
                         preview.style.background = this.plugin.settings.headerColor;
                         colorSetting.nameEl.appendChild(preview);
@@ -1106,7 +1128,7 @@ class VtSettingTab extends PluginSettingTab {
                         const zcSetting = new Setting(styleSection)
                                 .setName(t('隔行变色自定义颜色', 'Custom zebra color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #e8f0fe。颜色过深时文字自动反白。', 'Hex color, e.g. #e8f0fe. Dark colors get white text automatically.'));
-                        const zcPreview = createSpan();
+                        const zcPreview = document.createElement('span');
                         zcPreview.className = 'vt-color-preview';
                         zcPreview.style.background = this.plugin.settings.zebraColor;
                         zcSetting.nameEl.appendChild(zcPreview);

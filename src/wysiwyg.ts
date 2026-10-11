@@ -1,3 +1,4 @@
+
 /**
  * wysiwyg.ts — 单元格所见即所得编辑（Typora 式块级源码切换）
  *
@@ -197,7 +198,7 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
         // 没有它，末尾 br 是 td 末尾的孤立真元素、后面无可编辑锚点，光标放不进去
         //（实测：Enter 加空行离焦再进格，空的换行点不到）。空段投影输出空串，零污染
         if ((td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement))) {
-                const tail = createSpan();
+                const tail = document.createElement('span');
                 tail.className = SEG_CLS;
                 tail.dataset.kind = 'text';
                 tail.dataset.view = 'src';
@@ -224,14 +225,14 @@ function buildSegEl(seg: Seg, ctx: WysiwygCtx): HTMLElement {
         // data-vt-br 标记"重放的换行 br"：与浏览器运行时自插的占位 br 区分开
         //（Chromium 删空段后会在空段前插占位 br 保光标，投影时按此标记剔除占位）
         if (seg.kind === 'br') {
-                const br = createEl('br') as unknown as HTMLElement;
+                const br = document.createElement('br') as unknown as HTMLElement;
                 br.dataset.vtBr = '1';
                 return br;
         }
         // 全部用 span：块级 fence 用 display:block。
         // 不用 div —— Chromium 在"块级元素后缘"打字会把字符插进 div 内部（beforeinput 都不触发），
         // 渲染段投影走 data-src → 字符静默丢失；inline span 后缘输入落在 td 直下，数据安全
-        const el = createSpan();
+        const el = document.createElement('span');
         el.className = SEG_CLS;
         if (seg.kind === 'fence') el.style.display = `block`;
         el.dataset.kind = seg.kind;
@@ -261,16 +262,16 @@ function attachImgResize(seg: HTMLElement): void {
         const img = seg.querySelector('img');
         if (!img) return;
         seg.classList.add('vt-img-seg');
-        const grip = createDiv();
+        const grip = document.createElement('div');
         grip.className = 'vt-img-resize';
         grip.setAttribute('aria-hidden', 'true');
         // L 形折角（用户 2026-10-07 定稿形状，21:50 调细）：竖臂在上、横臂在左，圆头细线圆拐角；
         // 浅灰（表格边缘同色）走 CSS currentColor，命中区为更大的圆形（见 styles.css）
-        const svg = createSvg('svg');
+        const svg = document.createElement('null');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('fill', 'none');
         svg.setAttribute('aria-hidden', 'true');
-        const path = createSvg('path');
+        const path = document.createElement('null');
         path.setAttribute('d', 'M17 5 L17 17 L5 17');
         path.setAttribute('stroke', 'currentColor');
         path.setAttribute('stroke-width', '2.75');

@@ -3,7 +3,7 @@
  * vtable 代码块处理器：可编辑表格、模式切换、富文本渲染
  */
 
-import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon  } from 'obsidian';
+import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon } from 'obsidian';
 import { t } from './i18n';
 import {
         parseSource, serialize, visible, Grid, VtData, VtMode, normalizeCellNewlines,
@@ -182,7 +182,7 @@ function resolveThemeAccent(el: HTMLElement): string | null {
                 }
         }
         // 探针：浏览器解析嵌套 var() 后的最终色（恒为 rgb()/rgba()，能识别全部主题写法）
-        const probe = createSpan();
+        const probe = document.createElement('span');
         probe.style.color = `var(--interactive-accent, var(--accent-color, transparent))`;
         el.appendChild(probe);
         const computed = getComputedStyle(probe).color;
@@ -2377,7 +2377,7 @@ function splitMath(text: string): DocumentFragment | null {
         let match: RegExpExecArray | null;
         let last = 0;
         let matched = false;
-        const frag = createFragment();
+        const frag = document.createDocumentFragment();;
 
         while ((match = MATH_RE.exec(text))) {
                 if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2468,13 +2468,13 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                 const text = textNode.textContent;
                 const lines = text.split('\n');
                 let hasTodo = false;
-                const frag = createFragment();
+                const frag = document.createDocumentFragment();;
 
                 const buildTaskItem = (m: RegExpMatchArray) => {
                         hasTodo = true;
-                        const item = createDiv();
+                        const item = document.createElement('div');
                         item.className = 'vt-task-item';
-                        const cb = createEl('input');
+                        const cb = item.createEl('input');
                         cb.type = 'checkbox';
                         cb.checked = m[1] !== ' ';
                         // 任务7：状态自跟踪——不依赖浏览器对 input 的自动翻转行为
@@ -2493,7 +2493,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         cb.style.height = `1em`;
                         cb.style.boxSizing = `border-box`;
                         // iPad 触控：1em 视觉盒太小难点中——外包均匀 5px 热区（负 margin 抵消，视觉位置不变）
-                        const hit = createSpan();
+                        const hit = document.createElement('span');
                         hit.className = 'vt-cb-hit';
                         hit.style.display = `inline-flex`;
                         hit.style.padding = `5px`;
@@ -2523,7 +2523,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         }
                         hit.appendChild(cb);
                         item.appendChild(hit);
-                        const span = createSpan();
+                        const span = document.createElement('span');
                         span.textContent = m[2] ?? '';
                         item.appendChild(span);
                         return item;
@@ -2604,7 +2604,7 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                 let match: RegExpExecArray | null;
                 let last = 0;
                 let found = false;
-                const frag = createFragment();
+                const frag = document.createDocumentFragment();;
 
                 while ((match = IMG_RE.exec(text))) {
                         if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2625,7 +2625,7 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                         const src = resolveImage(linkText);
 
                         if (src) {
-                                const img = createEl('img');
+                                const img = frag.createEl('img');
                                 img.src = src;
                                 img.alt = altText || linkText;
                                 img.style.maxWidth = `100%`;
@@ -2661,7 +2661,7 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                 const text = textNode.textContent;
                 WIKILINK_RE.lastIndex = 0;
                 if (!WIKILINK_RE.test(text)) continue;
-                const frag = createFragment();
+                const frag = document.createDocumentFragment();;
                 let last = 0;
                 WIKILINK_RE.lastIndex = 0;
                 let m: RegExpExecArray | null;
@@ -2672,7 +2672,7 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                         if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
                         const linkText = m[1].trim();
                         const display = (m[2]?.trim() || linkText);
-                        const a = createEl('a');
+                        const a = frag.createEl('a');
                         a.className = 'internal-link';
                         a.href = linkText;
                         a.textContent = display;

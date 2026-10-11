@@ -1731,7 +1731,7 @@ function genSeries(v0, n, sign, year = new Date().getFullYear()) {
   return out;
 }
 var mkDiv = (cls, parent) => {
-  const d = createDiv();
+  const d = document.createElement("div");
   d.className = cls;
   parent.appendChild(d);
   return d;
@@ -1750,7 +1750,7 @@ var triPathD = (size) => {
 var HIT_PAD = 4;
 var mkTri = (size) => {
   const e = HIT_PAD;
-  const hit = createDiv();
+  const hit = document.createElement("div");
   hit.className = "vt-fill-tri-hit";
   hit.style.position = `absolute`;
   hit.style.left = `0`;
@@ -1761,7 +1761,7 @@ var mkTri = (size) => {
   const s2 = size + e;
   const t2 = Math.max(0, size - e * 1.414);
   hit.style.clipPath = `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t2}px, ${t2}px 0)`;
-  const draw = createDiv();
+  const draw = document.createElement("div");
   draw.className = "vt-fill-tri-draw";
   draw.style.position = `absolute`;
   draw.style.left = `0`;
@@ -2064,11 +2064,11 @@ var FillHandle = class {
     if (!m)
       return;
     emptyEl(this.menu);
-    const btnAsc = createEl("button");
+    const btnAsc = this.menu.createEl("button");
     btnAsc.className = "vt-fill-menu-btn";
     btnAsc.textContent = t("\u9012\u589E", "Inc");
     btnAsc.addEventListener("click", () => this.applyMenu(1));
-    const btnDesc = createEl("button");
+    const btnDesc = this.menu.createEl("button");
     btnDesc.className = "vt-fill-menu-btn";
     btnDesc.textContent = t("\u9012\u51CF", "Dec");
     btnDesc.addEventListener("click", () => this.applyMenu(-1));
@@ -2182,18 +2182,18 @@ function buildDiagDom(td, dg, t2) {
   line.setAttribute("y2", "100%");
   svg.appendChild(line);
   td.appendChild(svg);
-  const zoneA = createDiv();
+  const zoneA = document.createElement("div");
   zoneA.className = "vt-diag-zone vt-diag-a";
   zoneA.contentEditable = "true";
-  const zoneB = createDiv();
+  const zoneB = document.createElement("div");
   zoneB.className = "vt-diag-zone vt-diag-b";
   zoneB.contentEditable = "true";
   td.appendChild(zoneA);
   td.appendChild(zoneB);
-  const probe = createDiv();
+  const probe = document.createElement("div");
   probe.className = "vt-diag-probe";
-  const probeA = createSpan();
-  const probeB = createSpan();
+  const probeA = document.createElement("span");
+  const probeB = document.createElement("span");
   probe.appendChild(probeA);
   probe.appendChild(probeB);
   td.appendChild(probe);
@@ -2669,7 +2669,7 @@ function enterWysiwyg(td, src, ctx) {
     td.appendChild(buildSegEl(seg, ctx));
   }
   if (td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement)) {
-    const tail = createSpan();
+    const tail = document.createElement("span");
     tail.className = SEG_CLS;
     tail.dataset.kind = "text";
     tail.dataset.view = "src";
@@ -2687,11 +2687,11 @@ function exitWysiwyg(td) {
 }
 function buildSegEl(seg, ctx) {
   if (seg.kind === "br") {
-    const br = createEl("br");
+    const br = document.createElement("br");
     br.dataset.vtBr = "1";
     return br;
   }
-  const el = createSpan();
+  const el = document.createElement("span");
   el.className = SEG_CLS;
   if (seg.kind === "fence")
     el.style.display = `block`;
@@ -2717,14 +2717,14 @@ function attachImgResize(seg) {
   if (!img)
     return;
   seg.classList.add("vt-img-seg");
-  const grip = createDiv();
+  const grip = document.createElement("div");
   grip.className = "vt-img-resize";
   grip.setAttribute("aria-hidden", "true");
-  const svg = createSvg("svg");
+  const svg = document.createElement("null");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
   svg.setAttribute("aria-hidden", "true");
-  const path = createSvg("path");
+  const path = document.createElement("null");
   path.setAttribute("d", "M17 5 L17 17 L5 17");
   path.setAttribute("stroke", "currentColor");
   path.setAttribute("stroke-width", "2.75");
@@ -4352,7 +4352,7 @@ function resolveThemeAccent(el) {
       return `hsl(${parseFloat(h)}, ${s2}, ${l2})`;
     }
   }
-  const probe = createSpan();
+  const probe = document.createElement("span");
   probe.style.color = `var(--interactive-accent, var(--accent-color, transparent))`;
   el.appendChild(probe);
   const computed = getComputedStyle(probe).color;
@@ -6352,7 +6352,8 @@ function splitMath(text) {
   let match;
   let last = 0;
   let matched = false;
-  const frag = createFragment();
+  const frag = document.createDocumentFragment();
+  ;
   while (match = MATH_RE.exec(text)) {
     if (match.index > last)
       frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -6448,12 +6449,13 @@ function renderTodos(root, onTodoToggle) {
     const text = textNode.textContent;
     const lines = text.split("\n");
     let hasTodo = false;
-    const frag = createFragment();
+    const frag = document.createDocumentFragment();
+    ;
     const buildTaskItem = (m) => {
       hasTodo = true;
-      const item = createDiv();
+      const item = document.createElement("div");
       item.className = "vt-task-item";
-      const cb = createEl("input");
+      const cb = item.createEl("input");
       cb.type = "checkbox";
       cb.checked = m[1] !== " ";
       cb.dataset.vtOn = cb.checked ? "1" : "0";
@@ -6463,7 +6465,7 @@ function renderTodos(root, onTodoToggle) {
       cb.style.width = `1em`;
       cb.style.height = `1em`;
       cb.style.boxSizing = `border-box`;
-      const hit = createSpan();
+      const hit = document.createElement("span");
       hit.className = "vt-cb-hit";
       hit.style.display = `inline-flex`;
       hit.style.padding = `5px`;
@@ -6491,7 +6493,7 @@ function renderTodos(root, onTodoToggle) {
       }
       hit.appendChild(cb);
       item.appendChild(hit);
-      const span = createSpan();
+      const span = document.createElement("span");
       span.textContent = m[2] ?? "";
       item.appendChild(span);
       return item;
@@ -6577,7 +6579,8 @@ function renderImages(root, sourcePath, resolveImage) {
     let match;
     let last = 0;
     let found = false;
-    const frag = createFragment();
+    const frag = document.createDocumentFragment();
+    ;
     while (match = IMG_RE.exec(text)) {
       if (match.index > last)
         frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -6593,7 +6596,7 @@ function renderImages(root, sourcePath, resolveImage) {
       const altText = sizeNum === null ? sizeText : "";
       const src = resolveImage(linkText);
       if (src) {
-        const img = createEl("img");
+        const img = frag.createEl("img");
         img.src = src;
         img.alt = altText || linkText;
         img.style.maxWidth = `100%`;
@@ -6630,7 +6633,8 @@ function renderWikiLinks(root, onOpenLink) {
     WIKILINK_RE.lastIndex = 0;
     if (!WIKILINK_RE.test(text))
       continue;
-    const frag = createFragment();
+    const frag = document.createDocumentFragment();
+    ;
     let last = 0;
     WIKILINK_RE.lastIndex = 0;
     let m;
@@ -6643,7 +6647,7 @@ function renderWikiLinks(root, onOpenLink) {
         frag.appendChild(document.createTextNode(text.slice(last, m.index)));
       const linkText = m[1].trim();
       const display = m[2]?.trim() || linkText;
-      const a = createEl("a");
+      const a = frag.createEl("a");
       a.className = "internal-link";
       a.href = linkText;
       a.textContent = display;
@@ -7319,7 +7323,7 @@ var Toolbar = class {
     const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
     const next = Math.max(8, Math.min(72, cur + delta));
     if (!sel.isCollapsed) {
-      const span = createSpan();
+      const span = document.createElement("span");
       span.style.fontSize = `${next}px`;
       try {
         range.surroundContents(span);
@@ -7637,9 +7641,13 @@ var VtPlugin = class extends import_obsidian4.Plugin {
       if (folder)
         templateFolder = folder;
     }
-    const folderExists = vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(templateFolder)) != null;
-    if (!folderExists) {
-      await vault.createFolder(templateFolder);
+    if (vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(templateFolder)) == null) {
+      try {
+        await vault.createFolder(templateFolder);
+      } catch (err) {
+        if (!String(err.message ?? err).includes("already exists"))
+          throw err;
+      }
     }
     const templates = [
       {
@@ -7657,13 +7665,30 @@ var VtPlugin = class extends import_obsidian4.Plugin {
     ];
     for (const tpl of templates) {
       const filePath = `${templateFolder}/${tpl.name}`;
-      const fileExists = vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(filePath)) != null;
-      if (!fileExists) {
-        await vault.create(filePath, tpl.content);
+      if (vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(filePath)) == null) {
+        try {
+          await vault.create(filePath, tpl.content);
+        } catch (err) {
+          if (!String(err.message ?? err).includes("already exists"))
+            throw err;
+        }
       }
     }
   }
+  /** 官方"加载失败"提示不带技术细节：onload 全量捕获，错误消息直达 Notice 供真机定位 */
   async onload() {
+    try {
+      await this.onloadInner();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const first = e instanceof Error && e.stack ? (e.stack.split("\n")[1] || "").trim() : "";
+      console.error("[Vtable] onload \u5931\u8D25\uFF1A", e);
+      new import_obsidian4.Notice(`Vtable \u52A0\u8F7D\u5931\u8D25\uFF1A${msg}
+${first}`, 0);
+      throw e;
+    }
+  }
+  async onloadInner() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     if (!this.settings.contextMenu.includes("vt.alignL")) {
       const lines = this.settings.contextMenu.split("\n");
@@ -8456,7 +8481,7 @@ ${barLegend()}`;
     }));
     if (this.plugin.settings.headerStyle === "custom") {
       const colorSetting = new import_obsidian4.Setting(styleSection).setName(t("\u81EA\u5B9A\u4E49\u8868\u5934\u989C\u8272", "Custom header color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #4a90d9", "Hex color, e.g. #4a90d9"));
-      const preview = createSpan();
+      const preview = document.createElement("span");
       preview.className = "vt-color-preview";
       preview.style.background = this.plugin.settings.headerColor;
       colorSetting.nameEl.appendChild(preview);
@@ -8499,7 +8524,7 @@ ${barLegend()}`;
     }));
     if (this.plugin.settings.zebraStyle === "custom") {
       const zcSetting = new import_obsidian4.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272\u81EA\u5B9A\u4E49\u989C\u8272", "Custom zebra color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #e8f0fe\u3002\u989C\u8272\u8FC7\u6DF1\u65F6\u6587\u5B57\u81EA\u52A8\u53CD\u767D\u3002", "Hex color, e.g. #e8f0fe. Dark colors get white text automatically."));
-      const zcPreview = createSpan();
+      const zcPreview = document.createElement("span");
       zcPreview.className = "vt-color-preview";
       zcPreview.style.background = this.plugin.settings.zebraColor;
       zcSetting.nameEl.appendChild(zcPreview);

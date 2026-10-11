@@ -1,3 +1,4 @@
+
 /**
  * bar.ts
  * 悬浮格式化工具栏
@@ -324,7 +325,7 @@ export class Toolbar {
                 const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
                 const next = Math.max(8, Math.min(72, cur + delta));
                 if (!sel.isCollapsed) {
-                        const span = createSpan();
+                        const span = document.createElement('span');
                         span.style.fontSize = `${next}px`;
                         try { range.surroundContents(span); } catch { /* 跨节点选区忽略 */ }
                 } else if (this.cell) {

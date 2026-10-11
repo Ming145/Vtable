@@ -1,3 +1,4 @@
+
 /**
  * diag.ts — 斜分单元格（对角线表头）
  *
@@ -71,10 +72,10 @@ export function buildDiagDom(td: HTMLTableCellElement, dg: string, t: string): D
         svg.appendChild(line);
         td.appendChild(svg);
 
-        const zoneA = createDiv();
+        const zoneA = document.createElement('div');
         zoneA.className = 'vt-diag-zone vt-diag-a';
         zoneA.contentEditable = 'true';
-        const zoneB = createDiv();
+        const zoneB = document.createElement('div');
         zoneB.className = 'vt-diag-zone vt-diag-b';
         zoneB.contentEditable = 'true';
         td.appendChild(zoneA);
@@ -82,10 +83,10 @@ export function buildDiagDom(td: HTMLTableCellElement, dg: string, t: string): D
 
         // 占位：两行（区1、区2）普通流元素，visibility:hidden——
         // 参与表格布局：撑列宽（单行 nowrap 最宽者）与行高（两行）
-        const probe = createDiv();
+        const probe = document.createElement('div');
         probe.className = 'vt-diag-probe';
-        const probeA = createSpan();
-        const probeB = createSpan();
+        const probeA = document.createElement('span');
+        const probeB = document.createElement('span');
         probe.appendChild(probeA);
         probe.appendChild(probeB);
         td.appendChild(probe);

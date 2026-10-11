@@ -1,7 +1,7 @@
 {
         "id": "vtable",
         "name": "Vtable",
-        "version": "2.0.3",
+        "version": "2.0.4",
         "minAppVersion": "1.4.0",
         "description": "Create and edit enhanced tables with merged cells, in-cell line breaks, Excel-style formulas, checkable tasks, images, math, charts, diagonal split headers, and export to Markdown or HTML.",
         "author": "Vmsimab",

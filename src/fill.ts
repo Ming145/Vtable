@@ -1,3 +1,4 @@
+
 /**
  * fill.ts — 自动填充（桌面端专属）
  *
@@ -173,7 +174,7 @@ export function genSeries(v0: string, n: number, sign: 1 | -1, year: number = ne
 
 /** 标准 DOM 助手（本文件不依赖 Obsidian 扩展，可在裸页面测试） */
 const mkDiv = (cls: string, parent: HTMLElement): HTMLElement => {
-        const d = createDiv();
+        const d = document.createElement('div');
         d.className = cls;
         parent.appendChild(d);
         return d;
@@ -204,7 +205,7 @@ const mkTri = (size: number): [HTMLElement, HTMLElement] => {
         // - draw：可见小三角，同一条 path 做 clip 与背景；pointer-events:none，命中由 hit 承担
         // 两者都由调用方定位（柄场景相对壳、dots 场景 fixed）
         const e = HIT_PAD;
-        const hit = createDiv();
+        const hit = document.createElement('div');
         hit.className = 'vt-fill-tri-hit';
         hit.style.position = `absolute`;
         hit.style.left = `0`;
@@ -218,7 +219,7 @@ const mkTri = (size: number): [HTMLElement, HTMLElement] => {
         const s2 = size + e;
         const t = Math.max(0, size - e * 1.414);
         hit.style.clipPath = `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t}px, ${t}px 0)`;
-        const draw = createDiv();
+        const draw = document.createElement('div');
         draw.className = 'vt-fill-tri-draw';
         draw.style.position = `absolute`;
         draw.style.left = `0`;
@@ -543,11 +544,11 @@ export class FillHandle {
                 const m = this.menuState;
                 if (!m) return;
                 emptyEl(this.menu);
-                const btnAsc = createEl('button');
+                const btnAsc = this.menu.createEl('button');
                 btnAsc.className = 'vt-fill-menu-btn';
                 btnAsc.textContent = t('递增', 'Inc');
                 btnAsc.addEventListener('click', () => this.applyMenu(1));
-                const btnDesc = createEl('button');
+                const btnDesc = this.menu.createEl('button');
                 btnDesc.className = 'vt-fill-menu-btn';
                 btnDesc.textContent = t('递减', 'Dec');
                 btnDesc.addEventListener('click', () => this.applyMenu(-1));
