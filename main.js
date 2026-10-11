@@ -2668,7 +2668,10 @@ function enterWysiwyg(td, src, ctx) {
   for (const seg of parseSegments(src)) {
     td.appendChild(buildSegEl(seg, ctx));
   }
-  if (td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement)) {
+  const lastChild = td.lastChild;
+  const lastIsBr = lastChild != null && lastChild.instanceOf(HTMLBRElement);
+  const lastIsRenderSeg = lastChild != null && lastChild.instanceOf(HTMLElement) && lastChild.classList.contains(SEG_CLS) && lastChild.dataset.view === "render";
+  if (lastIsBr || lastIsRenderSeg) {
     const tail = document.createElement("span");
     tail.className = SEG_CLS;
     tail.dataset.kind = "text";
@@ -6314,15 +6317,22 @@ function shiftIndex(v, deltas) {
 }
 function populateCell(td, raw, grid, sourcePath, resolveImage, onTodoToggle, onOpenLink) {
   td.replaceChildren(...parseTrustedHtml(raw).childNodes);
+  console.log("[DBG-populate] replaceChildren \u540E:", JSON.stringify(td.textContent));
   if (/^=[A-Z]+\(/i.test(raw)) {
     td.textContent = evalFormula(grid, raw);
   }
   renderHtml(td);
+  console.log("[DBG-renderHtml \u540E]:", JSON.stringify(td.textContent));
   renderInlineCode(td);
+  console.log("[DBG-renderInlineCode \u540E]:", JSON.stringify(td.textContent));
   renderMarkdown(td);
+  console.log("[DBG-renderMarkdown \u540E]:", JSON.stringify(td.textContent));
   renderTodos(td, onTodoToggle);
+  console.log("[DBG-renderTodos \u540E]:", JSON.stringify(td.textContent));
   renderImages(td, sourcePath, resolveImage);
+  console.log("[DBG-renderImages \u540E]:", JSON.stringify(td.textContent));
   renderWikiLinks(td, onOpenLink);
+  console.log("[DBG-final]:", JSON.stringify(td.textContent));
 }
 var MATH_RE = /\$\$([^$]+?)\$\$|\$(\S(?:[^$\n]*?\S)?)\$/g;
 function renderMathInNode(root) {
@@ -8485,7 +8495,7 @@ ${barLegend()}`;
       preview.className = "vt-color-preview";
       preview.style.background = this.plugin.settings.headerColor;
       colorSetting.nameEl.appendChild(preview);
-      colorSetting.addText((t2) => t2.setValue(this.plugin.settings.headerColor).setPlaceholder(t2("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value")).onChange(async (value) => {
+      colorSetting.addText((txt) => txt.setValue(this.plugin.settings.headerColor).setPlaceholder(t("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value")).onChange(async (value) => {
         this.plugin.settings.headerColor = value.trim();
         await this.plugin.saveSettings();
         refreshAllTableAppearance();
@@ -8528,7 +8538,7 @@ ${barLegend()}`;
       zcPreview.className = "vt-color-preview";
       zcPreview.style.background = this.plugin.settings.zebraColor;
       zcSetting.nameEl.appendChild(zcPreview);
-      zcSetting.addText((t2) => t2.setValue(this.plugin.settings.zebraColor).setPlaceholder(t2("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value")).onChange(async (value) => {
+      zcSetting.addText((txt) => txt.setValue(this.plugin.settings.zebraColor).setPlaceholder(t("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value")).onChange(async (value) => {
         this.plugin.settings.zebraColor = value.trim();
         await this.plugin.saveSettings();
         refreshAllTableAppearance();

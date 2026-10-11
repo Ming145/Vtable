@@ -2338,15 +2338,22 @@ function populateCell(
         onOpenLink?: (linkText: string) => void,
 ) {
         td.replaceChildren(...parseTrustedHtml(raw).childNodes);
+        console.log('[DBG-populate] replaceChildren 后:', JSON.stringify(td.textContent));
         if (/^=[A-Z]+\(/i.test(raw)) {
                 td.textContent = evalFormula(grid, raw);
         }
         renderHtml(td);
+        console.log('[DBG-renderHtml 后]:', JSON.stringify(td.textContent));
         renderInlineCode(td);
+        console.log('[DBG-renderInlineCode 后]:', JSON.stringify(td.textContent));
         renderMarkdown(td);
+        console.log('[DBG-renderMarkdown 后]:', JSON.stringify(td.textContent));
         renderTodos(td, onTodoToggle);
+        console.log('[DBG-renderTodos 后]:', JSON.stringify(td.textContent));
         renderImages(td, sourcePath, resolveImage);
+        console.log('[DBG-renderImages 后]:', JSON.stringify(td.textContent));
         renderWikiLinks(td, onOpenLink);
+        console.log('[DBG-final]:', JSON.stringify(td.textContent));
 }
 
 const MATH_RE = /\$\$([^$]+?)\$\$|\$(\S(?:[^$\n]*?\S)?)\$/g;

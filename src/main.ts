@@ -1058,7 +1058,7 @@ class VtSettingTab extends PluginSettingTab {
                         preview.className = 'vt-color-preview';
                         preview.style.background = this.plugin.settings.headerColor;
                         colorSetting.nameEl.appendChild(preview);
-                        colorSetting.addText(t => t
+                        colorSetting.addText(txt => txt
                                 .setValue(this.plugin.settings.headerColor)
                                 .setPlaceholder(t('颜色值（颜色名或十六进制）', 'Color name or hex value'))
                                 .onChange(async (value) => {
@@ -1132,7 +1132,7 @@ class VtSettingTab extends PluginSettingTab {
                         zcPreview.className = 'vt-color-preview';
                         zcPreview.style.background = this.plugin.settings.zebraColor;
                         zcSetting.nameEl.appendChild(zcPreview);
-                        zcSetting.addText(t => t
+                        zcSetting.addText(txt => txt
                                 .setValue(this.plugin.settings.zebraColor)
                                 .setPlaceholder(t('颜色值（颜色名或十六进制）', 'Color name or hex value'))
                                 .onChange(async (value) => {

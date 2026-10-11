@@ -194,10 +194,17 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
         for (const seg of parseSegments(src)) {
                 td.appendChild(buildSegEl(seg, ctx));
         }
-        // 末尾锚点：源码以换行结尾（末尾空行）时，末尾 br 后补一个空文本段——
-        // 没有它，末尾 br 是 td 末尾的孤立真元素、后面无可编辑锚点，光标放不进去
-        //（实测：Enter 加空行离焦再进格，空的换行点不到）。空段投影输出空串，零污染
-        if ((td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement))) {
+        // 末尾锚点：td 末尾是"孤立的真元素"（br 结尾的空行 / 渲染段结尾的块）时，
+        // 补一个空文本段作块外的可锚定落位——没有它：
+        //  · br 结尾：末尾 br 后无可编辑锚点，光标放不进去（实测：Enter 加空行离焦再进格，空的换行点不到）
+        //  · 渲染段结尾：块后无实体节点，caretRangeFromPoint 把点击/进格的落点投影进
+        //    块内文本末尾（实测：**课程** 格点击块后空白，光标落 **课程|** 块内而非块外）
+        // 空段投影输出空串，零污染
+        const lastChild = td.lastChild;
+        const lastIsBr = lastChild != null && lastChild.instanceOf(HTMLBRElement);
+        const lastIsRenderSeg = lastChild != null && lastChild.instanceOf(HTMLElement)
+                && lastChild.classList.contains(SEG_CLS) && lastChild.dataset.view === 'render';
+        if (lastIsBr || lastIsRenderSeg) {
                 const tail = document.createElement('span');
                 tail.className = SEG_CLS;
                 tail.dataset.kind = 'text';
