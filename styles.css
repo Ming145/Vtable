@@ -971,15 +971,17 @@ table.vt td.vt-diag {
 
 /* ===== 任务8：屏蔽 Obsidian 对渲染代码块的默认编辑交互（仅对 Vtable 生效） ===== */
 
-/* 实时编辑模式下代码块 hover 时的外框（border/outline/box-shadow 三种实现都压掉） */
-.markdown-source-view.mod-cm6 .cm-embed-block:has(table.vt) {
+/* 实时编辑模式下代码块 hover 时的外框（border/outline/box-shadow 三种实现都压掉）。
+   用 .vt-embedded（渲染时由 JS 加到 .cm-embed-block 上）替代 :has(table.vt)——
+   官方审查提示 :has 触发大范围选择器失效，有性能开销 */
+.markdown-source-view.mod-cm6 .cm-embed-block.vt-embedded {
         border-color: transparent !important;
         outline-color: transparent !important;
         box-shadow: none !important;
 }
 
 /* 右上角的「编辑这个区块」</> 按钮 */
-.markdown-source-view.mod-cm6 .cm-embed-block:has(table.vt) .edit-block-button {
+.markdown-source-view.mod-cm6 .cm-embed-block.vt-embedded .edit-block-button {
         display: none !important;
 }
 

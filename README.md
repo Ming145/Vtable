@@ -2,7 +2,9 @@
 
 English | [中文](README_CN.md)
 
-Enhanced editable tables for [Obsidian](https://obsidian.md). Create tables inside a ```vtable code block, edit cells directly in Live Preview, and go far beyond what native Markdown tables can do: in-cell line breaks, merged cells, Excel-style formulas, checkable task lists, images, math, charts, and one-click export.
+Enhanced editable tables for [Obsidian](https://obsidian.md). Create tables inside a ```vtable code block, edit cells directly in Live Preview, and go far beyond what native Markdown tables can do: in-cell line breaks, merged cells, Excel-style formulas, and even **checkable task lists that native tables can't hold** — plus images, math, charts, and one-click export.
+
+Built to be beautiful out of the box: a clean, minimal design with theme-aware colors, and highly customizable — per-table line styles, zebra striping, header colors, cell alignment and background colors, all adjustable to match your vault.
 
 Works on desktop, iPad, and mobile.
 
@@ -153,7 +155,11 @@ The context menu is fully customizable in **Settings → vtable → 右键菜单
 
 ## Installation
 
-### From BRAT (recommended while in beta)
+### From the Official Community Plugins (recommended)
+
+Open **Settings → Community plugins → Browse** in Obsidian, search for **Vtable**, and install. Updates are delivered automatically through Obsidian.
+
+### From BRAT
 
 1. Install the **BRAT** community plugin
 2. In BRAT settings, choose *Add beta plugin*

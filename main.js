@@ -4496,6 +4496,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   preserveVisualSnapshot(el);
   el.empty();
   el.classList.add("vtable-container");
+  el.closest(".cm-embed-block")?.addClass("vt-embedded");
   if (!pendingFocusRestore && !pendingSelectionRestore)
     toolbar.hideIfStale();
   const data = parseSource(source);
@@ -6317,22 +6318,15 @@ function shiftIndex(v, deltas) {
 }
 function populateCell(td, raw, grid, sourcePath, resolveImage, onTodoToggle, onOpenLink) {
   td.replaceChildren(...parseTrustedHtml(raw).childNodes);
-  console.log("[DBG-populate] replaceChildren \u540E:", JSON.stringify(td.textContent));
   if (/^=[A-Z]+\(/i.test(raw)) {
     td.textContent = evalFormula(grid, raw);
   }
   renderHtml(td);
-  console.log("[DBG-renderHtml \u540E]:", JSON.stringify(td.textContent));
   renderInlineCode(td);
-  console.log("[DBG-renderInlineCode \u540E]:", JSON.stringify(td.textContent));
   renderMarkdown(td);
-  console.log("[DBG-renderMarkdown \u540E]:", JSON.stringify(td.textContent));
   renderTodos(td, onTodoToggle);
-  console.log("[DBG-renderTodos \u540E]:", JSON.stringify(td.textContent));
   renderImages(td, sourcePath, resolveImage);
-  console.log("[DBG-renderImages \u540E]:", JSON.stringify(td.textContent));
   renderWikiLinks(td, onOpenLink);
-  console.log("[DBG-final]:", JSON.stringify(td.textContent));
 }
 var MATH_RE = /\$\$([^$]+?)\$\$|\$(\S(?:[^$\n]*?\S)?)\$/g;
 function renderMathInNode(root) {
@@ -6363,6 +6357,7 @@ function splitMath(text) {
   let last = 0;
   let matched = false;
   const frag = document.createDocumentFragment();
+  ;
   ;
   while (match = MATH_RE.exec(text)) {
     if (match.index > last)
@@ -6460,6 +6455,7 @@ function renderTodos(root, onTodoToggle) {
     const lines = text.split("\n");
     let hasTodo = false;
     const frag = document.createDocumentFragment();
+    ;
     ;
     const buildTaskItem = (m) => {
       hasTodo = true;
@@ -6591,6 +6587,7 @@ function renderImages(root, sourcePath, resolveImage) {
     let found = false;
     const frag = document.createDocumentFragment();
     ;
+    ;
     while (match = IMG_RE.exec(text)) {
       if (match.index > last)
         frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -6644,6 +6641,7 @@ function renderWikiLinks(root, onOpenLink) {
     if (!WIKILINK_RE.test(text))
       continue;
     const frag = document.createDocumentFragment();
+    ;
     ;
     let last = 0;
     WIKILINK_RE.lastIndex = 0;
@@ -7645,7 +7643,8 @@ var VtPlugin = class extends import_obsidian4.Plugin {
   async ensureTemplates() {
     const vault = this.app.vault;
     let templateFolder = "TEMPLATE";
-    const templatesPlugin = this.app.internalPlugins.getPluginById("templates");
+    const internalPlugins = this.app.internalPlugins;
+    const templatesPlugin = internalPlugins.getPluginById("templates");
     if (templatesPlugin?.enabled) {
       const folder = templatesPlugin.instance?.options?.folder;
       if (folder)
@@ -8474,7 +8473,7 @@ ${barLegend()}`;
     const styleSection = containerEl.createEl("details", { cls: "vt-style-section" });
     styleSection.setAttribute("open", "");
     styleSection.createEl("summary", { text: t("\u8868\u683C\u6837\u5F0F", "Table style") });
-    new import_obsidian4.Setting(styleSection).setName(t("\u8868\u683C\u5916\u6846\u5706\u89D2", "Table corner radius")).setDesc(t("\u62D6\u52A8\u8C03\u6574\u8868\u683C\u56DB\u4E2A\u5916\u89D2\u7684\u5706\u89D2\u5927\u5C0F\uFF0C0 \u4E3A\u76F4\u89D2\u3002\u4FEE\u6539\u540E\u5BF9\u6240\u6709\u5DF2\u6253\u5F00\u7684\u8868\u683C\u5373\u65F6\u751F\u6548\uFF08\u5168\u5C40\u8BBE\u7F6E\uFF0C\u4E0D\u80FD\u5BF9\u5355\u4E2A\u8868\u683C\u53D6\u6D88\uFF09\u3002", "Rounded corners of the table outline, 0 = square. Applies to all open tables immediately (global only, cannot be disabled per table).")).addSlider((s) => s.setLimits(0, 20, 1).setValue(this.plugin.settings.tableRadius).setDynamicTooltip().onChange(async (value) => {
+    new import_obsidian4.Setting(styleSection).setName(t("\u8868\u683C\u5916\u6846\u5706\u89D2", "Table corner radius")).setDesc(t("\u62D6\u52A8\u8C03\u6574\u8868\u683C\u56DB\u4E2A\u5916\u89D2\u7684\u5706\u89D2\u5927\u5C0F\uFF0C0 \u4E3A\u76F4\u89D2\u3002\u4FEE\u6539\u540E\u5BF9\u6240\u6709\u5DF2\u6253\u5F00\u7684\u8868\u683C\u5373\u65F6\u751F\u6548\uFF08\u5168\u5C40\u8BBE\u7F6E\uFF0C\u4E0D\u80FD\u5BF9\u5355\u4E2A\u8868\u683C\u53D6\u6D88\uFF09\u3002", "Rounded corners of the table outline, 0 = square. Applies to all open tables immediately (global only, cannot be disabled per table).")).addSlider((s) => s.setLimits(0, 20, 1).setValue(this.plugin.settings.tableRadius).onChange(async (value) => {
       this.plugin.settings.tableRadius = value;
       await this.plugin.saveSettings();
       refreshAllTableAppearance();

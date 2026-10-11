@@ -379,6 +379,8 @@ export function renderBlock(
         preserveVisualSnapshot(el);
         el.empty();
         el.classList.add('vtable-container');
+        // 官方审查优化：替代 CSS :has(table.vt)——渲染时给宿主代码块容器加类，避免 :has 的选择器失效开销
+        el.closest('.cm-embed-block')?.addClass('vt-embedded');
 
         // bug1：浮窗引用的格已脱离 DOM（重渲染/切标签页/焦点元素被摘除时 blur 不触发）→ 立即隐藏
         if (!pendingFocusRestore && !pendingSelectionRestore) toolbar.hideIfStale();
@@ -2338,22 +2340,15 @@ function populateCell(
         onOpenLink?: (linkText: string) => void,
 ) {
         td.replaceChildren(...parseTrustedHtml(raw).childNodes);
-        console.log('[DBG-populate] replaceChildren 后:', JSON.stringify(td.textContent));
         if (/^=[A-Z]+\(/i.test(raw)) {
                 td.textContent = evalFormula(grid, raw);
         }
         renderHtml(td);
-        console.log('[DBG-renderHtml 后]:', JSON.stringify(td.textContent));
         renderInlineCode(td);
-        console.log('[DBG-renderInlineCode 后]:', JSON.stringify(td.textContent));
         renderMarkdown(td);
-        console.log('[DBG-renderMarkdown 后]:', JSON.stringify(td.textContent));
         renderTodos(td, onTodoToggle);
-        console.log('[DBG-renderTodos 后]:', JSON.stringify(td.textContent));
         renderImages(td, sourcePath, resolveImage);
-        console.log('[DBG-renderImages 后]:', JSON.stringify(td.textContent));
         renderWikiLinks(td, onOpenLink);
-        console.log('[DBG-final]:', JSON.stringify(td.textContent));
 }
 
 const MATH_RE = /\$\$([^$]+?)\$\$|\$(\S(?:[^$\n]*?\S)?)\$/g;
@@ -2384,7 +2379,7 @@ function splitMath(text: string): DocumentFragment | null {
         let match: RegExpExecArray | null;
         let last = 0;
         let matched = false;
-        const frag = document.createDocumentFragment();;
+        const frag = document.createDocumentFragment();;;
 
         while ((match = MATH_RE.exec(text))) {
                 if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2475,7 +2470,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                 const text = textNode.textContent;
                 const lines = text.split('\n');
                 let hasTodo = false;
-                const frag = document.createDocumentFragment();;
+                const frag = document.createDocumentFragment();;;
 
                 const buildTaskItem = (m: RegExpMatchArray) => {
                         hasTodo = true;
@@ -2611,7 +2606,7 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                 let match: RegExpExecArray | null;
                 let last = 0;
                 let found = false;
-                const frag = document.createDocumentFragment();;
+                const frag = document.createDocumentFragment();;;
 
                 while ((match = IMG_RE.exec(text))) {
                         if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2668,7 +2663,7 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                 const text = textNode.textContent;
                 WIKILINK_RE.lastIndex = 0;
                 if (!WIKILINK_RE.test(text)) continue;
-                const frag = document.createDocumentFragment();;
+                const frag = document.createDocumentFragment();;;
                 let last = 0;
                 WIKILINK_RE.lastIndex = 0;
                 let m: RegExpExecArray | null;

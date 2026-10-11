@@ -265,7 +265,11 @@ export function parseSource(src: string): VtData {
         if (trimmed === '') return { mode: 'OL', rows: blankGrid(1, 1) };
 
         try {
-                const obj = JSON.parse(trimmed);
+                // JSON.parse 返回 any：按源格式声明最小形状，字段逐一收窄后使用
+                const obj = JSON.parse(trimmed) as {
+                        rows?: unknown; mode?: unknown; colWidths?: unknown;
+                        rowHeights?: unknown; noHeaderBg?: unknown; style?: unknown; zebra?: unknown;
+                };
                 if (obj && Array.isArray(obj.rows)) {
                         const mode = parseMode(obj.mode);
                         const rows = normalize(obj.rows as Grid);

@@ -72,7 +72,11 @@ export default class VtPlugin extends Plugin {
 
                 // 1. 检测模板文件夹路径（优先读取官方 Templates 核心插件设置）
                 let templateFolder = 'TEMPLATE';
-                const templatesPlugin = this.app.internalPlugins.getPluginById('templates');
+                // internalPlugins 为非公开 API（社区通行做法）：最小化接口声明消除 any
+                const internalPlugins = this.app.internalPlugins as unknown as {
+                        getPluginById(id: string): { enabled: boolean; instance?: { options?: { folder?: string } } } | null;
+                };
+                const templatesPlugin = internalPlugins.getPluginById('templates');
                 if (templatesPlugin?.enabled) {
                         const folder = templatesPlugin.instance?.options?.folder;
                         if (folder) templateFolder = folder;
@@ -136,7 +140,7 @@ export default class VtPlugin extends Plugin {
 
                 // 语言必须先于任何 addCommand 初始化：命令名在注册时求值（t() 即时返回），
                 // 晚于注册再切语言只会改到设置面板文本，命令名仍是注册时的旧语言
-                this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+                this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<VtSettings>);
                 // 旧菜单配置升级（多种历史默认形态/自定义串都可能没有对齐组）：
                 // 不含 vt.alignL → 在合并组前插入两个对齐图标组（自定义用户可在文本框删掉）
                 if (!this.settings.contextMenu.includes('vt.alignL')) {
@@ -1025,7 +1029,6 @@ class VtSettingTab extends PluginSettingTab {
                         .addSlider(s => s
                                 .setLimits(0, 20, 1)
                                 .setValue(this.plugin.settings.tableRadius)
-                                .setDynamicTooltip()
                                 .onChange(async (value) => {
                                         this.plugin.settings.tableRadius = value;
                                         await this.plugin.saveSettings();
