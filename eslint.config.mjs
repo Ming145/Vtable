@@ -9,6 +9,7 @@ export default [
                 files: ['src/**/*.ts'],
                 languageOptions: {
                         parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+                        globals: { require: 'readonly' },
                 },
         },
 ];

@@ -21,7 +21,7 @@
  *  - 渲染态段源码 = data-src（原文，不可能被编辑污染）
  */
 
-import { escapeHtml, normalizeCellNewlines } from './builder';
+import { normalizeCellNewlines } from './builder';
 import { parseMarkdownTable } from './paste-grid';
 import { parseTrustedHtml } from './html';
 
@@ -136,8 +136,8 @@ export function parseSegments(src: string): Seg[] {
                 if ((m = /^\[\[([^\]\n]+)\]\]/.exec(lineRest))) { pushMd(m[0], 2, 2); continue; }
 
                 // 7) HTML 对称标签（<b>x</b>、<span style="..">x</span> 等，同行；<br>/<img> 已在上面 void 处理）
-                if ((m = /^<([a-zA-Z][a-zA-Z0-9]*)((?:\s[^<>]*)?)>/.exec(lineRest)) && HTML_PAIR_TAGS.has(m[1]!.toLowerCase())) {
-                        const tag = m[1]!;
+                if ((m = /^<([a-zA-Z][a-zA-Z0-9]*)((?:\s[^<>]*)?)>/.exec(lineRest)) && HTML_PAIR_TAGS.has(m[1].toLowerCase())) {
+                        const tag = m[1];
                         const closeIdx = lineRest.toLowerCase().indexOf(`</${tag.toLowerCase()}>`, m[0].length);
                         if (closeIdx > m[0].length) {
                                 const closeLen = tag.length + 3;
@@ -157,7 +157,7 @@ export function parseSegments(src: string): Seg[] {
 
         function wordOk(start: number, len: number): boolean {
                 // 下划线系语法的单词边界约束（与 mdInlineToHtml 保持一致，避免误伤 snake_case）
-                const before = start > 0 ? src[start - 1]! : '';
+                const before = start > 0 ? src[start - 1] : '';
                 const after = src[start + len] ?? '';
                 const isW = (ch: string) => /\w/.test(ch);
                 return !isW(before) && !isW(after);
@@ -197,7 +197,7 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
         // 没有它，末尾 br 是 td 末尾的孤立真元素、后面无可编辑锚点，光标放不进去
         //（实测：Enter 加空行离焦再进格，空的换行点不到）。空段投影输出空串，零污染
         if ((td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement))) {
-                const tail = createEl('span');
+                const tail = createSpan();
                 tail.className = SEG_CLS;
                 tail.dataset.kind = 'text';
                 tail.dataset.view = 'src';
@@ -231,9 +231,9 @@ function buildSegEl(seg: Seg, ctx: WysiwygCtx): HTMLElement {
         // 全部用 span：块级 fence 用 display:block。
         // 不用 div —— Chromium 在"块级元素后缘"打字会把字符插进 div 内部（beforeinput 都不触发），
         // 渲染段投影走 data-src → 字符静默丢失；inline span 后缘输入落在 td 直下，数据安全
-        const el = createEl('span');
+        const el = createSpan();
         el.className = SEG_CLS;
-        if (seg.kind === 'fence') el.setCssProps({ display: 'block' });
+        if (seg.kind === 'fence') el.style.display = `block`;
         el.dataset.kind = seg.kind;
         el.dataset.src = seg.raw;
         el.dataset.s = String(seg.start);
@@ -261,16 +261,16 @@ function attachImgResize(seg: HTMLElement): void {
         const img = seg.querySelector('img');
         if (!img) return;
         seg.classList.add('vt-img-seg');
-        const grip = createEl('div');
+        const grip = createDiv();
         grip.className = 'vt-img-resize';
         grip.setAttribute('aria-hidden', 'true');
         // L 形折角（用户 2026-10-07 定稿形状，21:50 调细）：竖臂在上、横臂在左，圆头细线圆拐角；
         // 浅灰（表格边缘同色）走 CSS currentColor，命中区为更大的圆形（见 styles.css）
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const svg = createSvg('svg');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('fill', 'none');
         svg.setAttribute('aria-hidden', 'true');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const path = createSvg('path');
         path.setAttribute('d', 'M17 5 L17 17 L5 17');
         path.setAttribute('stroke', 'currentColor');
         path.setAttribute('stroke-width', '2.75');
@@ -287,7 +287,7 @@ function attachImgResize(seg: HTMLElement): void {
                 const startW = img.getBoundingClientRect().width;
                 const onMove = (ev: PointerEvent) => {
                         const w = Math.max(24, Math.round(startW + (ev.clientX - startX)));
-                        img.setCssProps({ width: `${w}px` });
+                        img.style.width = `${w}px`;
                         syncImgSrcWidth(seg, w);
                 };
                 const onUp = () => {
@@ -434,8 +434,8 @@ function locateStart(td: HTMLElement, range: Range): LocateResult {
                 const childNodes = Array.from(td.childNodes);
                 // offset 处的段 → 前缘；offset-1 处的段 → 后缘。
                 // 边界歧义（一段后缘 = 另一段前缘）：渲染段优先 —— 用户站在渲染块边缘时应看到块源码
-                const next = (childNodes[offset] != null && childNodes[offset].instanceOf(HTMLElement)) && (childNodes[offset] as HTMLElement).classList.contains(SEG_CLS)
-                        ? (childNodes[offset] as HTMLElement) : null;
+                const next = (childNodes[offset] != null && childNodes[offset].instanceOf(HTMLElement)) && (childNodes[offset]).classList.contains(SEG_CLS)
+                        ? (childNodes[offset]) : null;
                 const prev = offset > 0 && (childNodes[offset - 1] != null && childNodes[offset - 1].instanceOf(HTMLElement)) && (childNodes[offset - 1] as HTMLElement).classList.contains(SEG_CLS)
                         ? (childNodes[offset - 1] as HTMLElement) : null;
                 const isRenderable = (el: HTMLElement) => el.dataset.view !== 'src' && el.dataset.kind !== 'text';
@@ -508,7 +508,7 @@ function looseOffsetAt(td: HTMLElement, idx: number): number {
         const childNodes = Array.from(td.childNodes);
         for (let i = 0; i < childNodes.length; i++) {
                 if (i === idx) break;
-                const n = childNodes[i]!;
+                const n = childNodes[i];
                 if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) acc = parseInt(n.dataset.e ?? '0', 10);
                 else if ((n != null && n.instanceOf(HTMLBRElement))) acc += 4;
                 else acc += n.textContent?.length ?? 0;
@@ -543,7 +543,7 @@ export function caretSourceOffset(td: HTMLElement): number | null {
                 const idx = range.startOffset;
                 let acc = 0;
                 for (let i = 0; i < childNodes.length; i++) {
-                        const n = childNodes[i]!;
+                        const n = childNodes[i];
                         if (i === idx) break; // 光标在本节点之前 → acc 即偏移
                         if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) acc = parseInt(n.dataset.e ?? '0', 10);
                         else if ((n != null && n.instanceOf(HTMLBRElement))) acc += 4; // 换行 <br> = 源码 4 字符
@@ -552,7 +552,6 @@ export function caretSourceOffset(td: HTMLElement): number | null {
                 return acc;
         }
         const s = parseInt(loc.el.dataset.s ?? '0', 10);
-        const e = parseInt(loc.el.dataset.e ?? '0', 10);
         if (loc.el.dataset.view === 'src') {
                 // src 态段：DOM 即最新源码（用户可能已改动，data-e 是上次重建的旧边界），
                 // 偏移按 DOM 现算【不做 e-s clamp】——否则新输入被旧边界截断（光标错一位连环跳）
@@ -583,7 +582,7 @@ function segSuffix(el: HTMLElement): number { return parseInt(el.dataset.suffix 
 
 function totalLen(td: HTMLElement): number {
         const segs = segEls(td);
-        return segs.length ? parseInt(segs[segs.length - 1]!.dataset.e ?? '0', 10) : 0;
+        return segs.length ? parseInt(segs[segs.length - 1].dataset.e ?? '0', 10) : 0;
 }
 
 /** 非折叠选区 → 源码区间 [a, b)（复制/剪切用） */
@@ -846,7 +845,7 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                 // 若宿主没转换（移动端）→ 光标前一字符是"："不是':' → 自然不拨。
                 // 三拍 60/300/800ms：宿主替换时机不可知，多保险；每次拨正前确认 activeElement
                 // 仍是 td（用户已点走则不碰）
-                if ((e as CompositionEvent).data === '：') {
+                if ((e).data === '：') {
                         const fixColonCaret = () => {
                                 if (!isWysiwyg(td) || st.composing) return;
                                 if (document.activeElement !== td) return;
@@ -887,7 +886,7 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
 
         td.addEventListener('beforeinput', (e) => {
                 if (!isWysiwyg(td)) return;
-                const ie = e as InputEvent;
+                const ie = e;
                 if (st.composing) {
                         healStuckComposing(ie);
                         if (st.composing) return;
@@ -1146,8 +1145,8 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                 }
         });
 
-        td.addEventListener('copy', (e) => handleCopyCut(td, st, e as ClipboardEvent, 'copy'));
-        td.addEventListener('cut', (e) => handleCopyCut(td, st, e as ClipboardEvent, 'cut'));
+        td.addEventListener('copy', (e) => handleCopyCut(td, st, e, 'copy'));
+        td.addEventListener('cut', (e) => handleCopyCut(td, st, e, 'cut'));
         td.addEventListener('paste', (e) => {
                 if (!isWysiwyg(td) || st.composing) return;
                 e.preventDefault();
@@ -1228,7 +1227,7 @@ function onSelectionChange(td: HTMLElement, st: TdState): void {
 
         // 进入渲染段 → 切源码（判定见 shouldReveal）
         if (shouldReveal(loc)) {
-                revealSeg(td, st, cur!, loc);
+                revealSeg(td, st, cur, loc);
         }
         // 记录光标监测结果：抢救误插字符时按此判定"用户本意插入点"
         st.lastLoc = cur ? { el: cur, where: loc.where, innerF: loc.innerF } : null;
@@ -1416,7 +1415,7 @@ export function promoteTailNewlines(td: HTMLElement, src: string): string {
         if (!/\n$/.test(src)) return src;
         const kids = Array.from(td.childNodes);
         for (let i = kids.length - 1; i >= 0; i--) {
-                const n = kids[i]!;
+                const n = kids[i];
                 // 尾部空白游离节点（Chromium 刚插的字面 \n 还在 DOM 里）：跳过往前找
                 if (n.nodeType === Node.TEXT_NODE && !(n.textContent ?? '').trim()) continue;
                 // 唯一相关的形态：块（渲染段）是内容末尾；文字段/锚点段（view=src）不在此列

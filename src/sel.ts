@@ -64,7 +64,7 @@ export function buildAnchorIndex(grid: Grid): AnchorIndex {
         const idx: AnchorIndex = new Map();
         for (let r = 0; r < grid.length; r++) {
                 for (let c = 0; c < grid[r].length; c++) {
-                        const cd = grid[r]![c]!;
+                        const cd = grid[r][c];
                         if (!visible(cd)) continue;
                         for (let dr = 0; dr < cd.rs; dr++) {
                                 for (let dc = 0; dc < cd.cs; dc++) {
@@ -168,9 +168,9 @@ function buildSnap(values: number[]): Map<number, number> {
         let i = 0;
         while (i < uniq.length) {
                 let j = i;
-                while (j + 1 < uniq.length && uniq[j + 1]! - uniq[j]! <= 1) j++;
+                while (j + 1 < uniq.length && uniq[j + 1] - uniq[j] <= 1) j++;
                 const rep = Math.round(uniq.slice(i, j + 1).reduce((s, v) => s + v, 0) / (j - i + 1));
-                for (let k = i; k <= j; k++) map.set(uniq[k]!, rep);
+                for (let k = i; k <= j; k++) map.set(uniq[k], rep);
                 i = j + 1;
         }
         return map;
@@ -182,9 +182,9 @@ function compressCollinear(pts: Pt[]): Pt[] {
         if (n < 3) return pts;
         const out: Pt[] = [];
         for (let i = 0; i < n; i++) {
-                const a = pts[(i - 1 + n) % n]!;
-                const b = pts[i]!;
-                const c = pts[(i + 1) % n]!;
+                const a = pts[(i - 1 + n) % n];
+                const b = pts[i];
+                const c = pts[(i + 1) % n];
                 const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
                 if (cross === 0) continue; // 共线：跳过 b
                 out.push(b);
@@ -199,9 +199,9 @@ function roundedLoopPath(pts: Pt[], radius: number): string {
         if (n < 3) return '';
         let d = '';
         for (let i = 0; i < n; i++) {
-                const prev = cp[(i - 1 + n) % n]!;
-                const cur = cp[i]!;
-                const next = cp[(i + 1) % n]!;
+                const prev = cp[(i - 1 + n) % n];
+                const cur = cp[i];
+                const next = cp[(i + 1) % n];
                 const d1 = dist(prev, cur);
                 const d2 = dist(cur, next);
                 if (d1 === 0 || d2 === 0) return '';
@@ -257,9 +257,9 @@ export function unionOutlinePath(
                 const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
                 const pts = [lo];
                 for (const v of xs) if (v > lo && v < hi) pts.push(v);
-        (pts as number[]).push(hi);
+        (pts).push(hi);
                 for (let i = 0; i + 1 < pts.length; i++) {
-                        const a = pts[i]!, b = pts[i + 1]!;
+                        const a = pts[i], b = pts[i + 1];
                         if (dir > 0) addSeg(a, y, b, y); else addSeg(b, y, a, y);
                 }
         };
@@ -267,9 +267,9 @@ export function unionOutlinePath(
                 const lo = Math.min(ya, yb), hi = Math.max(ya, yb);
                 const pts = [lo];
                 for (const v of ys) if (v > lo && v < hi) pts.push(v);
-        (pts as number[]).push(hi);
+        (pts).push(hi);
                 for (let i = 0; i + 1 < pts.length; i++) {
-                        const a = pts[i]!, b = pts[i + 1]!;
+                        const a = pts[i], b = pts[i + 1];
                         if (dir > 0) addSeg(x, a, x, b); else addSeg(x, b, x, a);
                 }
         };
@@ -316,7 +316,7 @@ export function unionOutlinePath(
                         // 优先转弯（右转 > 左转 > 直行），保持外轮廓
                         const inDx = seg.to.x - seg.from.x;
                         const inDy = seg.to.y - seg.from.y;
-                        let best = cands[0]!;
+                        let best = cands[0];
                         let bestScore = -Infinity;
                         for (const cand of cands) {
                                 const dx = cand.to.x - cand.from.x;
@@ -443,13 +443,13 @@ export class SelOverlay {
         private redraw() {
                 if (!this.rects.length) {
                         this.stopLiveSync();
-                        if (this.layer) this.layer.setCssProps({ display: 'none' });
+                        if (this.layer) this.layer.style.display = `none`;
                         return;
                 }
                 this.ensureLayer();
                 const d = this.buildPath();
                 if (!d) {
-                        this.layer!.setCssProps({ display: 'none' });
+                        this.layer!.style.display = `none`;
                         return;
                 }
                 this.placeLayer();
@@ -467,11 +467,11 @@ export class SelOverlay {
                         height: tRect.height,
                 };
                 const layer = this.layer!;
-                layer.setCssProps({ display: 'block' });
-                layer.setCssProps({ left: `${tRect.left - B}px` });
-                layer.setCssProps({ top: `${tRect.top - B}px` });
-                layer.setCssProps({ width: `${tRect.width + B * 2}px` });
-                layer.setCssProps({ height: `${tRect.height + B * 2}px` });
+                layer.style.display = `block`;
+                layer.style.left = `${tRect.left - B}px`;
+                layer.style.top = `${tRect.top - B}px`;
+                layer.style.width = `${tRect.width + B * 2}px`;
+                layer.style.height = `${tRect.height + B * 2}px`;
                 const w = Math.max(1, tRect.width + B * 2);
                 const h = Math.max(1, tRect.height + B * 2);
                 this.svg!.setAttribute('width', String(w));
@@ -488,21 +488,21 @@ export class SelOverlay {
                 // 都会裁掉贴边描边（“开了圆角后选框边缘被裁”的根因）；body 直挂免疫一切容器裁剪，
                 // 视口坐标直接定位，滚动/缩放由活巡检逐帧跟随
                 this.layer = document.body.createDiv({ cls: 'vt-sel-layer' });
-                this.layer.setCssProps({ position: 'fixed' });
-                this.layer.setCssProps({ pointerEvents: 'none' });
-                this.layer.setCssProps({ overflow: 'visible' });
-                this.layer.setCssProps({ zIndex: '1000' });
-                this.svg = document.createElementNS(SVG_NS, 'svg') as unknown as SVGSVGElement;
-                this.svg.setCssProps({ overflow: 'visible' });
-                this.path = document.createElementNS(SVG_NS, 'path') as unknown as SVGPathElement;
+                this.layer.style.position = `fixed`;
+                this.layer.style.pointerEvents = `none`;
+                this.layer.style.overflow = `visible`;
+                this.layer.style.zIndex = `1000`;
+                this.svg = document.createElementNS(SVG_NS, 'svg');
+                this.svg.style.overflow = `visible`;
+                this.path = document.createElementNS(SVG_NS, 'path');
                 // 主题色：纯色圆角外框 + 极浅半透明底色
                 // 底色与外框用同一个 --interactive-accent 变量（部分主题没有 -rgb 变量，
                 // rgba(var(--interactive-accent-rgb)) 会落到默认紫），透明度用 fill-opacity 独立控制
-                this.path.setCssProps({ fill: 'var(--interactive-accent, #7c3aed)' });
-                this.path.setCssProps({ fillOpacity: '0.10' });
-                this.path.setCssProps({ fillRule: 'evenodd' });
-                this.path.setCssProps({ stroke: 'var(--interactive-accent, #7c3aed)' });
-                this.path.setCssProps({ strokeWidth: '2' });
+                this.path.style.fill = `var(--interactive-accent, #7c3aed)`;
+                this.path.style.fillOpacity = `0.10`;
+                this.path.style.fillRule = `evenodd`;
+                this.path.style.stroke = `var(--interactive-accent, #7c3aed)`;
+                this.path.style.strokeWidth = `2`;
                 this.svg.appendChild(this.path);
                 this.layer.appendChild(this.svg);
         }
@@ -524,7 +524,7 @@ export class SelOverlay {
                         }
                 }
                 // 记录首个选中格锚点（巡检漂移检测用）
-                if (px.length) this.cellAnchor = { x: px[0]!.x, y: px[0]!.y };
+                if (px.length) this.cellAnchor = { x: px[0].x, y: px[0].y };
                 return unionOutlinePath(px);
         }
 }

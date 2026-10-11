@@ -1057,13 +1057,13 @@ var _SelOverlay = class {
     if (!this.rects.length) {
       this.stopLiveSync();
       if (this.layer)
-        this.layer.setCssProps({ display: "none" });
+        this.layer.style.display = `none`;
       return;
     }
     this.ensureLayer();
     const d = this.buildPath();
     if (!d) {
-      this.layer.setCssProps({ display: "none" });
+      this.layer.style.display = `none`;
       return;
     }
     this.placeLayer();
@@ -1080,11 +1080,11 @@ var _SelOverlay = class {
       height: tRect.height
     };
     const layer = this.layer;
-    layer.setCssProps({ display: "block" });
-    layer.setCssProps({ left: `${tRect.left - B}px` });
-    layer.setCssProps({ top: `${tRect.top - B}px` });
-    layer.setCssProps({ width: `${tRect.width + B * 2}px` });
-    layer.setCssProps({ height: `${tRect.height + B * 2}px` });
+    layer.style.display = `block`;
+    layer.style.left = `${tRect.left - B}px`;
+    layer.style.top = `${tRect.top - B}px`;
+    layer.style.width = `${tRect.width + B * 2}px`;
+    layer.style.height = `${tRect.height + B * 2}px`;
     const w = Math.max(1, tRect.width + B * 2);
     const h = Math.max(1, tRect.height + B * 2);
     this.svg.setAttribute("width", String(w));
@@ -1096,18 +1096,18 @@ var _SelOverlay = class {
       return;
     this.layer?.remove();
     this.layer = document.body.createDiv({ cls: "vt-sel-layer" });
-    this.layer.setCssProps({ position: "fixed" });
-    this.layer.setCssProps({ pointerEvents: "none" });
-    this.layer.setCssProps({ overflow: "visible" });
-    this.layer.setCssProps({ zIndex: "1000" });
+    this.layer.style.position = `fixed`;
+    this.layer.style.pointerEvents = `none`;
+    this.layer.style.overflow = `visible`;
+    this.layer.style.zIndex = `1000`;
     this.svg = document.createElementNS(SVG_NS, "svg");
-    this.svg.setCssProps({ overflow: "visible" });
+    this.svg.style.overflow = `visible`;
     this.path = document.createElementNS(SVG_NS, "path");
-    this.path.setCssProps({ fill: "var(--interactive-accent, #7c3aed)" });
-    this.path.setCssProps({ fillOpacity: "0.10" });
-    this.path.setCssProps({ fillRule: "evenodd" });
-    this.path.setCssProps({ stroke: "var(--interactive-accent, #7c3aed)" });
-    this.path.setCssProps({ strokeWidth: "2" });
+    this.path.style.fill = `var(--interactive-accent, #7c3aed)`;
+    this.path.style.fillOpacity = `0.10`;
+    this.path.style.fillRule = `evenodd`;
+    this.path.style.stroke = `var(--interactive-accent, #7c3aed)`;
+    this.path.style.strokeWidth = `2`;
     this.svg.appendChild(this.path);
     this.layer.appendChild(this.svg);
   }
@@ -1198,24 +1198,24 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     colGrips.push(g);
   }
   const dropLine = wrap.createDiv({ cls: "vt-drop-line" });
-  dropLine.setCssProps({ display: "none" });
+  dropLine.style.display = `none`;
   const hideLine = () => {
-    dropLine.setCssProps({ display: "none" });
+    dropLine.style.display = `none`;
   };
   const showLine = (horizontal, pos, cross, bad) => {
-    dropLine.setCssProps({ display: "block" });
+    dropLine.style.display = `block`;
     dropLine.classList.toggle("vt-drop-h", horizontal);
     dropLine.classList.toggle("vt-drop-bad", bad);
     if (horizontal) {
-      dropLine.setCssProps({ left: "0px" });
-      dropLine.setCssProps({ width: `${cross}px` });
-      dropLine.setCssProps({ top: `${pos}px` });
-      dropLine.setCssProps({ height: "2px" });
+      dropLine.style.left = `0px`;
+      dropLine.style.width = `${cross}px`;
+      dropLine.style.top = `${pos}px`;
+      dropLine.style.height = `2px`;
     } else {
-      dropLine.setCssProps({ top: "0px" });
-      dropLine.setCssProps({ height: `${cross}px` });
-      dropLine.setCssProps({ left: `${pos}px` });
-      dropLine.setCssProps({ width: "2px" });
+      dropLine.style.top = `0px`;
+      dropLine.style.height = `${cross}px`;
+      dropLine.style.left = `${pos}px`;
+      dropLine.style.width = `2px`;
     }
   };
   let hoverRC = null;
@@ -1234,14 +1234,14 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
       const visB = Math.min(b.bottom, wr.bottom, vh - 2);
       const visH = visB - visT;
       if (visH <= 0) {
-        g.setCssProps({ display: "none" });
+        g.style.display = `none`;
         return;
       }
-      g.setCssProps({ display: "" });
-      g.setCssProps({ left: `${Math.max(wr.left - GRIP - GAP, Math.min(Math.max(GAP, b.left - GRIP - GAP), wr.right - GRIP))}px` });
-      g.setCssProps({ top: `${visT}px` });
-      g.setCssProps({ width: `${GRIP}px` });
-      g.setCssProps({ height: `${visH}px` });
+      g.style.display = ``;
+      g.style.left = `${Math.max(wr.left - GRIP - GAP, Math.min(Math.max(GAP, b.left - GRIP - GAP), wr.right - GRIP))}px`;
+      g.style.top = `${visT}px`;
+      g.style.width = `${GRIP}px`;
+      g.style.height = `${visH}px`;
     });
     colGrips.forEach((g, c) => {
       if (!g.classList.contains("vt-drag-on"))
@@ -1251,14 +1251,14 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
       const visR = Math.min(cl + colW(c), rightLimit);
       const visW = visR - visL;
       if (visW <= 0) {
-        g.setCssProps({ display: "none" });
+        g.style.display = `none`;
         return;
       }
-      g.setCssProps({ display: "" });
-      g.setCssProps({ left: `${visL}px` });
-      g.setCssProps({ top: `${Math.max(GAP, Math.min(tb.top - GRIP_COL - GAP, vh - GRIP_COL - 2))}px` });
-      g.setCssProps({ width: `${visW}px` });
-      g.setCssProps({ height: `${GRIP_COL}px` });
+      g.style.display = ``;
+      g.style.left = `${visL}px`;
+      g.style.top = `${Math.max(GAP, Math.min(tb.top - GRIP_COL - GAP, vh - GRIP_COL - 2))}px`;
+      g.style.width = `${visW}px`;
+      g.style.height = `${GRIP_COL}px`;
     });
   };
   const apply = () => {
@@ -1304,10 +1304,6 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
       }
     }
     return resolve(fallback);
-  }
-  function cellSpan(td, axis) {
-    const v = axis === "r" ? td.rowSpan : td.colSpan;
-    return v > 1 ? v : 1;
   }
   const isOurGrip = (el) => {
     const g = el?.closest?.(".vt-drag-grip");
@@ -1468,7 +1464,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     const g = drag.gripEl;
     const wr = wrapRect();
     if (drag.dir === "col") {
-      g.setCssProps({ left: `${Math.max(wr.left, Math.min(e.clientX - drag.grabD, wr.right - drag.gripSpan))}px` });
+      g.style.left = `${Math.max(wr.left, Math.min(e.clientX - drag.grabD, wr.right - drag.gripSpan))}px`;
       const b0 = edgeAt(e.clientX);
       let b = b0 <= drag.from ? b0 : b0 - 1;
       b = Math.max(0, Math.min(cols - 1, b));
@@ -1478,7 +1474,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
       const lx = edgeViewportPos(b0) - wr.left + wrap.scrollLeft;
       showLine(false, lx, table.offsetHeight, bad);
     } else {
-      g.setCssProps({ top: `${Math.max(wr.top, Math.min(e.clientY - drag.grabD, wr.bottom - drag.gripSpan))}px` });
+      g.style.top = `${Math.max(wr.top, Math.min(e.clientY - drag.grabD, wr.bottom - drag.gripSpan))}px`;
       const b0 = edgeAt(e.clientY);
       let b = b0 <= drag.from ? b0 : b0 - 1;
       b = Math.max(0, Math.min(rows.length - 1, b));
@@ -1735,7 +1731,7 @@ function genSeries(v0, n, sign, year = new Date().getFullYear()) {
   return out;
 }
 var mkDiv = (cls, parent) => {
-  const d = createEl("div");
+  const d = createDiv();
   d.className = cls;
   parent.appendChild(d);
   return d;
@@ -1754,29 +1750,29 @@ var triPathD = (size) => {
 var HIT_PAD = 4;
 var mkTri = (size) => {
   const e = HIT_PAD;
-  const hit = createEl("div");
+  const hit = createDiv();
   hit.className = "vt-fill-tri-hit";
-  hit.setCssProps({ position: "absolute" });
-  hit.setCssProps({ left: "0" });
-  hit.setCssProps({ top: "0" });
-  hit.setCssProps({ width: `${size + 2 * e}px` });
-  hit.setCssProps({ height: `${size + 2 * e}px` });
-  hit.setCssProps({ pointerEvents: "auto" });
+  hit.style.position = `absolute`;
+  hit.style.left = `0`;
+  hit.style.top = `0`;
+  hit.style.width = `${size + 2 * e}px`;
+  hit.style.height = `${size + 2 * e}px`;
+  hit.style.pointerEvents = `auto`;
   const s2 = size + e;
   const t2 = Math.max(0, size - e * 1.414);
-  hit.setCssProps({ clipPath: `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t2}px, ${t2}px 0)` });
-  const draw = createEl("div");
+  hit.style.clipPath = `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t2}px, ${t2}px 0)`;
+  const draw = createDiv();
   draw.className = "vt-fill-tri-draw";
-  draw.setCssProps({ position: "absolute" });
-  draw.setCssProps({ left: "0" });
-  draw.setCssProps({ top: "0" });
-  draw.setCssProps({ width: `${size}px` });
-  draw.setCssProps({ height: `${size}px` });
-  draw.setCssProps({ pointerEvents: "none" });
+  draw.style.position = `absolute`;
+  draw.style.left = `0`;
+  draw.style.top = `0`;
+  draw.style.width = `${size}px`;
+  draw.style.height = `${size}px`;
+  draw.style.pointerEvents = `none`;
   const d = triPathD(size);
-  draw.setCssProps({ clipPath: `path('${d}')` });
-  draw.setCssProps({ background: "var(--interactive-accent, #7c3aed)" });
-  draw.setCssProps({ opacity: "0.55" });
+  draw.style.clipPath = `path('${d}')`;
+  draw.style.background = `var(--interactive-accent, #7c3aed)`;
+  draw.style.opacity = `0.55`;
   return [hit, draw];
 };
 var FillHandle = class {
@@ -1819,11 +1815,11 @@ var FillHandle = class {
     const [hHit, hDraw] = mkTri(HANDLE_SIZE);
     this.el.appendChild(hHit);
     this.el.appendChild(hDraw);
-    this.el.setCssProps({ display: "none" });
+    this.el.style.display = `none`;
     this.dots = mkDiv("vt-fill-dots", document.body);
-    this.dots.setCssProps({ display: "none" });
+    this.dots.style.display = `none`;
     this.menu = mkDiv("vt-fill-menu", document.body);
-    this.menu.setCssProps({ display: "none" });
+    this.menu.style.display = `none`;
     this.el.addEventListener("pointerdown", (e) => this.onHandleDown(e));
     this.el.addEventListener("pointermove", (e) => this.onHandleMove(e));
     this.el.addEventListener("pointerup", (e) => this.onHandleUp(e));
@@ -1878,7 +1874,7 @@ var FillHandle = class {
       return;
     this.anchor = null;
     this.ro.disconnect();
-    this.el.setCssProps({ display: "none" });
+    this.el.style.display = `none`;
     this.clearDots();
   }
   reposition() {
@@ -1895,21 +1891,21 @@ var FillHandle = class {
     const a = this.anchor;
     const td = this.deps.cellTd(a.r, a.c);
     if (!td || !td.isConnected) {
-      this.el.setCssProps({ display: "none" });
+      this.el.style.display = `none`;
       return;
     }
     const rect = td.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
-      this.el.setCssProps({ display: "none" });
+      this.el.style.display = `none`;
       return;
     }
     const S = HANDLE_SIZE;
-    this.el.setCssProps({ display: "block" });
+    this.el.style.display = `block`;
     const cs = getComputedStyle(td);
     const vgap = (parseFloat(cs.borderBottomWidth) || 0) + 4;
     const hgap = (parseFloat(cs.borderRightWidth) || 0) + 2;
-    this.el.setCssProps({ left: `${Math.round(rect.right - hgap - S)}px` });
-    this.el.setCssProps({ top: `${Math.round(rect.bottom - vgap - S)}px` });
+    this.el.style.left = `${Math.round(rect.right - hgap - S)}px`;
+    this.el.style.top = `${Math.round(rect.bottom - vgap - S)}px`;
   }
   /* ---------- 拖动 ---------- */
   onHandleDown(e) {
@@ -2035,7 +2031,7 @@ var FillHandle = class {
     this.clearDots();
     if (d.cells.length <= 1)
       return;
-    this.dots.setCssProps({ display: "block" });
+    this.dots.style.display = `block`;
     for (let i = 1; i < d.cells.length; i++) {
       const cell2 = d.cells[i];
       const td = this.deps.cellTd(cell2.r, cell2.c);
@@ -2050,16 +2046,16 @@ var FillHandle = class {
       const hgap = (parseFloat(cs.borderRightWidth) || 0) + 2;
       const left = Math.round(rect.right - hgap - DOT_SIZE);
       const top = Math.round(rect.bottom - vgap - DOT_SIZE);
-      hit.setCssProps({ left: `${left}px` });
-      hit.setCssProps({ top: `${top}px` });
-      draw.setCssProps({ left: `${left}px` });
-      draw.setCssProps({ top: `${top}px` });
+      hit.style.left = `${left}px`;
+      hit.style.top = `${top}px`;
+      draw.style.left = `${left}px`;
+      draw.style.top = `${top}px`;
       this.dots.appendChild(hit);
       this.dots.appendChild(draw);
     }
   }
   clearDots() {
-    this.dots.setCssProps({ display: "none" });
+    this.dots.style.display = `none`;
     emptyEl(this.dots);
   }
   /* ---------- 递增/递减选择框 ---------- */
@@ -2079,20 +2075,20 @@ var FillHandle = class {
     this.menu.appendChild(btnAsc);
     this.menu.appendChild(btnDesc);
     this.placeMenu();
-    this.menu.setCssProps({ transition: "none" });
-    this.menu.setCssProps({ visibility: "hidden" });
-    this.menu.setCssProps({ display: "flex" });
-    this.menu.setCssProps({ transform: "scale(0.8) translateY(6px)" });
-    this.menu.setCssProps({ opacity: "0.7" });
+    this.menu.style.transition = `none`;
+    this.menu.style.visibility = `hidden`;
+    this.menu.style.display = `flex`;
+    this.menu.style.transform = `scale(0.8) translateY(6px)`;
+    this.menu.style.opacity = `0.7`;
     void this.menu.offsetWidth;
-    this.menu.setCssProps({ visibility: "visible" });
+    this.menu.style.visibility = `visible`;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         if (!this.menuState)
           return;
-        this.menu.setCssProps({ transition: "" });
-        this.menu.setCssProps({ transform: "scale(1) translateY(0)" });
-        this.menu.setCssProps({ opacity: "1" });
+        this.menu.style.transition = ``;
+        this.menu.style.transform = `scale(1) translateY(0)`;
+        this.menu.style.opacity = `1`;
       });
     });
     this.refreshMenuHighlight();
@@ -2104,14 +2100,14 @@ var FillHandle = class {
     const rect = m.anchorRect;
     const wasDisplay = this.menu.style.display;
     if (wasDisplay === "none") {
-      this.menu.setCssProps({ display: "flex" });
-      this.menu.setCssProps({ visibility: "hidden" });
+      this.menu.style.display = `flex`;
+      this.menu.style.visibility = `hidden`;
     }
     const mw = this.menu.offsetWidth;
     const mh = this.menu.offsetHeight;
     if (wasDisplay === "none") {
-      this.menu.setCssProps({ display: "none" });
-      this.menu.setCssProps({ visibility: "" });
+      this.menu.style.display = `none`;
+      this.menu.style.visibility = ``;
     }
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -2121,8 +2117,8 @@ var FillHandle = class {
     if (top + mh > vh - 8)
       top = rect.top - mh - 6;
     top = Math.max(8, top);
-    this.menu.setCssProps({ left: `${Math.round(left)}px` });
-    this.menu.setCssProps({ top: `${Math.round(top)}px` });
+    this.menu.style.left = `${Math.round(left)}px`;
+    this.menu.style.top = `${Math.round(top)}px`;
   }
   refreshMenuHighlight() {
     const m = this.menuState;
@@ -2153,7 +2149,7 @@ var FillHandle = class {
     if (!this.menuState)
       return;
     this.menuState = null;
-    this.menu.setCssProps({ display: "none" });
+    this.menu.style.display = `none`;
     emptyEl(this.menu);
   }
 };
@@ -2186,18 +2182,18 @@ function buildDiagDom(td, dg, t2) {
   line.setAttribute("y2", "100%");
   svg.appendChild(line);
   td.appendChild(svg);
-  const zoneA = createEl("div");
+  const zoneA = createDiv();
   zoneA.className = "vt-diag-zone vt-diag-a";
   zoneA.contentEditable = "true";
-  const zoneB = createEl("div");
+  const zoneB = createDiv();
   zoneB.className = "vt-diag-zone vt-diag-b";
   zoneB.contentEditable = "true";
   td.appendChild(zoneA);
   td.appendChild(zoneB);
-  const probe = createEl("div");
+  const probe = createDiv();
   probe.className = "vt-diag-probe";
-  const probeA = createEl("span");
-  const probeB = createEl("span");
+  const probeA = createSpan();
+  const probeB = createSpan();
   probe.appendChild(probeA);
   probe.appendChild(probeB);
   td.appendChild(probe);
@@ -2673,7 +2669,7 @@ function enterWysiwyg(td, src, ctx) {
     td.appendChild(buildSegEl(seg, ctx));
   }
   if (td.lastChild != null && td.lastChild.instanceOf(HTMLBRElement)) {
-    const tail = createEl("span");
+    const tail = createSpan();
     tail.className = SEG_CLS;
     tail.dataset.kind = "text";
     tail.dataset.view = "src";
@@ -2695,10 +2691,10 @@ function buildSegEl(seg, ctx) {
     br.dataset.vtBr = "1";
     return br;
   }
-  const el = createEl("span");
+  const el = createSpan();
   el.className = SEG_CLS;
   if (seg.kind === "fence")
-    el.setCssProps({ display: "block" });
+    el.style.display = `block`;
   el.dataset.kind = seg.kind;
   el.dataset.src = seg.raw;
   el.dataset.s = String(seg.start);
@@ -2721,14 +2717,14 @@ function attachImgResize(seg) {
   if (!img)
     return;
   seg.classList.add("vt-img-seg");
-  const grip = createEl("div");
+  const grip = createDiv();
   grip.className = "vt-img-resize";
   grip.setAttribute("aria-hidden", "true");
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const svg = createSvg("svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
   svg.setAttribute("aria-hidden", "true");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  const path = createSvg("path");
   path.setAttribute("d", "M17 5 L17 17 L5 17");
   path.setAttribute("stroke", "currentColor");
   path.setAttribute("stroke-width", "2.75");
@@ -2744,7 +2740,7 @@ function attachImgResize(seg) {
     const startW = img.getBoundingClientRect().width;
     const onMove = (ev) => {
       const w = Math.max(24, Math.round(startW + (ev.clientX - startX)));
-      img.setCssProps({ width: `${w}px` });
+      img.style.width = `${w}px`;
       syncImgSrcWidth(seg, w);
     };
     const onUp = () => {
@@ -2991,7 +2987,6 @@ function caretSourceOffset(td) {
     return acc;
   }
   const s = parseInt(loc.el.dataset.s ?? "0", 10);
-  const e = parseInt(loc.el.dataset.e ?? "0", 10);
   if (loc.el.dataset.view === "src") {
     if (loc.el.dataset.src === "" && loc.el.classList.contains(SEG_CLS))
       return s;
@@ -3841,7 +3836,7 @@ var ModeSwitcher = class {
   constructor(parent) {
     this.onChange = null;
     this.el = parent.createDiv({ cls: "vt-mode-bar" });
-    this.el.setCssProps({ display: "none" });
+    this.el.style.display = `none`;
     for (const mode of ["OL", "HS", "RC"]) {
       const btn = this.el.createDiv({ cls: "vt-mode-btn" });
       btn.dataset.mode = mode;
@@ -3862,11 +3857,11 @@ var ModeSwitcher = class {
     this.onChange = fn;
   }
   show(active) {
-    this.el.setCssProps({ display: "flex" });
+    this.el.style.display = `flex`;
     this.setActive(active);
   }
   hide() {
-    this.el.setCssProps({ display: "none" });
+    this.el.style.display = `none`;
   }
   setActive(mode) {
     this.el.querySelectorAll(".vt-mode-btn").forEach((el) => {
@@ -3883,9 +3878,9 @@ function applyModeStyles(wrap, table, data, hsBar) {
   wrap.toggleClass("vt-rc-scroll", isRc);
   if (hsBar) {
     if (isRc)
-      hsBar.setCssProps({ display: wrap.scrollWidth > wrap.clientWidth + 1 ? "block" : "none" });
+      hsBar.style.display = wrap.scrollWidth > wrap.clientWidth + 1 ? "block" : "none";
     else
-      hsBar.setCssProps({ display: isHs ? "block" : "none" });
+      hsBar.style.display = isHs ? "block" : "none";
   }
   if (data.mode !== "RC") {
     table.querySelectorAll("tr, td, col").forEach((el) => {
@@ -3908,21 +3903,21 @@ function applyModeStyles(wrap, table, data, hsBar) {
     const col = colgroup.createEl("col");
     const w = data.colWidths?.[c];
     if (w && w > 0)
-      col.setCssProps({ width: `${w}px` });
+      col.style.width = `${w}px`;
     else
-      col.setCssProps({ width: "120px" });
+      col.style.width = `120px`;
   }
   table.querySelectorAll("tr").forEach((tr, r) => {
     const h = data.rowHeights?.[r];
     if (h && h > 0)
-      tr.setCssProps({ height: `${h}px` });
+      tr.style.height = `${h}px`;
     else
       tr.style.removeProperty("height");
   });
   table.querySelectorAll("td").forEach((td) => {
     const rh = data.rowHeights?.[parseInt(td.dataset.vtR ?? "-1", 10)];
     if (rh && rh > 0 && (td.rowSpan ?? 1) <= 1)
-      td.setCssProps({ minHeight: `${rh}px` });
+      td.style.minHeight = `${rh}px`;
     else
       td.style.removeProperty("min-height");
   });
@@ -3934,20 +3929,20 @@ function setupHsScrollBar(wrap, barEl) {
     return;
   const syncThumb = () => {
     if (!wrap.hasClass("vt-hs-scroll") && !wrap.hasClass("vt-rc-scroll")) {
-      barEl.setCssProps({ display: "none" });
+      barEl.style.display = `none`;
       return;
     }
     const maxScroll = wrap.scrollWidth - wrap.clientWidth;
     if (maxScroll <= 0) {
-      barEl.setCssProps({ display: "none" });
+      barEl.style.display = `none`;
       return;
     }
-    barEl.setCssProps({ display: "block" });
+    barEl.style.display = `block`;
     const ratio = wrap.clientWidth / wrap.scrollWidth;
     const thumbW = Math.max(24, track.clientWidth * ratio);
-    thumb.setCssProps({ width: `${thumbW}px` });
+    thumb.style.width = `${thumbW}px`;
     const maxThumbLeft = track.clientWidth - thumbW;
-    thumb.setCssProps({ left: `${maxScroll > 0 ? wrap.scrollLeft / maxScroll * maxThumbLeft : 0}px` });
+    thumb.style.left = `${maxScroll > 0 ? wrap.scrollLeft / maxScroll * maxThumbLeft : 0}px`;
   };
   wrap.addEventListener("scroll", syncThumb);
   new ResizeObserver(syncThumb).observe(wrap);
@@ -4038,11 +4033,11 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
       rowPos.push({ g, top: Math.min(rect.bottom - tableRect0.top - hit / 2, tableH - hit) });
     });
     for (const { g, left } of colPos)
-      g.setCssProps({ left: `${left}px` });
+      g.style.left = `${left}px`;
     for (const { g, top } of rowPos) {
-      g.setCssProps({ top: `${top}px` });
-      g.setCssProps({ left: `${visL}px` });
-      g.setCssProps({ width: `${wrapW}px` });
+      g.style.top = `${top}px`;
+      g.style.left = `${visL}px`;
+      g.style.width = `${wrapW}px`;
     }
   };
   for (let c = 0; c < cols; c++) {
@@ -4057,10 +4052,10 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
     const tableRect = table.getBoundingClientRect();
     const colHandle = overlay.createDiv({ cls: "vt-rc-handle vt-rc-handle-col" });
     colHandle.dataset.vtC = String(c);
-    colHandle.setCssProps({ left: `${Math.max(wrap.scrollLeft, Math.min(rect.right - tableRect.left - hit / 2, table.offsetWidth - hit, wrap.scrollLeft + wrap.clientWidth - hit))}px` });
-    colHandle.setCssProps({ top: "0" });
-    colHandle.setCssProps({ height: `${table.offsetHeight}px` });
-    colHandle.setCssProps({ width: `${hit}px` });
+    colHandle.style.left = `${Math.max(wrap.scrollLeft, Math.min(rect.right - tableRect.left - hit / 2, table.offsetWidth - hit, wrap.scrollLeft + wrap.clientWidth - hit))}px`;
+    colHandle.style.top = `0`;
+    colHandle.style.height = `${table.offsetHeight}px`;
+    colHandle.style.width = `${hit}px`;
     colHandle.addEventListener("touchstart", (te) => te.preventDefault(), { passive: false });
     colHandle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
@@ -4079,7 +4074,7 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
         const colgroup = table.querySelector("colgroup");
         const col = colgroup?.children[c];
         if (col)
-          col.setCssProps({ width: `${newW}px` });
+          col.style.width = `${newW}px`;
       };
       const onUp = (ev) => {
         window.removeEventListener("pointermove", onMove);
@@ -4100,10 +4095,10 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
     const rect = tr.getBoundingClientRect();
     const tableRect = table.getBoundingClientRect();
     const rowHandle = overlay.createDiv({ cls: "vt-rc-handle vt-rc-handle-row" });
-    rowHandle.setCssProps({ top: `${Math.min(rect.bottom - tableRect.top - hit / 2, table.offsetHeight - hit)}px` });
-    rowHandle.setCssProps({ left: `${wrap.scrollLeft}px` });
-    rowHandle.setCssProps({ width: `${wrap.clientWidth}px` });
-    rowHandle.setCssProps({ height: `${hit}px` });
+    rowHandle.style.top = `${Math.min(rect.bottom - tableRect.top - hit / 2, table.offsetHeight - hit)}px`;
+    rowHandle.style.left = `${wrap.scrollLeft}px`;
+    rowHandle.style.width = `${wrap.clientWidth}px`;
+    rowHandle.style.height = `${hit}px`;
     rowHandle.dataset.vtR = String(r);
     rowHandle.addEventListener("touchstart", (te) => te.preventDefault(), { passive: false });
     rowHandle.addEventListener("pointerdown", (e) => {
@@ -4123,7 +4118,7 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
         const tR = parseInt(t2.dataset.vtR ?? "-1", 10);
         if (tR === r)
           return;
-        t2.setCssProps({ minHeight: `${t2.offsetHeight}px` });
+        t2.style.minHeight = `${t2.offsetHeight}px`;
       });
       try {
         rowHandle.setPointerCapture(e.pointerId);
@@ -4132,11 +4127,11 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
       const onMove = (ev) => {
         const newH = Math.max(24, Math.round(startH + (ev.clientY - startY)));
         data.rowHeights[r] = newH;
-        tr.setCssProps({ height: `${newH}px` });
+        tr.style.height = `${newH}px`;
         tr.querySelectorAll("td").forEach((td) => {
           if ((td.rowSpan ?? 1) > 1)
             return;
-          td.setCssProps({ minHeight: `${newH}px` });
+          td.style.minHeight = `${newH}px`;
         });
       };
       const onUp = (ev) => {
@@ -4158,10 +4153,10 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
   const cornerSize = Math.max(hit, 14);
   const corner = overlay.createDiv({ cls: "vt-rc-handle vt-rc-corner" });
   const placeCorner = () => {
-    corner.setCssProps({ left: `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cornerSize}px` });
-    corner.setCssProps({ top: `${wrap.scrollTop + table.offsetHeight - cornerSize}px` });
-    corner.setCssProps({ width: `${cornerSize}px` });
-    corner.setCssProps({ height: `${cornerSize}px` });
+    corner.style.left = `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cornerSize}px`;
+    corner.style.top = `${wrap.scrollTop + table.offsetHeight - cornerSize}px`;
+    corner.style.width = `${cornerSize}px`;
+    corner.style.height = `${cornerSize}px`;
   };
   placeCorner();
   if (!cornerBinds(wrap).__vtCornerROBound) {
@@ -4178,8 +4173,8 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
       if (!c)
         return;
       const cs = Math.max(hit, 14);
-      c.setCssProps({ left: `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cs}px` });
-      c.setCssProps({ top: `${wrap.scrollTop + table.offsetHeight - cs}px` });
+      c.style.left = `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cs}px`;
+      c.style.top = `${wrap.scrollTop + table.offsetHeight - cs}px`;
     }, { passive: true });
   }
   placeHandles();
@@ -4223,16 +4218,16 @@ function bindRcResizeHandles(table, data, editing, onUpdate) {
         data.colWidths[c] = w;
         const col = colgroup?.children[c];
         if (col)
-          col.setCssProps({ width: `${w}px` });
+          col.style.width = `${w}px`;
       }
       rows.forEach((tr, r) => {
         const h = Math.max(24, Math.round(startHs[r] + dy / rows.length));
         data.rowHeights[r] = h;
-        tr.setCssProps({ height: `${h}px` });
+        tr.style.height = `${h}px`;
         tr.querySelectorAll("td").forEach((td) => {
           if ((td.rowSpan ?? 1) > 1)
             return;
-          td.setCssProps({ minHeight: `${h}px` });
+          td.style.minHeight = `${h}px`;
         });
       });
       placeCorner();
@@ -4268,9 +4263,9 @@ function autoExpandRowHeight(td, data, r, contentChanged) {
     data.rowHeights[r] = needed;
     const tr = td.closest("tr");
     if (tr)
-      tr.setCssProps({ height: `${needed}px` });
+      tr.style.height = `${needed}px`;
     if ((td.rowSpan ?? 1) <= 1)
-      td.setCssProps({ minHeight: `${needed}px` });
+      td.style.minHeight = `${needed}px`;
   }
 }
 
@@ -4357,8 +4352,8 @@ function resolveThemeAccent(el) {
       return `hsl(${parseFloat(h)}, ${s2}, ${l2})`;
     }
   }
-  const probe = (0, import_obsidian3.createEl)("span");
-  probe.setCssProps({ color: "var(--interactive-accent, var(--accent-color, transparent))" });
+  const probe = createSpan();
+  probe.style.color = `var(--interactive-accent, var(--accent-color, transparent))`;
   el.appendChild(probe);
   const computed = getComputedStyle(probe).color;
   probe.remove();
@@ -4507,7 +4502,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const table = wrap.createEl("table", { cls: "vt" });
   const tbody = table.createEl("tbody");
   const hsBar = el.createDiv({ cls: "vt-hs-bar" });
-  hsBar.setCssProps({ display: "none" });
+  hsBar.style.display = `none`;
   const hsTrack = hsBar.createDiv({ cls: "vt-hs-track" });
   hsTrack.createDiv({ cls: "vt-hs-thumb" });
   setupHsScrollBar(wrap, hsBar);
@@ -4547,7 +4542,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     }
   };
   const flushDiagZone = () => {
-    const z = document.activeElement;
+    const z = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!z || !(z != null && z.instanceOf(Element)) || !z.classList.contains("vt-diag-zone") || !table.contains(z))
       return;
     const td = z.closest("td");
@@ -4774,8 +4769,8 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       wrap.classList.add(`vt-tbl-${style}`);
     table.querySelectorAll("td.vt-zebra-tint").forEach((td) => {
       td.classList.remove("vt-zebra-tint");
-      td.setCssProps({ background: "" });
-      td.setCssProps({ color: "" });
+      td.style.background = ``;
+      td.style.color = ``;
     });
     if (editing)
       return;
@@ -4792,9 +4787,9 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           if (td.style.background)
             return;
           td.classList.add("vt-zebra-tint");
-          td.setCssProps({ background: tint.bg });
+          td.style.background = tint.bg;
           if (tint.fg)
-            td.setCssProps({ color: tint.fg });
+            td.style.color = tint.fg;
         });
       });
     }
@@ -4804,7 +4799,6 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const selOverlay = new SelOverlay(wrap, table);
   let selRects = [];
   let selGesture = null;
-  let mouseDown = false;
   let lastTap = null;
   let gestureMove = null;
   let gestureUp = null;
@@ -5022,7 +5016,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || e.keyCode === 67)) {
       e.preventDefault();
       e.stopPropagation();
-      navigator.clipboard?.writeText(buildSelMarkdown(selRects));
+      void navigator.clipboard?.writeText(buildSelMarkdown(selRects));
       return;
     }
     if (!isSelDeleteKey(e))
@@ -5113,7 +5107,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       return;
     if (selGesture)
       return;
-    const target = e.target != null && e.target.instanceOf(Element) ? e.target : null;
+    const target = e.target instanceof Element ? e.target : null;
     const td = target?.closest("td");
     if (!td || !table.contains(td))
       return;
@@ -5319,7 +5313,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           if (!td)
             continue;
           const cur = parseFloat(getComputedStyle(td).fontSize) || 16;
-          td.setCssProps({ fontSize: `${Math.max(8, Math.min(72, cur + delta))}px` });
+          td.style.fontSize = `${Math.max(8, Math.min(72, cur + delta))}px`;
         }
       }
       clearSelection();
@@ -5495,13 +5489,13 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     const tr = table.getBoundingClientRect();
     const vh = window.innerHeight;
     const hsH = hsBar.offsetHeight > 0 ? hsBar.offsetHeight + 6 : 0;
-    addRowBar.setCssProps({ left: `${Math.round(wr.left)}px` });
-    addRowBar.setCssProps({ top: `${Math.round(Math.min(wr.bottom + 5 + hsH, vh - 18))}px` });
-    addRowBar.setCssProps({ width: `${Math.round(wr.width)}px` });
+    addRowBar.style.left = `${Math.round(wr.left)}px`;
+    addRowBar.style.top = `${Math.round(Math.min(wr.bottom + 5 + hsH, vh - 18))}px`;
+    addRowBar.style.width = `${Math.round(wr.width)}px`;
     const wrapRightVis = wr.left + wrap.clientWidth;
-    addColBar.setCssProps({ top: `${Math.round(wr.top)}px` });
-    addColBar.setCssProps({ left: `${Math.round(Math.min(tr.right + 2, wrapRightVis + 2))}px` });
-    addColBar.setCssProps({ height: `${Math.round(wr.height)}px` });
+    addColBar.style.top = `${Math.round(wr.top)}px`;
+    addColBar.style.left = `${Math.round(Math.min(tr.right + 2, wrapRightVis + 2))}px`;
+    addColBar.style.height = `${Math.round(wr.height)}px`;
   };
   const edgeTick = () => {
     window.requestAnimationFrame(edgeTick);
@@ -5613,53 +5607,16 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       if (c === domLastCol && c + cellData.cs < colCount(grid))
         td.addClass("vt-prot-right");
       if (cellData.a)
-        td.setCssProps({ textAlign: cellData.a === "c" ? "center" : cellData.a === "r" ? "right" : "left" });
+        td.style.textAlign = cellData.a === "c" ? "center" : cellData.a === "r" ? "right" : "left";
       if (cellData.va && !isDiag(cellData)) {
-        td.setCssProps({ verticalAlign: cellData.va === "m" ? "middle" : cellData.va === "b" ? "bottom" : "top" });
+        td.style.verticalAlign = cellData.va === "m" ? "middle" : cellData.va === "b" ? "bottom" : "top";
       }
       if (cellData.bg) {
-        td.setCssProps({ background: cellData.bg });
-        td.setCssProps({ color: contrastTextColor(cellData.bg) });
+        td.style.background = cellData.bg;
+        td.style.color = contrastTextColor(cellData.bg);
       }
       if (isDiag(cellData)) {
         buildDiagDom(td, cellData.dg, cellData.t);
-        const finishDiagEdit2 = () => {
-          const cell2 = grid[r]?.[c];
-          if (!cell2 || !isDiag(cell2))
-            return;
-          const aTxt = td.dataset.vtDiagA ?? cell2.dg;
-          const bTxt = td.dataset.vtDiagB ?? cell2.t;
-          delete td.dataset.vtDiagA;
-          delete td.dataset.vtDiagB;
-          delete td.dataset.vtDiagZone;
-          const contentChanged = aTxt !== cell2.dg || bTxt !== cell2.t;
-          if (contentChanged) {
-            cell2.dg = aTxt;
-            cell2.t = bTxt;
-            pendingDirty = true;
-          }
-          if (!table.isConnected) {
-            if (contentChanged) {
-              commit();
-              pendingDirty = false;
-            }
-            return;
-          }
-          autoExpandRowHeight(td, data, r, contentChanged);
-          exitDiagEdit(td, cell2.dg, cell2.t);
-          td.dataset.vtView = "view";
-          if (table.contains(document.activeElement))
-            return;
-          if (Date.now() - lastTablePointerDown < 400)
-            return;
-          commit();
-          const uiClick = document.body.dataset.vtBarClick === "1" || document.body.dataset.vtModeClick === "1";
-          if (!uiClick) {
-            toolbar.hide();
-            hideEditingUi();
-          }
-          updateEdgeBars();
-        };
         bindDiagTd(td, {
           move: (dr, dc) => moveFocus(dr, dc),
           onZoneFocus: (zone) => {
@@ -5679,7 +5636,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
             window.setTimeout(() => {
               if (td.contains(document.activeElement))
                 return;
-              finishDiagEdit2();
+              finishDiagEdit();
             }, 0);
           }
         });
@@ -5711,9 +5668,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         }
         if (!td.closest(".cm-editor") || e.button !== 0)
           return;
-        mouseDown = true;
         const resetDown = () => {
-          mouseDown = false;
           window.removeEventListener("pointerup", resetDown);
           window.removeEventListener("pointercancel", resetDown);
         };
@@ -5779,6 +5734,43 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           selOps
         );
       });
+      const finishDiagEdit = () => {
+        const cell2 = grid[r]?.[c];
+        if (!cell2 || !isDiag(cell2))
+          return;
+        const aTxt = td.dataset.vtDiagA ?? cell2.dg;
+        const bTxt = td.dataset.vtDiagB ?? cell2.t;
+        delete td.dataset.vtDiagA;
+        delete td.dataset.vtDiagB;
+        delete td.dataset.vtDiagZone;
+        const contentChanged = aTxt !== cell2.dg || bTxt !== cell2.t;
+        if (contentChanged) {
+          cell2.dg = aTxt;
+          cell2.t = bTxt;
+          pendingDirty = true;
+        }
+        if (!table.isConnected) {
+          if (contentChanged) {
+            commit();
+            pendingDirty = false;
+          }
+          return;
+        }
+        autoExpandRowHeight(td, data, r, contentChanged);
+        exitDiagEdit(td, cell2.dg, cell2.t);
+        td.dataset.vtView = "view";
+        if (table.contains(document.activeElement))
+          return;
+        if (Date.now() - lastTablePointerDown < 400)
+          return;
+        commit();
+        const uiClick = document.body.dataset.vtBarClick === "1" || document.body.dataset.vtModeClick === "1";
+        if (!uiClick) {
+          toolbar.hide();
+          hideEditingUi();
+        }
+        updateEdgeBars();
+      };
       td.addEventListener("blur", (e) => {
         const cell2 = grid[r]?.[c];
         if (!cell2)
@@ -5985,24 +5977,24 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         continue;
       const cd = grid[0][c];
       if (bg) {
-        td.setCssProps({ background: bg });
-        td.setCssProps({ color: contrastTextColor(bg) });
+        td.style.background = bg;
+        td.style.color = contrastTextColor(bg);
       } else if (cd.bg) {
-        td.setCssProps({ background: cd.bg });
-        td.setCssProps({ color: contrastTextColor(cd.bg) });
+        td.style.background = cd.bg;
+        td.style.color = contrastTextColor(cd.bg);
       } else {
-        td.setCssProps({ background: "" });
-        td.setCssProps({ color: "" });
+        td.style.background = ``;
+        td.style.color = ``;
       }
     }
   };
   const refreshAppearance = () => {
     const radius = Math.max(0, Math.min(24, Math.round(settings.tableRadius ?? 0)));
     if (radius > 0) {
-      wrap.setCssProps({ borderRadius: `${radius}px` });
+      wrap.style.borderRadius = `${radius}px`;
       wrap.addClass("vt-radius");
     } else {
-      wrap.setCssProps({ borderRadius: "" });
+      wrap.style.borderRadius = ``;
       wrap.removeClass("vt-radius");
     }
     refreshHeader();
@@ -6360,7 +6352,7 @@ function splitMath(text) {
   let match;
   let last = 0;
   let matched = false;
-  const frag = document.createDocumentFragment();
+  const frag = createFragment();
   while (match = MATH_RE.exec(text)) {
     if (match.index > last)
       frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -6456,29 +6448,29 @@ function renderTodos(root, onTodoToggle) {
     const text = textNode.textContent;
     const lines = text.split("\n");
     let hasTodo = false;
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     const buildTaskItem = (m) => {
       hasTodo = true;
-      const item = (0, import_obsidian3.createEl)("div");
+      const item = createDiv();
       item.className = "vt-task-item";
-      const cb = (0, import_obsidian3.createEl)("input");
+      const cb = createEl("input");
       cb.type = "checkbox";
       cb.checked = m[1] !== " ";
       cb.dataset.vtOn = cb.checked ? "1" : "0";
       cb.tabIndex = -1;
-      cb.setCssProps({ margin: "0.225em 0 0" });
-      cb.setCssProps({ fontSize: "inherit" });
-      cb.setCssProps({ width: "1em" });
-      cb.setCssProps({ height: "1em" });
-      cb.setCssProps({ boxSizing: "border-box" });
-      const hit = (0, import_obsidian3.createEl)("span");
+      cb.style.margin = `0.225em 0 0`;
+      cb.style.fontSize = `inherit`;
+      cb.style.width = `1em`;
+      cb.style.height = `1em`;
+      cb.style.boxSizing = `border-box`;
+      const hit = createSpan();
       hit.className = "vt-cb-hit";
-      hit.setCssProps({ display: "inline-flex" });
-      hit.setCssProps({ padding: "5px" });
-      hit.setCssProps({ margin: "-5px" });
-      hit.setCssProps({ marginTop: "calc(-5px + 0.1em)" });
-      hit.setCssProps({ cursor: "pointer" });
-      hit.setCssProps({ borderRadius: "4px" });
+      hit.style.display = `inline-flex`;
+      hit.style.padding = `5px`;
+      hit.style.margin = `-5px`;
+      hit.style.marginTop = `calc(-5px + 0.1em)`;
+      hit.style.cursor = `pointer`;
+      hit.style.borderRadius = `4px`;
       hit.addEventListener("mousedown", (e) => e.preventDefault());
       if (onTodoToggle) {
         hit.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -6499,7 +6491,7 @@ function renderTodos(root, onTodoToggle) {
       }
       hit.appendChild(cb);
       item.appendChild(hit);
-      const span = (0, import_obsidian3.createEl)("span");
+      const span = createSpan();
       span.textContent = m[2] ?? "";
       item.appendChild(span);
       return item;
@@ -6585,7 +6577,7 @@ function renderImages(root, sourcePath, resolveImage) {
     let match;
     let last = 0;
     let found = false;
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     while (match = IMG_RE.exec(text)) {
       if (match.index > last)
         frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -6601,12 +6593,12 @@ function renderImages(root, sourcePath, resolveImage) {
       const altText = sizeNum === null ? sizeText : "";
       const src = resolveImage(linkText);
       if (src) {
-        const img = (0, import_obsidian3.createEl)("img");
+        const img = createEl("img");
         img.src = src;
         img.alt = altText || linkText;
-        img.setCssProps({ maxWidth: "100%" });
+        img.style.maxWidth = `100%`;
         if (sizeNum !== null)
-          img.setCssProps({ width: `${sizeNum}px` });
+          img.style.width = `${sizeNum}px`;
         frag.appendChild(img);
       } else {
         frag.appendChild(document.createTextNode(match[0]));
@@ -6638,7 +6630,7 @@ function renderWikiLinks(root, onOpenLink) {
     WIKILINK_RE.lastIndex = 0;
     if (!WIKILINK_RE.test(text))
       continue;
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     let last = 0;
     WIKILINK_RE.lastIndex = 0;
     let m;
@@ -6651,7 +6643,7 @@ function renderWikiLinks(root, onOpenLink) {
         frag.appendChild(document.createTextNode(text.slice(last, m.index)));
       const linkText = m[1].trim();
       const display = m[2]?.trim() || linkText;
-      const a = (0, import_obsidian3.createEl)("a");
+      const a = createEl("a");
       a.className = "internal-link";
       a.href = linkText;
       a.textContent = display;
@@ -7063,8 +7055,8 @@ var Toolbar = class {
     this.focusShift = null;
     this.animated = false;
     this.animatedTimer = null;
-    this.el = document.body.createEl("div", { cls: "vt-bar" });
-    this.el.setCssProps({ display: "none" });
+    this.el = document.body.createDiv({ cls: "vt-bar" });
+    this.el.style.display = `none`;
     this.buildRows();
   }
   /* ===== 构建两行 ===== */
@@ -7074,7 +7066,7 @@ var Toolbar = class {
     this.buildRows();
   }
   buildRows() {
-    const row1 = this.el.createEl("div", { cls: "vt-bar-row" });
+    const row1 = this.el.createDiv({ cls: "vt-bar-row" });
     const fmtDefs = [
       ["B", t("\u52A0\u7C97", "Bold"), () => this.fmt("bold")],
       ["I", t("\u659C\u4F53", "Italic"), () => this.fmt("italic")],
@@ -7093,7 +7085,7 @@ var Toolbar = class {
         }, 200);
       });
     }
-    row1.createEl("span", { cls: "vt-bar-sep" });
+    row1.createSpan({ cls: "vt-bar-sep" });
     const splitBtn = row1.createEl("button", { cls: "vt-bar-btn", text: t("\u62C6", "SP") });
     splitBtn.title = t("\u62C6\u5206\u5355\u5143\u683C", "Split cell");
     splitBtn.addEventListener("mousedown", (e) => {
@@ -7112,7 +7104,7 @@ var Toolbar = class {
         this.structOp("merge", fn);
       });
     }
-    const row2 = this.el.createEl("div", { cls: "vt-bar-row" });
+    const row2 = this.el.createDiv({ cls: "vt-bar-row" });
     const opDefs = [
       [t("\uFF0B\u884C", "+R"), "insRowBelow", t("\u4E0B\u65B9\u63D2\u5165\u884C", "Insert row below"), (g, r) => insertRow(g, r)],
       [t("\uFF0B\u5217", "+C"), "insColRight", t("\u53F3\u4FA7\u63D2\u5165\u5217", "Insert column right"), (g, _r, c) => insertCol(g, c)],
@@ -7127,7 +7119,7 @@ var Toolbar = class {
         this.structOp(kind, fn);
       });
     }
-    row2.createEl("span", { cls: "vt-bar-sep" });
+    row2.createSpan({ cls: "vt-bar-sep" });
     const mdBtn = row2.createEl("button", { cls: "vt-bar-btn", text: "MD" });
     mdBtn.title = t("\u8F6C\u6362\u4E3A markdown \u8868\u683C", "Convert to Markdown table");
     mdBtn.addEventListener("mousedown", (e) => {
@@ -7234,11 +7226,11 @@ var Toolbar = class {
       return;
     if (animate) {
       this.animated = true;
-      this.el.setCssProps({ transition: "" });
+      this.el.style.transition = ``;
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
-          this.el.setCssProps({ transform: "scale(1) translateY(0)" });
-          this.el.setCssProps({ opacity: "1" });
+          this.el.style.transform = `scale(1) translateY(0)`;
+          this.el.style.opacity = `1`;
           this.reposition();
         });
       });
@@ -7247,18 +7239,18 @@ var Toolbar = class {
   }
   /** 先隐藏布局再测量尺寸，避免首次显示时 offsetWidth 为 0 导致定位偏移 */
   prepareVisible(animate) {
-    this.el.setCssProps({ transition: "none" });
-    this.el.setCssProps({ visibility: "hidden" });
-    this.el.setCssProps({ display: "flex" });
-    this.el.setCssProps({ transform: animate ? "scale(0.8) translateY(6px)" : "scale(1) translateY(0)" });
-    this.el.setCssProps({ opacity: animate ? "0.7" : "1" });
+    this.el.style.transition = `none`;
+    this.el.style.visibility = `hidden`;
+    this.el.style.display = `flex`;
+    this.el.style.transform = animate ? "scale(0.8) translateY(6px)" : "scale(1) translateY(0)";
+    this.el.style.opacity = animate ? "0.7" : "1";
     void this.el.offsetWidth;
     if (!this.reposition()) {
-      this.el.setCssProps({ display: "none" });
-      this.el.setCssProps({ visibility: "" });
+      this.el.style.display = `none`;
+      this.el.style.visibility = ``;
       return false;
     }
-    this.el.setCssProps({ visibility: "visible" });
+    this.el.style.visibility = `visible`;
     void this.el.offsetWidth;
     return true;
   }
@@ -7269,9 +7261,9 @@ var Toolbar = class {
     window.setTimeout(() => this.reposition(), 120);
   }
   hide() {
-    this.el.setCssProps({ transform: "" });
-    this.el.setCssProps({ opacity: "" });
-    this.el.setCssProps({ display: "none" });
+    this.el.style.transform = ``;
+    this.el.style.opacity = ``;
+    this.el.style.display = `none`;
     this.cell = null;
     this.data = null;
     this.onCommit = null;
@@ -7302,10 +7294,10 @@ var Toolbar = class {
       refRect.left + (refRect.width - w) / 2,
       window.innerWidth - w - 8
     ));
-    this.el.setCssProps({ position: "fixed" });
-    this.el.setCssProps({ left: `${left}px` });
-    this.el.setCssProps({ top: `${sRect.top + sRect.height * 0.8}px` });
-    this.el.setCssProps({ zIndex: "9999" });
+    this.el.style.position = `fixed`;
+    this.el.style.left = `${left}px`;
+    this.el.style.top = `${sRect.top + sRect.height * 0.8}px`;
+    this.el.style.zIndex = `9999`;
     return true;
   }
   /* ===== 文本格式化 ===== */
@@ -7327,14 +7319,14 @@ var Toolbar = class {
     const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
     const next = Math.max(8, Math.min(72, cur + delta));
     if (!sel.isCollapsed) {
-      const span = createEl("span");
-      span.setCssProps({ fontSize: `${next}px` });
+      const span = createSpan();
+      span.style.fontSize = `${next}px`;
       try {
         range.surroundContents(span);
       } catch {
       }
     } else if (this.cell) {
-      this.cell.setCssProps({ fontSize: `${next}px` });
+      this.cell.style.fontSize = `${next}px`;
     }
   }
   destroy() {
@@ -7628,27 +7620,6 @@ var DEFAULT_SETTINGS = {
   zebraColor: "#e8f0fe",
   zebraEnabled: false
 };
-var LEGACY_DEFAULT_MENU = [
-  "vt.copy",
-  "vt.cut",
-  "vt.delete",
-  "---",
-  "vt.insRowAbove",
-  "vt.insRowBelow",
-  "vt.delRow",
-  "---",
-  "vt.insColLeft",
-  "vt.insColRight",
-  "vt.delCol",
-  "---",
-  "vt.mergeRight",
-  "vt.mergeDown",
-  "vt.split",
-  "---",
-  "vt.modeOL",
-  "vt.modeHS",
-  "vt.modeRC"
-].join("\n");
 var VtPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
@@ -7746,7 +7717,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
     });
     this.registerDomEvent(document, "focusin", (e) => {
       const t2 = e.target;
-      if (this.toolbar.el.style.display !== "none" && (t2 != null && t2.instanceOf(Element)) && !t2.closest("table.vt, .vt-bar, .vt-mode-bar")) {
+      if (this.toolbar.el.style.display !== "none" && t2 instanceof Element && !t2.closest("table.vt, .vt-bar, .vt-mode-bar")) {
         this.toolbar.hide();
       }
     });
@@ -7916,7 +7887,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
           new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
           return;
         }
-        ctrl.styleCall((options) => new Promise((resolve) => {
+        void ctrl.styleCall((options) => new Promise((resolve) => {
           const menu = new import_obsidian4.Menu();
           for (const o of options) {
             menu.addItem((i) => {
@@ -8449,7 +8420,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
       this.display();
     }));
     if (this.plugin.settings.uiLang === "en") {
-      const legend = containerEl.createEl("div", { cls: "vt-setting-hint" });
+      const legend = containerEl.createDiv({ cls: "vt-setting-hint" });
       legend.textContent = `${t("\u6D6E\u7A97\u6309\u94AE\u8BF4\u660E\uFF1A", "Floating toolbar legend:")}
 ${barLegend()}`;
     }
@@ -8485,16 +8456,16 @@ ${barLegend()}`;
     }));
     if (this.plugin.settings.headerStyle === "custom") {
       const colorSetting = new import_obsidian4.Setting(styleSection).setName(t("\u81EA\u5B9A\u4E49\u8868\u5934\u989C\u8272", "Custom header color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #4a90d9", "Hex color, e.g. #4a90d9"));
-      const preview = (0, import_obsidian4.createEl)("span");
+      const preview = createSpan();
       preview.className = "vt-color-preview";
-      preview.setCssProps({ background: this.plugin.settings.headerColor });
+      preview.style.background = this.plugin.settings.headerColor;
       colorSetting.nameEl.appendChild(preview);
       colorSetting.addText((t2) => t2.setValue(this.plugin.settings.headerColor).setPlaceholder(t2("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value")).onChange(async (value) => {
         this.plugin.settings.headerColor = value.trim();
         await this.plugin.saveSettings();
         refreshAllTableAppearance();
         if (CSS.supports("background-color", value.trim())) {
-          preview.setCssProps({ background: value.trim() });
+          preview.style.background = value.trim();
         }
       }));
     }
@@ -8528,16 +8499,16 @@ ${barLegend()}`;
     }));
     if (this.plugin.settings.zebraStyle === "custom") {
       const zcSetting = new import_obsidian4.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272\u81EA\u5B9A\u4E49\u989C\u8272", "Custom zebra color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #e8f0fe\u3002\u989C\u8272\u8FC7\u6DF1\u65F6\u6587\u5B57\u81EA\u52A8\u53CD\u767D\u3002", "Hex color, e.g. #e8f0fe. Dark colors get white text automatically."));
-      const zcPreview = (0, import_obsidian4.createEl)("span");
+      const zcPreview = createSpan();
       zcPreview.className = "vt-color-preview";
-      zcPreview.setCssProps({ background: this.plugin.settings.zebraColor });
+      zcPreview.style.background = this.plugin.settings.zebraColor;
       zcSetting.nameEl.appendChild(zcPreview);
       zcSetting.addText((t2) => t2.setValue(this.plugin.settings.zebraColor).setPlaceholder(t2("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value")).onChange(async (value) => {
         this.plugin.settings.zebraColor = value.trim();
         await this.plugin.saveSettings();
         refreshAllTableAppearance();
         if (CSS.supports("background-color", value.trim())) {
-          zcPreview.setCssProps({ background: value.trim() });
+          zcPreview.style.background = value.trim();
         }
       }));
     }
@@ -8557,7 +8528,7 @@ ${barLegend()}`;
     )).then((s) => {
       s.settingEl.classList.add("vt-menu-ta-setting");
     });
-    const ta = (0, import_obsidian4.createEl)("textarea");
+    const ta = taSetting.settingEl.createEl("textarea");
     ta.className = "text-input vt-menu-ta";
     ta.value = this.plugin.settings.contextMenu;
     taSetting.settingEl.insertAdjacentElement("afterend", ta);
@@ -8569,19 +8540,19 @@ ${barLegend()}`;
       await this.plugin.saveSettings();
       new import_obsidian4.Notice(t("\u53F3\u952E\u83DC\u5355\u914D\u7F6E\u5DF2\u4FDD\u5B58", "Context menu saved"));
     }));
-    const wrap = containerEl.createEl("div", { cls: "vt-menu-lookup" });
-    wrap.createEl("div", {
+    const wrap = containerEl.createDiv({ cls: "vt-menu-lookup" });
+    wrap.createDiv({
       cls: "vt-menu-lookup-title",
       text: t("\u5BF9\u7167\u8868\uFF08\u8F85\u52A9\u8F93\u5165\uFF09\uFF1A\u8F93\u5165\u5173\u952E\u8BCD\u7B5B\u9009\u547D\u4EE4\uFF0C\u70B9\u9009\u540E\u5728\u4E0B\u65B9\u590D\u5236\u751F\u6210\u7684\u884C\uFF0C\u7C98\u8D34\u5230\u4E0A\u9762\u7684\u6587\u672C\u6846", "Lookup helper: filter commands, click one, copy the generated line and paste it above")
     });
     const search = wrap.createEl("input", { type: "text" });
     search.placeholder = t("\u8F93\u5165\u5173\u952E\u8BCD\u7B5B\u9009\uFF08vtable \u52A8\u4F5C + Obsidian \u547D\u4EE4\uFF09\u2026", "Filter (vtable actions + Obsidian commands)\u2026");
-    search.setCssProps({ width: "100%" });
-    const listBox = wrap.createEl("div", { cls: "vt-menu-lookup-list" });
+    search.style.width = `100%`;
+    const listBox = wrap.createDiv({ cls: "vt-menu-lookup-list" });
     const genIcon = wrap.createEl("input", { type: "text" });
     genIcon.placeholder = t("\u56FE\u6807\u540D\uFF08\u53EF\u9009\uFF0Clucide \u540D\u79F0\uFF0C\u5982 bold\uFF09", "Icon (optional lucide name, e.g. bold)");
-    genIcon.setCssProps({ width: "100%" });
-    const genLine = wrap.createEl("div", { cls: "vt-menu-lookup-line", text: t("\uFF08\u5C1A\u672A\u9009\u62E9\u547D\u4EE4\uFF09", "(no command selected)") });
+    genIcon.style.width = `100%`;
+    const genLine = wrap.createDiv({ cls: "vt-menu-lookup-line", text: t("\uFF08\u5C1A\u672A\u9009\u62E9\u547D\u4EE4\uFF09", "(no command selected)") });
     let selectedLine = "";
     const copyBtn = wrap.createEl("button", { text: t("\u590D\u5236\u751F\u6210\u7684\u884C", "Copy generated line") });
     copyBtn.addEventListener("click", () => {
@@ -8605,8 +8576,8 @@ ${barLegend()}`;
       listBox.empty();
       const hits = sources.filter((s) => !q || s.name.toLowerCase().includes(q) || s.line.toLowerCase().includes(q)).slice(0, 15);
       for (const s of hits) {
-        const item = listBox.createEl("div", { cls: "vt-menu-lookup-item" });
-        item.createEl("span", { cls: "vt-menu-lookup-name", text: s.name });
+        const item = listBox.createDiv({ cls: "vt-menu-lookup-item" });
+        item.createSpan({ cls: "vt-menu-lookup-name", text: s.name });
         item.createEl("code", { cls: "vt-menu-lookup-code", text: s.line });
         item.addEventListener("click", () => {
           selectedLine = s.line;
@@ -8614,7 +8585,7 @@ ${barLegend()}`;
         });
       }
       if (!hits.length)
-        listBox.createEl("div", { text: t("\u65E0\u5339\u914D\u547D\u4EE4", "No matching commands") });
+        listBox.createDiv({ text: t("\u65E0\u5339\u914D\u547D\u4EE4", "No matching commands") });
     };
     genIcon.addEventListener("input", () => {
       if (selectedLine)
@@ -8622,8 +8593,8 @@ ${barLegend()}`;
     });
     search.addEventListener("input", renderList);
     renderList();
-    const help = containerEl.createEl("div", { cls: "vt-setting-hint" });
-    help.createEl("span", {
+    const help = containerEl.createDiv({ cls: "vt-setting-hint" });
+    help.createSpan({
       text: t(
         '\u7528\u6CD5\uFF1A\u83DC\u5355\u7ED3\u6784\u91CC\u4E00\u884C\u4E00\u9879\uFF0C"---" \u662F\u5206\u5272\u7EBF\uFF1B\u5BF9\u7167\u8868\u70B9\u9009\u547D\u4EE4\u540E\u590D\u5236\u751F\u6210\u7684\u884C\u7C98\u8D34\u8FDB\u6765\u5373\u53EF\uFF1B\u56FE\u6807\u53EF\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u3002\u8BE6\u7EC6\u6587\u6863\u89C1 ',
         'Usage: one item per line, "---" inserts a separator; pick a command in the lookup, copy the generated line and paste it above; leave the icon blank for the default. Full docs: '
@@ -8770,13 +8741,13 @@ var VtColorModal = class extends import_obsidian4.Modal {
     const select = (el, color) => {
       this.selected = color;
       this.inputEl.value = color ?? "";
-      preview.setCssProps({ background: color || "transparent" });
+      preview.style.background = color || "transparent";
       swatches.forEach((s) => s.removeClass("is-selected"));
       el.addClass("is-selected");
     };
     for (const [hex] of presets) {
       const sw = grid.createEl("button", { cls: "vt-color-swatch" });
-      sw.setCssProps({ background: hex });
+      sw.style.background = hex;
       sw.title = hex;
       sw.addEventListener("click", () => select(sw, hex));
       swatches.push(sw);
@@ -8792,14 +8763,14 @@ var VtColorModal = class extends import_obsidian4.Modal {
       clear.addClass("is-selected");
     const row = contentEl.createDiv({ cls: "vt-color-input-row" });
     const preview = row.createSpan({ cls: "vt-color-preview" });
-    preview.setCssProps({ background: this.selected || "transparent" });
+    preview.style.background = this.selected || "transparent";
     this.inputEl = row.createEl("input", { type: "text", value: this.selected ?? "" });
     this.inputEl.placeholder = t("\u989C\u8272\u503C\uFF08\u989C\u8272\u540D\u6216\u5341\u516D\u8FDB\u5236\uFF09", "Color name or hex value");
     this.inputEl.addEventListener("input", () => {
       const v = this.inputEl.value.trim();
       if (v && CSS.supports("background-color", v)) {
         this.selected = v;
-        preview.setCssProps({ background: v });
+        preview.style.background = v;
         swatches.forEach((s) => s.removeClass("is-selected"));
       }
     });

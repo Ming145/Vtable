@@ -21,8 +21,8 @@ const CELL_BS = '\u0001';
 function splitRow(line: string): string[] {
         const safe = line.replace(/\\\\/g, CELL_BS).replace(/\\\|/g, CELL_NUL);
         let parts = safe.split('|');
-        if (parts.length > 1 && parts[0]!.trim() === '') parts = parts.slice(1);
-        if (parts.length > 1 && parts[parts.length - 1]!.trim() === '') parts = parts.slice(0, -1);
+        if (parts.length > 1 && parts[0].trim() === '') parts = parts.slice(1);
+        if (parts.length > 1 && parts[parts.length - 1].trim() === '') parts = parts.slice(0, -1);
         return parts.map(p => p.replace(new RegExp(CELL_BS, 'g'), '\\').replace(new RegExp(CELL_NUL, 'g'), '|').trim());
 }
 
@@ -35,8 +35,8 @@ function isSepRow(cells: string[]): boolean {
 export function parseMarkdownTable(text: string): string[][] | null {
         const lines = text.replace(/\r\n?/g, '\n').split('\n').map(l => l.trim()).filter(l => l.length > 0);
         if (lines.length < 2) return null;
-        const head = splitRow(lines[0]!);
-        const sep = splitRow(lines[1]!);
+        const head = splitRow(lines[0]);
+        const sep = splitRow(lines[1]);
         if (head.length < 1 || !isSepRow(sep)) return null;
         const nCols = sep.length;
         if (nCols < 1) return null;
@@ -47,7 +47,7 @@ export function parseMarkdownTable(text: string): string[][] | null {
         };
         const rows: string[][] = [pad(head)];
         for (let i = 2; i < lines.length; i++) {
-                const cells = splitRow(lines[i]!);
+                const cells = splitRow(lines[i]);
                 if (!cells.length) continue;
                 rows.push(pad(cells));
         }
@@ -56,11 +56,11 @@ export function parseMarkdownTable(text: string): string[][] | null {
 
 /** 网格 → markdown 表格文本（复制端）：首行作表头，中间插分隔行 */
 export function buildMarkdownTable(rows: string[][]): string {
-        if (!rows.length || !rows[0]!.length) return '';
+        if (!rows.length || !rows[0].length) return '';
         const esc = (s: string) => s.replace(/<br\s*\/?>/gi, '<br>').replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
         const line = (cells: string[]) => '| ' + cells.map(esc).join(' | ') + ' |';
-        const nCols = rows[0]!.length;
-        const out: string[] = [line(rows[0]!), '| ' + Array(nCols).fill('---').join(' | ') + ' |'];
-        for (let i = 1; i < rows.length; i++) out.push(line(rows[i]!));
+        const nCols = rows[0].length;
+        const out: string[] = [line(rows[0]), '| ' + Array(nCols).fill('---').join(' | ') + ' |'];
+        for (let i = 1; i < rows.length; i++) out.push(line(rows[i]));
         return out.join('\n');
 }

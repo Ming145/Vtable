@@ -1,6 +1,6 @@
 {
 	"name": "vtable-plugin",
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"description": "",
 	"main": "main.js",
 	"scripts": {
@@ -16,5 +16,9 @@
 		"tslib": "2.3.1",
 		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.71.1"
+	},
+	"dependencies": {
+		"@codemirror/state": "^6.7.6",
+		"@codemirror/view": "^6.38.6"
 	}
 }

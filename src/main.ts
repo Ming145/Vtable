@@ -1,7 +1,7 @@
-import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath , createEl } from 'obsidian';
+import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath  } from 'obsidian';
 import type { App } from 'obsidian';
 import type { EditorView } from '@codemirror/view';
-import type { EditorState } from '@codemirror/state';
+import type { Text } from '@codemirror/state';
 import {
         blankSource, mdTableToSource, htmlTableToSource,
         parseSource, gridToMdTable, gridToHtmlTable, Grid,
@@ -11,7 +11,7 @@ import { setUiLang, t, REPO_URL, barLegend } from './i18n';
 import type { UiLang } from './i18n';
 import { VT_MENU_ACTIONS } from './render';
 import { Toolbar } from './bar';
-import { gridToChart, gridsToComboChart, detectChartType } from './charts';
+import { gridToChart, detectChartType } from './charts';
 
 const LANG = 'vtable';
 
@@ -62,14 +62,6 @@ const DEFAULT_SETTINGS: VtSettings = {
 };
 
 /** 旧版默认菜单配置（历史存档对照用；现行升级策略=按"缺对齐组"插入，见 onload） */
-const LEGACY_DEFAULT_MENU = [
-        'vt.copy', 'vt.cut', 'vt.delete', '---',
-        'vt.insRowAbove', 'vt.insRowBelow', 'vt.delRow', '---',
-        'vt.insColLeft', 'vt.insColRight', 'vt.delCol', '---',
-        'vt.mergeRight', 'vt.mergeDown', 'vt.split', '---',
-        'vt.modeOL', 'vt.modeHS', 'vt.modeRC',
-].join('\n');
-
 export default class VtPlugin extends Plugin {
         private toolbar!: Toolbar;
         private settings!: VtSettings;
@@ -184,7 +176,7 @@ export default class VtPlugin extends Plugin {
                 this.registerDomEvent(document, 'focusin', (e: FocusEvent) => {
                         const t = e.target;
                         if (this.toolbar.el.style.display !== 'none'
-                                && (t != null && t.instanceOf(Element))
+                                && t instanceof Element
                                 && !t.closest('table.vt, .vt-bar, .vt-mode-bar')) {
                                 this.toolbar.hide();
                         }
@@ -375,7 +367,7 @@ export default class VtPlugin extends Plugin {
                                         new Notice(t('请先点击 vtable 表格中的任意单元格进入编辑状态', 'Click any cell in a vtable table first to enter edit mode'));
                                         return;
                                 }
-                                ctrl.styleCall((options) => new Promise((resolve) => {
+                                void ctrl.styleCall((options) => new Promise((resolve) => {
                                         const menu = new Menu();
                                         for (const o of options) {
                                                 menu.addItem((i) => {
@@ -640,7 +632,7 @@ export default class VtPlugin extends Plugin {
         }
 
         /** 定位光标行紧邻的 vtable 渲染容器：路径1 光标行 cm-line 兄弟扫描 → 路径2 domAtPos 近邻 → 路径3 posAtDOM 反查 */
-        private locateTableEl(key: 'ArrowDown' | 'ArrowUp', view: EditorView, doc: EditorState, fenceLine: number): HTMLElement | null {
+        private locateTableEl(key: 'ArrowDown' | 'ArrowUp', view: EditorView, doc: Text, fenceLine: number): HTMLElement | null {
                 // 路径1：光标所在 cm-line 的相邻兄弟（live preview 中 embed-block 紧邻围栏行）
                 try {
                         const at = view.domAtPos(view.state.selection.main.head);
@@ -965,7 +957,7 @@ class VtSettingTab extends PluginSettingTab {
 
                 // 英文模式：浮窗按钮为 ≤2 字符缩写，给出对照说明行
                 if (this.plugin.settings.uiLang === 'en') {
-                        const legend = containerEl.createEl('div', { cls: 'vt-setting-hint' });
+                        const legend = containerEl.createDiv({ cls: 'vt-setting-hint' });
                         legend.textContent = `${t('浮窗按钮说明：', 'Floating toolbar legend:')}\n${barLegend()}`;
                 }
 
@@ -1040,9 +1032,9 @@ class VtSettingTab extends PluginSettingTab {
                         const colorSetting = new Setting(styleSection)
                                 .setName(t('自定义表头颜色', 'Custom header color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #4a90d9', 'Hex color, e.g. #4a90d9'));
-                        const preview = createEl('span');
+                        const preview = createSpan();
                         preview.className = 'vt-color-preview';
-                        preview.setCssProps({ background: this.plugin.settings.headerColor });
+                        preview.style.background = this.plugin.settings.headerColor;
                         colorSetting.nameEl.appendChild(preview);
                         colorSetting.addText(t => t
                                 .setValue(this.plugin.settings.headerColor)
@@ -1052,7 +1044,7 @@ class VtSettingTab extends PluginSettingTab {
                                         await this.plugin.saveSettings();
                                         refreshAllTableAppearance();
                                         if (CSS.supports('background-color', value.trim())) {
-                                                preview.setCssProps({ background: value.trim() });
+                                                preview.style.background = value.trim();
                                         }
                                 }));
                 }
@@ -1114,9 +1106,9 @@ class VtSettingTab extends PluginSettingTab {
                         const zcSetting = new Setting(styleSection)
                                 .setName(t('隔行变色自定义颜色', 'Custom zebra color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #e8f0fe。颜色过深时文字自动反白。', 'Hex color, e.g. #e8f0fe. Dark colors get white text automatically.'));
-                        const zcPreview = createEl('span');
+                        const zcPreview = createSpan();
                         zcPreview.className = 'vt-color-preview';
-                        zcPreview.setCssProps({ background: this.plugin.settings.zebraColor });
+                        zcPreview.style.background = this.plugin.settings.zebraColor;
                         zcSetting.nameEl.appendChild(zcPreview);
                         zcSetting.addText(t => t
                                 .setValue(this.plugin.settings.zebraColor)
@@ -1126,7 +1118,7 @@ class VtSettingTab extends PluginSettingTab {
                                         await this.plugin.saveSettings();
                                         refreshAllTableAppearance();
                                         if (CSS.supports('background-color', value.trim())) {
-                                                zcPreview.setCssProps({ background: value.trim() });
+                                                zcPreview.style.background = value.trim();
                                         }
                                 }));
                 }
@@ -1162,7 +1154,7 @@ class VtSettingTab extends PluginSettingTab {
                         .then((s) => {
                                 s.settingEl.classList.add('vt-menu-ta-setting');
                         });
-                const ta = createEl('textarea');
+                const ta = taSetting.settingEl.createEl('textarea');
                 ta.className = 'text-input vt-menu-ta';
                 ta.value = this.plugin.settings.contextMenu;
                 taSetting.settingEl.insertAdjacentElement('afterend', ta);
@@ -1181,19 +1173,19 @@ class VtSettingTab extends PluginSettingTab {
                                 }));
 
                 // 对照表（方式二）：搜索命令 → 点选 → 显示生成行 → 一键复制 → 粘贴到上面文本框
-                const wrap = containerEl.createEl('div', { cls: 'vt-menu-lookup' });
-                wrap.createEl('div', {
+                const wrap = containerEl.createDiv({ cls: 'vt-menu-lookup' });
+                wrap.createDiv({
                         cls: 'vt-menu-lookup-title',
                         text: t('对照表（辅助输入）：输入关键词筛选命令，点选后在下方复制生成的行，粘贴到上面的文本框', 'Lookup helper: filter commands, click one, copy the generated line and paste it above'),
                 });
                 const search = wrap.createEl('input', { type: 'text' });
                 search.placeholder = t('输入关键词筛选（vtable 动作 + Obsidian 命令）…', 'Filter (vtable actions + Obsidian commands)…');
-                search.setCssProps({ width: '100%' });
-                const listBox = wrap.createEl('div', { cls: 'vt-menu-lookup-list' });
+                search.style.width = `100%`;
+                const listBox = wrap.createDiv({ cls: 'vt-menu-lookup-list' });
                 const genIcon = wrap.createEl('input', { type: 'text' });
                 genIcon.placeholder = t('图标名（可选，lucide 名称，如 bold）', 'Icon (optional lucide name, e.g. bold)');
-                genIcon.setCssProps({ width: '100%' });
-                const genLine = wrap.createEl('div', { cls: 'vt-menu-lookup-line', text: t('（尚未选择命令）', '(no command selected)') });
+                genIcon.style.width = `100%`;
+                const genLine = wrap.createDiv({ cls: 'vt-menu-lookup-line', text: t('（尚未选择命令）', '(no command selected)') });
                 let selectedLine = '';
                 const copyBtn = wrap.createEl('button', { text: t('复制生成的行', 'Copy generated line') });
                 copyBtn.addEventListener('click', () => {
@@ -1219,15 +1211,15 @@ class VtSettingTab extends PluginSettingTab {
                         listBox.empty();
                         const hits = sources.filter(s => !q || s.name.toLowerCase().includes(q) || s.line.toLowerCase().includes(q)).slice(0, 15);
                         for (const s of hits) {
-                                const item = listBox.createEl('div', { cls: 'vt-menu-lookup-item' });
-                                item.createEl('span', { cls: 'vt-menu-lookup-name', text: s.name });
+                                const item = listBox.createDiv({ cls: 'vt-menu-lookup-item' });
+                                item.createSpan({ cls: 'vt-menu-lookup-name', text: s.name });
                                 item.createEl('code', { cls: 'vt-menu-lookup-code', text: s.line });
                                 item.addEventListener('click', () => {
                                         selectedLine = s.line;
                                         genLine.setText(t('生成的行：', 'Generated line: ') + (genIcon.value.trim() ? `${s.line}|${genIcon.value.trim()}` : s.line));
                                 });
                         }
-                        if (!hits.length) listBox.createEl('div', { text: t('无匹配命令', 'No matching commands') });
+                        if (!hits.length) listBox.createDiv({ text: t('无匹配命令', 'No matching commands') });
                 };
                 genIcon.addEventListener('input', () => {
                         if (selectedLine) genLine.setText(t('生成的行：', 'Generated line: ') + `${selectedLine}|${genIcon.value.trim()}`);
@@ -1236,8 +1228,8 @@ class VtSettingTab extends PluginSettingTab {
                 renderList();
 
                 // 灰色小字使用方法 + README 链接
-                const help = containerEl.createEl('div', { cls: 'vt-setting-hint' });
-                help.createEl('span', {
+                const help = containerEl.createDiv({ cls: 'vt-setting-hint' });
+                help.createSpan({
                         text: t(
                                 '用法：菜单结构里一行一项，"---" 是分割线；对照表点选命令后复制生成的行粘贴进来即可；图标可留空使用默认。详细文档见 ',
                                 'Usage: one item per line, "---" inserts a separator; pick a command in the lookup, copy the generated line and paste it above; leave the icon blank for the default. Full docs: ',
@@ -1323,56 +1315,6 @@ function findVtableBlock(ed: Editor): {
         };
 }
 
-/** 在整篇文档中搜索所有 vtable 代码块，返回距离光标最近的块（用于 Live Preview 模式） */
-function findVtableBlockAnywhere(ed: Editor): {
-        blockFrom: EditorPosition;
-        blockTo: EditorPosition;
-        contentFrom: EditorPosition;
-        contentTo: EditorPosition;
-} | null {
-        const fullText = ed.getValue();
-        const lines = fullText.split('\n');
-        const cursorLine = ed.getCursor().line;
-        const n = lines.length;
-
-        let best: {
-                blockFrom: EditorPosition;
-                blockTo: EditorPosition;
-                contentFrom: EditorPosition;
-                contentTo: EditorPosition;
-        } | null = null;
-        let bestDist = Infinity;
-
-        let i = 0;
-        while (i < n) {
-                const line = lines[i].trim();
-                if (line === '```vtable') {
-                        const blockStart = i;
-                        let blockEnd = i + 1;
-                        while (blockEnd < n) {
-                                if (lines[blockEnd].trim() === '```') break;
-                                blockEnd++;
-                        }
-                        if (blockEnd < n) {
-                                const dist = Math.abs(blockStart - cursorLine);
-                                if (dist < bestDist) {
-                                        bestDist = dist;
-                                        best = {
-                                                blockFrom: { line: blockStart, ch: 0 },
-                                                blockTo: { line: blockEnd, ch: lines[blockEnd].length },
-                                                contentFrom: { line: blockStart + 1, ch: 0 },
-                                                contentTo: { line: blockEnd, ch: 0 },
-                                        };
-                                }
-                        }
-                        i = blockEnd + 1;
-                } else {
-                        i++;
-                }
-        }
-        return best;
-}
-
 type VtBlockRange = {
         blockFrom: EditorPosition;
         blockTo: EditorPosition;
@@ -1387,14 +1329,14 @@ function getAllVtableBlocks(ed: Editor): VtBlockRange[] {
         const blocks: VtBlockRange[] = [];
         let i = 0;
         while (i < n) {
-                if (lines[i]!.trim() === '```vtable') {
+                if (lines[i].trim() === '```vtable') {
                         const start = i;
                         let end = i + 1;
-                        while (end < n && lines[end]!.trim() !== '```') end++;
+                        while (end < n && lines[end].trim() !== '```') end++;
                         if (end < n) {
                                 blocks.push({
                                         blockFrom: { line: start, ch: 0 },
-                                        blockTo: { line: end, ch: lines[end]!.length },
+                                        blockTo: { line: end, ch: lines[end].length },
                                         contentFrom: { line: start + 1, ch: 0 },
                                         contentTo: { line: end, ch: 0 },
                                 });
@@ -1454,13 +1396,13 @@ class VtColorModal extends Modal {
                 const select = (el: HTMLElement, color: string | null) => {
                         this.selected = color;
                         this.inputEl.value = color ?? '';
-                        preview.setCssProps({ background: color || 'transparent' });
+                        preview.style.background = color || 'transparent';
                         swatches.forEach(s => s.removeClass('is-selected'));
                         el.addClass('is-selected');
                 };
                 for (const [hex] of presets) {
                         const sw = grid.createEl('button', { cls: 'vt-color-swatch' });
-                        sw.setCssProps({ background: hex });
+                        sw.style.background = hex;
                         sw.title = hex;
                         sw.addEventListener('click', () => select(sw, hex));
                         swatches.push(sw);
@@ -1476,7 +1418,7 @@ class VtColorModal extends Modal {
                 // 颜色编码输入 + 预览
                 const row = contentEl.createDiv({ cls: 'vt-color-input-row' });
                 const preview = row.createSpan({ cls: 'vt-color-preview' });
-                preview.setCssProps({ background: this.selected || 'transparent' });
+                preview.style.background = this.selected || 'transparent';
                 this.inputEl = row.createEl('input', { type: 'text', value: this.selected ?? '' });
                 this.inputEl.placeholder = t('颜色值（颜色名或十六进制）', 'Color name or hex value');
                 
@@ -1484,7 +1426,7 @@ class VtColorModal extends Modal {
                         const v = this.inputEl.value.trim();
                         if (v && CSS.supports('background-color', v)) {
                                 this.selected = v;
-                                preview.setCssProps({ background: v });
+                                preview.style.background = v;
                                 swatches.forEach(s => s.removeClass('is-selected'));
                         }
                 });

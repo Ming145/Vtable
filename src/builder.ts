@@ -97,7 +97,7 @@ export function mdInlineToHtml(s: string): string {
         // 9) 恢复保护的内容
         // \x00/\x01 是 mdInlineToHtml 保护段的哨兵字节，正文不可能出现，必须原样匹配
         // eslint-disable-next-line no-control-regex -- 哨兵字节匹配为序列化保护机制所必需
-        return s.replace(/\x00(\d+)\x01/g, (_, idx) => protectedSpans[parseInt(idx)]!);
+        return s.replace(/\x00(\d+)\x01/g, (_, idx) => protectedSpans[parseInt(idx)]);
 }
 
 export type Grid = Cell[][];
@@ -179,13 +179,13 @@ export function normalizeCellNewlines(t: string): string {
 function healOrphanHidden(rows: Grid): void {
         for (let r = 0; r < rows.length; r++) {
                 for (let c = 0; c < (rows[r]?.length ?? 0); c++) {
-                        const cd = rows[r]![c];
+                        const cd = rows[r][c];
                         if (!cd || visible(cd)) continue;
                         let covered = false;
                         for (let rr = 0; rr < rows.length && !covered; rr++) {
                                 for (let cc = 0; cc < (rows[rr]?.length ?? 0) && !covered; cc++) {
                                         if (rr === r && cc === c) continue;
-                                        const up = rows[rr]![cc];
+                                        const up = rows[rr][cc];
                                         if (!up || !visible(up)) continue;
                                         if (rr <= r && r < rr + up.rs && cc <= c && c < cc + up.cs) covered = true;
                                 }
@@ -218,13 +218,13 @@ function healCoveredVisible(rows: Grid): void {
 function healCoveredVisibleSlow(rows: Grid): void {
         for (let r = 0; r < rows.length; r++) {
                 for (let c = 0; c < (rows[r]?.length ?? 0); c++) {
-                        const cd = rows[r]![c];
+                        const cd = rows[r][c];
                         if (!cd || !visible(cd)) continue;
                         for (let rr = 0; rr < rows.length; rr++) {
                                 let hit = false;
                                 for (let cc = 0; cc < (rows[rr]?.length ?? 0); cc++) {
                                         if (rr === r && cc === c) continue;
-                                        const up = rows[rr]![cc];
+                                        const up = rows[rr][cc];
                                         if (!up || !visible(up) || (up.rs === 1 && up.cs === 1)) continue;
                                         if (rr <= r && r < rr + up.rs && cc <= c && c < cc + up.cs) {
                                                 if (cd.t) up.t = joinText(up.t, cd.t, '<br>');
@@ -377,11 +377,11 @@ export function htmlTableToSource(html: string): string {
                 const cellEls = Array.from(rowEl.querySelectorAll('td, th'));
                 let c = 0;
                 for (const cellEl of cellEls) {
-                        while (grid[r]![c] !== undefined) c++;
+                        while (grid[r][c] !== undefined) c++;
 
                         const rs = parseInt(cellEl.getAttribute('rowspan') ?? '1', 10) || 1;
                         const cs = parseInt(cellEl.getAttribute('colspan') ?? '1', 10) || 1;
-                        grid[r]![c] = { t: cellEl.innerHTML, rs, cs };
+                        grid[r][c] = { t: cellEl.innerHTML, rs, cs };
 
                         for (let dr = 0; dr < rs; dr++) {
                                 for (let dc = 0; dc < cs; dc++) {
@@ -389,7 +389,7 @@ export function htmlTableToSource(html: string): string {
                                         const rr = r + dr;
                                         const cc = c + dc;
                                         if (rr >= rows) continue;
-                                        grid[rr]![cc] = hidden();
+                                        grid[rr][cc] = hidden();
                                 }
                         }
                         c += cs;
@@ -463,9 +463,9 @@ export function gridToMdTable(grid: Grid, opts?: { htmlTags?: boolean }): string
         const lineOf = (row: Cell[]): string =>
                 '| ' + row.map(c => decorate(visible(c) ? c.t : '', c)).join(' | ') + ' |';
 
-        const lines: string[] = [lineOf(grid[0]!)];
+        const lines: string[] = [lineOf(grid[0])];
         lines.push('| ' + new Array(cols).fill('---').join(' | ') + ' |');
-        for (let r = 1; r < grid.length; r++) lines.push(lineOf(grid[r]!));
+        for (let r = 1; r < grid.length; r++) lines.push(lineOf(grid[r]));
         return lines.join('\n');
 }
 
@@ -519,7 +519,7 @@ export function mergeRight(grid: Grid, r: number, c: number) {
         // 隐藏被吞并块占用的列
         for (let i = 0; i < target.cs; i++) {
                 const cc = nc + i;
-                if (grid[r]![cc]) grid[r]![cc] = hidden();
+                if (grid[r][cc]) grid[r][cc] = hidden();
         }
 }
 
@@ -539,7 +539,7 @@ export function mergeDown(grid: Grid, r: number, c: number) {
         anchor.rs += target.rs;
         for (let i = 0; i < target.rs; i++) {
                 const rr = nr + i;
-                if (grid[rr]?.[c]) grid[rr]![c] = hidden();
+                if (grid[rr]?.[c]) grid[rr][c] = hidden();
         }
 }
 
@@ -556,7 +556,7 @@ export function splitCell(grid: Grid, r: number, c: number) {
         for (let rr = r; rr < r + rs; rr++) {
                 for (let cc = c; cc < c + cs; cc++) {
                         if (!grid[rr]?.[cc]) continue;
-                        grid[rr]![cc] = (rr === r && cc === c) ? cell(text) : cell();
+                        grid[rr][cc] = (rr === r && cc === c) ? cell(text) : cell();
                 }
         }
 }
@@ -589,14 +589,14 @@ export function mergeRange(grid: Grid, r1: number, c1: number, r2: number, c2: n
         let text = '';
         for (const t of rowTexts) text = joinText(text, t, '<br>');
 
-        const anchor = grid[r1]![c1]!;
+        const anchor = grid[r1][c1];
         anchor.t = text;
         anchor.rs = r2 - r1 + 1;
         anchor.cs = c2 - c1 + 1;
         for (let r = r1; r <= r2; r++) {
                 for (let c = c1; c <= c2; c++) {
                         if (r === r1 && c === c1) continue;
-                        if (grid[r]?.[c]) grid[r]![c] = hidden();
+                        if (grid[r]?.[c]) grid[r][c] = hidden();
                 }
         }
 }
@@ -710,13 +710,12 @@ export function moveRow(grid: Grid, from: number, b: number) {
 export function toggleWrapTag(html: string, tag: string): string {
         const re = new RegExp(`^<${tag}>([\\s\\S]*)</${tag}>$`, 'i');
         const m = html.match(re);
-        if (m) return m[1]!;
+        if (m) return m[1];
         if (!html.trim()) return html;
         return `<${tag}>${html}</${tag}>`;
 }
 
 /** 待办行 `- [ ]`/`- [x]` 标记正则 */
-const TODO_MARK_RE = /-\s*\[([ xX])\]/g;
 
 /** 切换第 idx 个（从 0 计）待办标记的勾选状态（点击复选框写回用）。
  *  行内代码 `...` 内的标记不参与计数（与渲染端 renderTodos 跳过 code 节点保持一致，防勾选错位） */

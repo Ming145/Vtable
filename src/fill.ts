@@ -92,7 +92,7 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
                 let i = cyc.words.indexOf(v0);
                 if (i >= 0) return { kind: 'cycle', list: cyc.words, idx: i };
                 if (cyc.aliases && v0 in cyc.aliases) {
-                        return { kind: 'cycle', list: cyc.words, idx: cyc.aliases[v0]! };
+                        return { kind: 'cycle', list: cyc.words, idx: cyc.aliases[v0] };
                 }
                 if (/[a-zA-Z]/.test(v0)) {
                         const lower = v0.toLowerCase();
@@ -101,7 +101,7 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
                         if (cyc.aliases) {
                                 for (const [alias, idx] of Object.entries(cyc.aliases)) {
                                         if (alias.toLowerCase() === lower) {
-                                                return { kind: 'cycle', list: cyc.words, idx: idx! };
+                                                return { kind: 'cycle', list: cyc.words, idx: idx };
                                         }
                                 }
                         }
@@ -110,8 +110,8 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
         // 2. 日期序列：M月D日（1月1日~12月31日按当年日历循环，闰年含 2月29日）
         const md = v0.match(/^(\d{1,2})月(\d{1,2})日$/);
         if (md) {
-                const mo = parseInt(md[1]!, 10);
-                const day = parseInt(md[2]!, 10);
+                const mo = parseInt(md[1], 10);
+                const day = parseInt(md[2], 10);
                 if (mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, year)) {
                         let idx = 0;
                         for (let m = 1; m < mo; m++) idx += monthDays(m, year);
@@ -123,16 +123,16 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
         const m = v0.match(/^[+-]?\d+(\.\d+)?$/);
         if (m) {
                 const dec = m[1] ? m[1].length - 1 : 0;
-                const ip = v0.split('.')[0]!.replace(/^[+-]/, '');
+                const ip = v0.split('.')[0].replace(/^[+-]/, '');
                 const pad = ip.length > 1 && ip[0] === '0' ? ip.length : 0;
                 return { kind: 'num', v: parseFloat(v0), dec, pad };
         }
         // 4. 文本+数字（尾部连续数字递增递减，其余原样复制；"3天"/"文本1"/"item12" 都算）
         const mm = v0.match(/^(.*?)(\d+)(\D*)$/);
         if (mm) {
-                const digits = mm[2]!;
+                const digits = mm[2];
                 const pad = digits.length > 1 && digits[0] === '0' ? digits.length : 0;
-                return { kind: 'mix', pre: mm[1]!, v: parseInt(digits, 10), pad, suf: mm[3]! };
+                return { kind: 'mix', pre: mm[1], v: parseInt(digits, 10), pad, suf: mm[3] };
         }
         return { kind: 'copy' };
 }
@@ -154,7 +154,7 @@ export function genSeries(v0: string, n: number, sign: 1 | -1, year: number = ne
         for (let k = 1; k <= n; k++) {
                 if (s.kind === 'cycle') {
                         const len = s.list.length;
-                        out.push(s.list[((s.idx + sign * k) % len + len) % len]!);
+                        out.push(s.list[((s.idx + sign * k) % len + len) % len]);
                 } else if (s.kind === 'date') {
                         const doy = ((s.idx + sign * k) % s.yearLen + s.yearLen) % s.yearLen;
                         out.push(fmtDate(doy, s.year));
@@ -173,7 +173,7 @@ export function genSeries(v0: string, n: number, sign: 1 | -1, year: number = ne
 
 /** 标准 DOM 助手（本文件不依赖 Obsidian 扩展，可在裸页面测试） */
 const mkDiv = (cls: string, parent: HTMLElement): HTMLElement => {
-        const d = createEl('div');
+        const d = createDiv();
         d.className = cls;
         parent.appendChild(d);
         return d;
@@ -204,32 +204,32 @@ const mkTri = (size: number): [HTMLElement, HTMLElement] => {
         // - draw：可见小三角，同一条 path 做 clip 与背景；pointer-events:none，命中由 hit 承担
         // 两者都由调用方定位（柄场景相对壳、dots 场景 fixed）
         const e = HIT_PAD;
-        const hit = createEl('div');
+        const hit = createDiv();
         hit.className = 'vt-fill-tri-hit';
-        hit.setCssProps({ position: 'absolute' });
-        hit.setCssProps({ left: '0' });
-        hit.setCssProps({ top: '0' });
-        hit.setCssProps({ width: `${size + 2 * e}px` });
-        hit.setCssProps({ height: `${size + 2 * e}px` });
+        hit.style.position = `absolute`;
+        hit.style.left = `0`;
+        hit.style.top = `0`;
+        hit.style.width = `${size + 2 * e}px`;
+        hit.style.height = `${size + 2 * e}px`;
         // pointer-events 是继承属性：壳为 none 时必须显式 auto，否则 hit 继承 none 永不命中
-        hit.setCssProps({ pointerEvents: 'auto' });
+        hit.style.pointerEvents = `auto`;
         // 命中区=可见三角向外膨胀 e：右边/底边外移到 size+e，斜边向左上平移（远离直角顶点）
         // 至 x+y=size-e·√2；polygon 五点（斜边与盒相交处截断），draw 三角完整包含+外圈
         const s2 = size + e;
         const t = Math.max(0, size - e * 1.414);
-        hit.setCssProps({ clipPath: `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t}px, ${t}px 0)` });
-        const draw = createEl('div');
+        hit.style.clipPath = `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t}px, ${t}px 0)`;
+        const draw = createDiv();
         draw.className = 'vt-fill-tri-draw';
-        draw.setCssProps({ position: 'absolute' });
-        draw.setCssProps({ left: '0' });
-        draw.setCssProps({ top: '0' });
-        draw.setCssProps({ width: `${size}px` });
-        draw.setCssProps({ height: `${size}px` });
-        draw.setCssProps({ pointerEvents: 'none' });
+        draw.style.position = `absolute`;
+        draw.style.left = `0`;
+        draw.style.top = `0`;
+        draw.style.width = `${size}px`;
+        draw.style.height = `${size}px`;
+        draw.style.pointerEvents = `none`;
         const d = triPathD(size);
-        draw.setCssProps({ clipPath: `path('${d}')` });
-        draw.setCssProps({ background: 'var(--interactive-accent, #7c3aed)' });
-        draw.setCssProps({ opacity: '0.55' });
+        draw.style.clipPath = `path('${d}')`;
+        draw.style.background = `var(--interactive-accent, #7c3aed)`;
+        draw.style.opacity = `0.55`;
         return [hit, draw];
 };
 
@@ -290,11 +290,11 @@ export class FillHandle {
                 const [hHit, hDraw] = mkTri(HANDLE_SIZE);
                 this.el.appendChild(hHit);
                 this.el.appendChild(hDraw);
-                this.el.setCssProps({ display: 'none' });
+                this.el.style.display = `none`;
                 this.dots = mkDiv('vt-fill-dots', document.body);
-                this.dots.setCssProps({ display: 'none' });
+                this.dots.style.display = `none`;
                 this.menu = mkDiv('vt-fill-menu', document.body);
-                this.menu.setCssProps({ display: 'none' });
+                this.menu.style.display = `none`;
 
                 this.el.addEventListener('pointerdown', (e) => this.onHandleDown(e));
                 this.el.addEventListener('pointermove', (e) => this.onHandleMove(e));
@@ -353,7 +353,7 @@ export class FillHandle {
                 if (this.drag) return; // 拖动中不隐藏
                 this.anchor = null;
                 this.ro.disconnect();
-                this.el.setCssProps({ display: 'none' });
+                this.el.style.display = `none`;
                 this.clearDots();
         }
 
@@ -368,22 +368,22 @@ export class FillHandle {
                 const a = this.anchor!;
                 const td = this.deps.cellTd(a.r, a.c);
                 if (!td || !td.isConnected) {
-                        this.el.setCssProps({ display: 'none' });
+                        this.el.style.display = `none`;
                         return;
                 }
                 const rect = td.getBoundingClientRect();
                 if (rect.width === 0 && rect.height === 0) {
-                        this.el.setCssProps({ display: 'none' });
+                        this.el.style.display = `none`;
                         return;
                 }
                 const S = HANDLE_SIZE;
-                this.el.setCssProps({ display: 'block' });
+                this.el.style.display = `block`;
                 // 完全在格子内部：垂直间隙 4px（19:51 下移 2px）；水平间隙 2px
                 const cs = getComputedStyle(td);
                 const vgap = (parseFloat(cs.borderBottomWidth) || 0) + 4;
                 const hgap = (parseFloat(cs.borderRightWidth) || 0) + 2;
-                this.el.setCssProps({ left: `${Math.round(rect.right - hgap - S)}px` });
-                this.el.setCssProps({ top: `${Math.round(rect.bottom - vgap - S)}px` });
+                this.el.style.left = `${Math.round(rect.right - hgap - S)}px`;
+                this.el.style.top = `${Math.round(rect.bottom - vgap - S)}px`;
         }
 
         /* ---------- 拖动 ---------- */
@@ -445,15 +445,15 @@ export class FillHandle {
                 const vals = genSeries(v0, cells.length - 1, sign);
                 const writes: { r: number; c: number; v: string }[] = [];
                 for (let i = 1; i < cells.length; i++) {
-                        const cell = cells[i]!;
+                        const cell = cells[i];
                         if (!this.deps.cellVisible(cell.r, cell.c)) continue; // 合并占位格跳过
-                        writes.push({ r: cell.r, c: cell.c, v: vals[i - 1]! });
+                        writes.push({ r: cell.r, c: cell.c, v: vals[i - 1] });
                 }
                 if (!writes.length) return;
 
                 // 末端格 rect 必须在 applyFill 之前取：applyFill→onCommit 可能同步重渲染，
                 // 旧 td 被摘除后 getBoundingClientRect 全为 0，menu 会飞到页面左上角
-                const last = cells[cells.length - 1]!;
+                const last = cells[cells.length - 1];
                 const lastTd = this.deps.cellTd(last.r, last.c);
                 const lastRect = lastTd?.isConnected ? lastTd.getBoundingClientRect() : null;
 
@@ -509,9 +509,9 @@ export class FillHandle {
                 if (!d) return;
                 this.clearDots();
                 if (d.cells.length <= 1) return;
-                this.dots.setCssProps({ display: 'block' });
+                this.dots.style.display = `block`;
                 for (let i = 1; i < d.cells.length; i++) {
-                        const cell = d.cells[i]!;
+                        const cell = d.cells[i];
                         const td = this.deps.cellTd(cell.r, cell.c);
                         if (!td || !td.isConnected) continue;
                         const rect = td.getBoundingClientRect();
@@ -523,17 +523,17 @@ export class FillHandle {
                         // 兄弟双层同位：可见三角右下顶点=(rect.right-hgap, rect.bottom-vgap)
                         const left = Math.round(rect.right - hgap - DOT_SIZE);
                         const top = Math.round(rect.bottom - vgap - DOT_SIZE);
-                        hit.setCssProps({ left: `${left}px` });
-                        hit.setCssProps({ top: `${top}px` });
-                        draw.setCssProps({ left: `${left}px` });
-                        draw.setCssProps({ top: `${top}px` });
+                        hit.style.left = `${left}px`;
+                        hit.style.top = `${top}px`;
+                        draw.style.left = `${left}px`;
+                        draw.style.top = `${top}px`;
                         this.dots.appendChild(hit);
                         this.dots.appendChild(draw);
                 }
         }
 
         private clearDots() {
-                this.dots.setCssProps({ display: 'none' });
+                this.dots.style.display = `none`;
                 emptyEl(this.dots);
         }
 
@@ -555,19 +555,19 @@ export class FillHandle {
                 this.menu.appendChild(btnDesc);
 
                 this.placeMenu();
-                this.menu.setCssProps({ transition: 'none' });
-                this.menu.setCssProps({ visibility: 'hidden' });
-                this.menu.setCssProps({ display: 'flex' });
-                this.menu.setCssProps({ transform: 'scale(0.8) translateY(6px)' });
-                this.menu.setCssProps({ opacity: '0.7' });
+                this.menu.style.transition = `none`;
+                this.menu.style.visibility = `hidden`;
+                this.menu.style.display = `flex`;
+                this.menu.style.transform = `scale(0.8) translateY(6px)`;
+                this.menu.style.opacity = `0.7`;
                 void this.menu.offsetWidth;
-                this.menu.setCssProps({ visibility: 'visible' });
+                this.menu.style.visibility = `visible`;
                 window.requestAnimationFrame(() => {
                         window.requestAnimationFrame(() => {
                                 if (!this.menuState) return;
-                                this.menu.setCssProps({ transition: '' });
-                                this.menu.setCssProps({ transform: 'scale(1) translateY(0)' });
-                                this.menu.setCssProps({ opacity: '1' });
+                                this.menu.style.transition = ``;
+                                this.menu.style.transform = `scale(1) translateY(0)`;
+                                this.menu.style.opacity = `1`;
                         });
                 });
                 this.refreshMenuHighlight();
@@ -580,14 +580,14 @@ export class FillHandle {
                 // 尺寸：隐藏测量
                 const wasDisplay = this.menu.style.display;
                 if (wasDisplay === 'none') {
-                        this.menu.setCssProps({ display: 'flex' });
-                        this.menu.setCssProps({ visibility: 'hidden' });
+                        this.menu.style.display = `flex`;
+                        this.menu.style.visibility = `hidden`;
                 }
                 const mw = this.menu.offsetWidth;
                 const mh = this.menu.offsetHeight;
                 if (wasDisplay === 'none') {
-                        this.menu.setCssProps({ display: 'none' });
-                        this.menu.setCssProps({ visibility: '' });
+                        this.menu.style.display = `none`;
+                        this.menu.style.visibility = ``;
                 }
                 const vw = window.innerWidth;
                 const vh = window.innerHeight;
@@ -596,8 +596,8 @@ export class FillHandle {
                 let top = rect.bottom + 6;
                 if (top + mh > vh - 8) top = rect.top - mh - 6; // 下方放不下 → 上方
                 top = Math.max(8, top);
-                this.menu.setCssProps({ left: `${Math.round(left)}px` });
-                this.menu.setCssProps({ top: `${Math.round(top)}px` });
+                this.menu.style.left = `${Math.round(left)}px`;
+                this.menu.style.top = `${Math.round(top)}px`;
         }
 
         private refreshMenuHighlight() {
@@ -616,18 +616,18 @@ export class FillHandle {
                 const vals = genSeries(m.v0, m.cells.length - 1, sign);
                 const writes: { r: number; c: number; v: string }[] = [];
                 for (let i = 1; i < m.cells.length; i++) {
-                        const cell = m.cells[i]!;
+                        const cell = m.cells[i];
                         if (!this.deps.cellVisible(cell.r, cell.c)) continue;
-                        writes.push({ r: cell.r, c: cell.c, v: vals[i - 1]! });
+                        writes.push({ r: cell.r, c: cell.c, v: vals[i - 1] });
                 }
-                if (writes.length) this.deps.applyFill(writes, { r: m.cells[0]!.r, c: m.cells[0]!.c });
+                if (writes.length) this.deps.applyFill(writes, { r: m.cells[0].r, c: m.cells[0].c });
                 this.refreshMenuHighlight();
         }
 
         private closeMenu() {
                 if (!this.menuState) return;
                 this.menuState = null;
-                this.menu.setCssProps({ display: 'none' });
+                this.menu.style.display = `none`;
                 emptyEl(this.menu);
         }
 }

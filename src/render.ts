@@ -3,7 +3,7 @@
  * vtable 代码块处理器：可编辑表格、模式切换、富文本渲染
  */
 
-import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon , createEl } from 'obsidian';
+import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon  } from 'obsidian';
 import { t } from './i18n';
 import {
         parseSource, serialize, visible, Grid, VtData, VtMode, normalizeCellNewlines,
@@ -122,20 +122,20 @@ function parseColorToRgb(color: string): { r: number; g: number; b: number } | n
         const s = color.trim();
         let m = s.match(/^#([0-9a-f]{3})$/i);
         if (m) {
-                const [r, g, b] = m[1]!.split('').map(ch => parseInt(ch + ch, 16));
-                return { r: r!, g: g!, b: b! };
+                const [r, g, b] = m[1].split('').map(ch => parseInt(ch + ch, 16));
+                return { r: r, g: g, b: b };
         }
         m = s.match(/^#([0-9a-f]{6})$/i);
         if (m) {
-                const n = parseInt(m[1]!, 16);
+                const n = parseInt(m[1], 16);
                 return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
         }
         m = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-        if (m) return { r: +m[1]!, g: +m[2]!, b: +m[3]! };
+        if (m) return { r: +m[1], g: +m[2], b: +m[3] };
         // hsl() / hsla()（默认主题的强调色分量按 HSL 组合，需支持）
         m = s.match(/^hsla?\(\s*([\d.]+)(?:deg)?\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/i);
         if (m) {
-                const h = +m[1]! / 360, sa = +m[2]! / 100, li = +m[3]! / 100;
+                const h = +m[1] / 360, sa = +m[2] / 100, li = +m[3] / 100;
                 const q = li < 0.5 ? li * (1 + sa) : li + sa - li * sa;
                 const p = 2 * li - q;
                 const hue2rgb = (t: number): number => {
@@ -182,8 +182,8 @@ function resolveThemeAccent(el: HTMLElement): string | null {
                 }
         }
         // 探针：浏览器解析嵌套 var() 后的最终色（恒为 rgb()/rgba()，能识别全部主题写法）
-        const probe = createEl('span');
-        probe.setCssProps({ color: 'var(--interactive-accent, var(--accent-color, transparent))' });
+        const probe = createSpan();
+        probe.style.color = `var(--interactive-accent, var(--accent-color, transparent))`;
         el.appendChild(probe);
         const computed = getComputedStyle(probe).color;
         probe.remove();
@@ -272,7 +272,7 @@ let pendingScrollAnchor: {
 export function noteScrollAnchor(el: HTMLElement) {
         // 实时预览滚在 .cm-scroller；阅读模式滚在预览视图
         const scroller = (el.closest('.cm-scroller')
-                ?? el.closest('.markdown-preview-view, .markdown-reading-view')) as HTMLElement | null;
+                ?? el.closest('.markdown-preview-view, .markdown-reading-view'));
         if (!scroller) return;
         pendingScrollAnchor = {
                 host: el,
@@ -390,7 +390,7 @@ export function renderBlock(
         const table = wrap.createEl('table', { cls: 'vt' });
         const tbody = table.createEl('tbody');
         const hsBar = el.createDiv({ cls: 'vt-hs-bar' });
-        hsBar.setCssProps({ display: 'none' });
+        hsBar.style.display = `none`;
         const hsTrack = hsBar.createDiv({ cls: 'vt-hs-track' });
         hsTrack.createDiv({ cls: 'vt-hs-thumb' });
         setupHsScrollBar(wrap, hsBar);
@@ -414,7 +414,7 @@ export function renderBlock(
                 lastCaretOffset = isWysiwyg(active) ? caretSourceOffset(active) : caretTextOffsetInTd(active);
                 const html = normalizeCellHtml(stripRcHandles(isWysiwyg(active) ? projectSource(active) : active.innerHTML));
                 // grid 域净化：\n 归一 <br>、锚点段零宽字符过滤（与 serialize 同规则，内存态即干净态）
-                grid[rr]![cc]!.t = normalizeCellNewlines(html);
+                grid[rr][cc].t = normalizeCellNewlines(html);
         };
 
         /** 双链跳转入口：焦点还压在格内（未离焦）时，先把当前编辑内容提交再跳，
@@ -440,7 +440,7 @@ export function renderBlock(
 
         /** 斜分格：zone 仍是 activeElement 时（容器被隐藏但未失焦），把编辑内容写回 grid */
         const flushDiagZone = () => {
-                const z = document.activeElement as HTMLElement | null;
+                const z = document.activeElement instanceof HTMLElement ? document.activeElement : null;
                 if (!z || !((z != null && z.instanceOf(Element))) || !z.classList.contains('vt-diag-zone') || !table.contains(z)) return;
                 const td = z.closest('td') as HTMLTableCellElement | null;
                 if (!td) return;
@@ -448,12 +448,12 @@ export function renderBlock(
                 const cell = grid[p.r]?.[p.c];
                 if (!isDiag(cell)) return;
                 writeDiagZoneText(td, z); // focusout 没跑（未失焦）：手动暂存
-                const aTxt = td.dataset.vtDiagA ?? cell!.dg!;
-                const bTxt = td.dataset.vtDiagB ?? cell!.t;
+                const aTxt = td.dataset.vtDiagA ?? cell.dg!;
+                const bTxt = td.dataset.vtDiagB ?? cell.t;
                 delete td.dataset.vtDiagA;
                 delete td.dataset.vtDiagB;
-                cell!.dg = aTxt;
-                cell!.t = bTxt;
+                cell.dg = aTxt;
+                cell.t = bTxt;
         };
 
         const commit = (keepFocus = false, caretAtEnd = false) => {
@@ -553,14 +553,14 @@ export function renderBlock(
 
         const focusCell = (r: number, c: number, caretAtEnd = false, textOffset: number | null = null): boolean => {
                 if (r < 0 || r >= grid.length || c < 0 || c >= (grid[0]?.length ?? 0)) return false;
-                if (!visible(grid[r]![c]!)) return false;
+                if (!visible(grid[r][c])) return false;
                 const td = cellMap[r]?.[c];
                 if (!td) return false;
                 td.focus();
                 focusedR = r;
                 focusedC = c;
                 // 斜分格：td.focus() 的 focus 事件里已路由到区子元素（zone），此处不再放 td 选区
-                if (isDiag(grid[r]![c]!)) return true;
+                if (isDiag(grid[r][c])) return true;
                 const place = () => {
                         if (textOffset != null) placeCaretAtTextOffset(td, textOffset);
                         else placeCaret(td, caretAtEnd);
@@ -584,7 +584,7 @@ export function renderBlock(
                 const maxR = grid.length;
                 const maxC = grid[0]?.length ?? 0;
                 while (r >= 0 && r < maxR && c >= 0 && c < maxC) {
-                        if (visible(grid[r]![c]!) && cellMap[r]?.[c]) {
+                        if (visible(grid[r][c]) && cellMap[r]?.[c]) {
                                 // 对称落点语义：←/↑ 落目标格末尾，→/↓ 落目标格开头
                                 return focusCell(r, c, dc < 0 || dr < 0);
                         }
@@ -698,8 +698,8 @@ export function renderBlock(
 
                 table.querySelectorAll<HTMLElement>('td.vt-zebra-tint').forEach((td) => {
                         td.classList.remove('vt-zebra-tint');
-                        td.setCssProps({ background: '' });
-                        td.setCssProps({ color: '' });
+                        td.style.background = ``;
+                        td.style.color = ``;
                 });
                 if (editing) return;
 
@@ -715,8 +715,8 @@ export function renderBlock(
                                 tr.querySelectorAll<HTMLElement>('td').forEach((td) => {
                                         if (td.style.background) return; // 单格底色/表头色优先
                                         td.classList.add('vt-zebra-tint');
-                                        td.setCssProps({ background: tint.bg });
-                                        if (tint.fg) td.setCssProps({ color: tint.fg });
+                                        td.style.background = tint.bg;
+                                        if (tint.fg) td.style.color = tint.fg;
                                 });
                         });
                 }
@@ -729,7 +729,6 @@ export function renderBlock(
         const selOverlay = new SelOverlay(wrap, table);
         let selRects: SelRect[] = [];
         let selGesture: { originR: number; originC: number; liveR: number; liveC: number } | null = null;
-        let mouseDown = false;
         let lastTap: { t: number; x: number; y: number; r: number; c: number } | null = null;
         let gestureMove: ((e: PointerEvent) => void) | null = null;
         let gestureUp: (() => void) | null = null;
@@ -785,9 +784,9 @@ export function renderBlock(
         const syncFillHandle = () => {
                 if (!fillHandle) return;
                 let a: { r: number; c: number } | null = null;
-                if (selRects.length === 1 && selRects[0]!.r1 === selRects[0]!.r2
-                        && selRects[0]!.c1 === selRects[0]!.c2) {
-                        a = { r: selRects[0]!.r1, c: selRects[0]!.c1 };
+                if (selRects.length === 1 && selRects[0].r1 === selRects[0].r2
+                        && selRects[0].c1 === selRects[0].c2) {
+                        a = { r: selRects[0].r1, c: selRects[0].c1 };
                 } else if (!selRects.length) {
                         const active = document.activeElement as HTMLElement | null;
                         if (active?.matches('td') && table.contains(active)) {
@@ -893,12 +892,12 @@ export function renderBlock(
                         if (needC > 0) insertColsRight(grid, colCount(grid) - 1, needC);
                 }
                 for (let dr = 0; dr < rows.length; dr++) {
-                        for (let dc = 0; dc < rows[dr]!.length; dc++) {
+                        for (let dc = 0; dc < rows[dr].length; dc++) {
                                 const rr = r0 + dr, cc = c0 + dc;
                                 if (rr >= grid.length || cc >= colCount(grid)) continue; // 越界吞掉
-                                const cd = grid[rr]![cc]!;
+                                const cd = grid[rr][cc];
                                 if (!visible(cd)) continue;
-                                cd.t = rows[dr]![dc]!;
+                                cd.t = rows[dr][dc]!;
                         }
                 }
                 onCommit(serialize(data));
@@ -948,7 +947,7 @@ export function renderBlock(
                         && (e.key === 'c' || e.key === 'C' || e.keyCode === 67)) {
                         e.preventDefault();
                         e.stopPropagation();
-                        navigator.clipboard?.writeText(buildSelMarkdown(selRects));
+                        void navigator.clipboard?.writeText(buildSelMarkdown(selRects));
                         return;
                 }
                 if (!isSelDeleteKey(e)) return;
@@ -986,7 +985,7 @@ export function renderBlock(
         const tdFromPoint = (x: number, y: number): HTMLElement | null => {
                 const hit = document.elementFromPoint(x, y);
                 const td = hit?.closest?.('td');
-                return td && table.contains(td) ? (td as HTMLElement) : null;
+                return td && table.contains(td) ? (td) : null;
         };
 
         const detachGesture = () => {
@@ -1037,7 +1036,7 @@ export function renderBlock(
         wrap.addEventListener('pointerup', (e) => {
                 if (e.button !== 0) return;
                 if (selGesture) return; // 手势收尾的 up 由 window 监听处理
-                const target = (e.target != null && e.target.instanceOf(Element)) ? e.target : null;
+                const target = (e.target instanceof Element) ? e.target : null;
                 const td = target?.closest('td');
                 if (!td || !table.contains(td)) return;
                 const { r, c } = tdCoords(td);
@@ -1077,7 +1076,7 @@ export function renderBlock(
         const forEachSelectedAnchor = (rects: SelRect[], fn: (r: number, c: number) => void) => {
                 for (let r = 0; r < grid.length; r++) {
                         for (let c = 0; c < (grid[0]?.length ?? 0); c++) {
-                                if (!visible(grid[r]![c]!)) continue;
+                                if (!visible(grid[r][c])) continue;
                                 if (!rects.some(rc => rectContains(rc, r, c))) continue;
                                 fn(r, c);
                         }
@@ -1135,7 +1134,7 @@ export function renderBlock(
                 insRowBelow: () => commitSel(rects => {
                         const runs = runsFromRects(rects, 'rows');
                         for (let i = runs.length - 1; i >= 0; i--) {
-                                const run = runs[i]!;
+                                const run = runs[i];
                                 insertRowsBelow(grid, run.end, run.end - run.start + 1);
                         }
                 }, false, rects => shiftRestore(
@@ -1170,7 +1169,7 @@ export function renderBlock(
                 insColRight: () => commitSel(rects => {
                         const runs = runsFromRects(rects, 'cols');
                         for (let i = runs.length - 1; i >= 0; i--) {
-                                const run = runs[i]!;
+                                const run = runs[i];
                                 insertColsRight(grid, run.end, run.end - run.start + 1);
                         }
                 }, false, rects => shiftRestore(
@@ -1210,7 +1209,7 @@ export function renderBlock(
                 split: () => {
                         const targets: Array<[number, number]> = [];
                         forEachSelectedAnchor(selRects, (r, c) => {
-                                const cd = grid[r]![c]!;
+                                const cd = grid[r][c];
                                 if (cd.rs > 1 || cd.cs > 1) targets.push([r, c]);
                         });
                         if (!targets.length) {
@@ -1225,12 +1224,12 @@ export function renderBlock(
                 },
                 bold: () => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                grid[r]![c]!.t = toggleWrapTag(grid[r]![c]!.t, 'b');
+                                grid[r][c].t = toggleWrapTag(grid[r][c].t, 'b');
                         });
                 }, true, rects => applyFocusRestore(0, 0, rects.some(rc => rectContains(rc, focusedR, focusedC)))),
                 italic: () => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                grid[r]![c]!.t = toggleWrapTag(grid[r]![c]!.t, 'i');
+                                grid[r][c].t = toggleWrapTag(grid[r][c].t, 'i');
                         });
                 }, true, rects => applyFocusRestore(0, 0, rects.some(rc => rectContains(rc, focusedR, focusedC)))),
                 fontStep: (delta: number) => {
@@ -1241,7 +1240,7 @@ export function renderBlock(
                                         const td = cellMap[r]?.[c];
                                         if (!td) continue;
                                         const cur = parseFloat(getComputedStyle(td).fontSize) || 16;
-                                        td.setCssProps({ fontSize: `${Math.max(8, Math.min(72, cur + delta))}px` });
+                                        td.style.fontSize = `${Math.max(8, Math.min(72, cur + delta))}px`;
                                 }
                         }
                         clearSelection();
@@ -1249,7 +1248,7 @@ export function renderBlock(
                 // 任务1：选区对齐（l/c/r；存进 Cell.a，重渲染后由内联样式生效）
                 align: (mode) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                const cd = grid[r]![c]!;
+                                const cd = grid[r][c];
                                 if (mode === 'l') delete cd.a; // 左对齐是默认，字段瘦身
                                 else cd.a = mode;
                         });
@@ -1257,7 +1256,7 @@ export function renderBlock(
                 // 垂直对齐（t/m/b；存进 Cell.va，重渲染后由内联样式生效；顶对齐=默认，字段瘦身）
                 alignV: (mode) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                const cd = grid[r]![c]!;
+                                const cd = grid[r][c];
                                 if (mode === 't') delete cd.va;
                                 else cd.va = mode;
                         });
@@ -1265,7 +1264,7 @@ export function renderBlock(
                 // 任务2：选区底色（null = 清除）
                 setColor: (color) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                const cd = grid[r]![c]!;
+                                const cd = grid[r][c];
                                 if (color) cd.bg = color;
                                 else delete cd.bg;
                         });
@@ -1273,14 +1272,14 @@ export function renderBlock(
                 // 任务3：清空选区内容（不动行列结构，选区保持）
                 clearContent: () => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                grid[r]![c]!.t = '';
+                                grid[r][c].t = '';
                         });
                 }, true),
                 // 任务2：取色弹窗（main.ts 提供弹窗实现）；无选区时对聚焦格取色（任务10）
                 pickColor: () => {
                         const rects = effectiveRects();
                         if (!rects) return;
-                        const first = rects[0]!;
+                        const first = rects[0];
                         const cd = grid[first.r1]?.[first.c1];
                         onPickColor(cd?.bg ?? '', (color) => selOps.setColor(color));
                 },
@@ -1319,7 +1318,7 @@ export function renderBlock(
                                 for (const rc of selRects) {
                                         for (let r = rc.r1; r <= rc.r2; r++) {
                                                 for (let c = rc.c1; c <= rc.c2; c++) {
-                                                        if (visible(grid[r]![c]!)) targets.push({ r, c });
+                                                        if (visible(grid[r][c])) targets.push({ r, c });
                                                 }
                                         }
                                 }
@@ -1327,12 +1326,12 @@ export function renderBlock(
                                 targets.push({ r: focusedR, c: focusedC });
                         }
                         if (!targets.length) return false;
-                        const first = grid[targets[0]!.r]![targets[0]!.c]!;
+                        const first = grid[targets[0].r][targets[0].c];
                         const turnOn = first.dg === undefined;
                         flushActiveCell();
                         let hit = false;
                         for (const { r, c } of targets) {
-                                const cd = grid[r]![c]!;
+                                const cd = grid[r][c];
                                 if (turnOn) {
                                         if (isDiag(cd)) continue;
                                         cd.dg = ''; // 光标随后进区1（右上）输入
@@ -1348,7 +1347,7 @@ export function renderBlock(
                                 }
                         }
                         if (!hit) return false;
-                        const f = targets[0]!;
+                        const f = targets[0];
                         pendingFocusRestore = { r: f.r, c: f.c, caretAtEnd: true };
                         commit();
                         return true;
@@ -1420,15 +1419,15 @@ export function renderBlock(
                 // HS/RC 托条显示时下移让开（托条高+间隙），平时精确 5px；
                 // 视口下方空间不足（软键盘顶起等）时吸视口底，保证可点
                 const hsH = hsBar.offsetHeight > 0 ? hsBar.offsetHeight + 6 : 0;
-                addRowBar.setCssProps({ left: `${Math.round(wr.left)}px` });
-                addRowBar.setCssProps({ top: `${Math.round(Math.min(wr.bottom + 5 + hsH, vh - 18))}px` });
-                addRowBar.setCssProps({ width: `${Math.round(wr.width)}px` });
+                addRowBar.style.left = `${Math.round(wr.left)}px`;
+                addRowBar.style.top = `${Math.round(Math.min(wr.bottom + 5 + hsH, vh - 18))}px`;
+                addRowBar.style.width = `${Math.round(wr.width)}px`;
                 // 右条：贴 min(内容右缘, wrap 可视右缘)——普通窄表/滚到最右时贴内容右缘；
                 // 末列超宽且未滚到时钉在 wrap 可视右缘（贴着可见边缘"等待"），不随不可见内容浮空
                 const wrapRightVis = wr.left + wrap.clientWidth;
-                addColBar.setCssProps({ top: `${Math.round(wr.top)}px` });
-                addColBar.setCssProps({ left: `${Math.round(Math.min(tr.right + 2, wrapRightVis + 2))}px` });
-                addColBar.setCssProps({ height: `${Math.round(wr.height)}px` });
+                addColBar.style.top = `${Math.round(wr.top)}px`;
+                addColBar.style.left = `${Math.round(Math.min(tr.right + 2, wrapRightVis + 2))}px`;
+                addColBar.style.height = `${Math.round(wr.height)}px`;
         };
 
         // rAF 轮询：位置每帧同步（条隐藏时仅轻检查，无 rect 读取）；宿主销毁/被新渲染替换时自清理
@@ -1502,7 +1501,7 @@ export function renderBlock(
                 // iOS 会把插入符绘制成异常的缩小版（贴在 checkbox 附近）
                 const active = document.activeElement;
                 if ((active != null && active.instanceOf(HTMLElement)) && table.contains(active)) active.blur();
-                const cd = grid[r]![c]!;
+                const cd = grid[r][c];
                 const next = toggleTodoMark(cd.t, idx, checked);
                 if (next === cd.t) return;
                 cd.t = next;
@@ -1524,8 +1523,8 @@ export function renderBlock(
                 // first 与 last），主题的 td:first-child/:last-child 清边框规则会误杀它的内部边框
                 const visCols: number[] = [];
                 row.forEach((cd, i) => { if (visible(cd)) visCols.push(i); });
-                const domFirstCol = visCols.length ? visCols[0]! : 0;
-                const domLastCol = visCols.length ? visCols[visCols.length - 1]! : 0;
+                const domFirstCol = visCols.length ? visCols[0] : 0;
+                const domLastCol = visCols.length ? visCols[visCols.length - 1] : 0;
                 row.forEach((cellData, c) => {
                         if (!visible(cellData)) return;
 
@@ -1533,7 +1532,7 @@ export function renderBlock(
                         td.contentEditable = 'true';
                         td.dataset.vtR = String(r);
                         td.dataset.vtC = String(c);
-                        cellMap[r]![c] = td;
+                        cellMap[r][c] = td;
                         if (cellData.rs > 1) {
                                 td.rowSpan = cellData.rs;
                                 // 贴底合并格：DOM 在起始行，CSS 的 tr:last-child 让位规则判不到它，
@@ -1551,56 +1550,20 @@ export function renderBlock(
                         if (c === domFirstCol && c > 0) td.addClass('vt-prot-left');
                         if (c === domLastCol && c + cellData.cs < colCount(grid)) td.addClass('vt-prot-right');
                         // 单元格级对齐/底色（任务1/2）
-                        if (cellData.a) td.setCssProps({ textAlign: cellData.a === 'c' ? 'center' : cellData.a === 'r' ? 'right' : 'left' });
+                        if (cellData.a) td.style.textAlign = cellData.a === 'c' ? 'center' : cellData.a === 'r' ? 'right' : 'left';
                         // 垂直对齐（t=顶/m=中/b=底；缺省=顶=CSS 默认不写）。斜分格两区贴角，不适用
                         if (cellData.va && !isDiag(cellData)) {
-                                td.setCssProps({ verticalAlign: cellData.va === 'm' ? 'middle' : cellData.va === 'b' ? 'bottom' : 'top' });
+                                td.style.verticalAlign = cellData.va === 'm' ? 'middle' : cellData.va === 'b' ? 'bottom' : 'top';
                         }
                         if (cellData.bg) {
-                                td.setCssProps({ background: cellData.bg });
-                                td.setCssProps({ color: contrastTextColor(cellData.bg) });
+                                td.style.background = cellData.bg;
+                                td.style.color = contrastTextColor(cellData.bg);
                         }
 
                         if (isDiag(cellData)) {
                                 // 斜分格：独立显示结构（对角线+两区+占位），不进 wysiwyg 段系统；
                                 // 编辑事件委托绑一次（populate 重建子 DOM 不丢）
                                 buildDiagDom(td, cellData.dg!, cellData.t);
-
-                                // 区编辑收尾：dataset 暂存写回 grid → 重建显示态 → commit 判定
-                                //（与普通格 blur 同语义；zone focusout 出格时延迟一拍调用，
-                                //  用焦点实际落点判定，规避 iPad relatedTarget=null 误判）
-                                const finishDiagEdit = () => {
-                                        const cell2 = grid[r]?.[c];
-                                        if (!cell2 || !isDiag(cell2)) return;
-                                        const aTxt = td.dataset.vtDiagA ?? cell2.dg!;
-                                        const bTxt = td.dataset.vtDiagB ?? cell2.t;
-                                        delete td.dataset.vtDiagA;
-                                        delete td.dataset.vtDiagB;
-                                        delete td.dataset.vtDiagZone;
-                                        const contentChanged = aTxt !== cell2.dg || bTxt !== cell2.t;
-                                        if (contentChanged) {
-                                                cell2.dg = aTxt;
-                                                cell2.t = bTxt;
-                                                pendingDirty = true;
-                                        }
-                                        if (!table.isConnected) {
-                                                if (contentChanged) { commit(); pendingDirty = false; }
-                                                return;
-                                        }
-                                        autoExpandRowHeight(td, data, r, contentChanged);
-                                        exitDiagEdit(td, cell2.dg!, cell2.t);
-                                        td.dataset.vtView = 'view';
-                                        if (table.contains(document.activeElement)) return; // 切格：焦点仍在表内
-                                        if (Date.now() - lastTablePointerDown < 400) return; // iPad bug3 同款保护
-                                        commit();
-                                        const uiClick = document.body.dataset.vtBarClick === '1'
-                                                || document.body.dataset.vtModeClick === '1';
-                                        if (!uiClick) {
-                                                toolbar.hide();
-                                                hideEditingUi();
-                                        }
-                                        updateEdgeBars();
-                                };
 
                                 bindDiagTd(td, {
                                         move: (dr, dc) => moveFocus(dr, dc),
@@ -1658,9 +1621,7 @@ export function renderBlock(
                                         td.dataset.vtDiagZone = pointInZoneA(td, e.clientX, e.clientY) ? 'a' : 'b';
                                 }
                                 if (!td.closest('.cm-editor') || e.button !== 0) return;
-                                mouseDown = true;
                                 const resetDown = () => {
-                                        mouseDown = false;
                                         window.removeEventListener('pointerup', resetDown);
                                         window.removeEventListener('pointercancel', resetDown);
                                 };
@@ -1703,7 +1664,7 @@ export function renderBlock(
                                 // 仅在渲染态（populateCell 输出）进入编辑时才换回源 html，并主动把光标放到格尾。
                                 if (td.dataset.vtView !== 'edit') {
                                         td.dataset.vtView = 'edit';
-                                        const src = grid[r]![c]!.t;
+                                        const src = grid[r][c].t;
                                         enterWysiwyg(td, src, wysiwygCtx);
                                         placeCaretAtSourceOffset(td, src.length);
                                 }
@@ -1720,6 +1681,42 @@ export function renderBlock(
                                         },
                                         flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps);
                         });
+
+                                        // 区编辑收尾：dataset 暂存写回 grid → 重建显示态 → commit 判定
+                                        //（与普通格 blur 同语义；zone focusout 出格时延迟一拍调用，
+                                        //  用焦点实际落点判定，规避 iPad relatedTarget=null 误判）
+                                        const finishDiagEdit = () => {
+                                                const cell2 = grid[r]?.[c];
+                                                if (!cell2 || !isDiag(cell2)) return;
+                                                const aTxt = td.dataset.vtDiagA ?? cell2.dg!;
+                                                const bTxt = td.dataset.vtDiagB ?? cell2.t;
+                                                delete td.dataset.vtDiagA;
+                                                delete td.dataset.vtDiagB;
+                                                delete td.dataset.vtDiagZone;
+                                                const contentChanged = aTxt !== cell2.dg || bTxt !== cell2.t;
+                                                if (contentChanged) {
+                                                        cell2.dg = aTxt;
+                                                        cell2.t = bTxt;
+                                                        pendingDirty = true;
+                                                }
+                                                if (!table.isConnected) {
+                                                        if (contentChanged) { commit(); pendingDirty = false; }
+                                                        return;
+                                                }
+                                                autoExpandRowHeight(td, data, r, contentChanged);
+                                                exitDiagEdit(td, cell2.dg!, cell2.t);
+                                                td.dataset.vtView = 'view';
+                                                if (table.contains(document.activeElement)) return; // 切格：焦点仍在表内
+                                                if (Date.now() - lastTablePointerDown < 400) return; // iPad bug3 同款保护
+                                                commit();
+                                                const uiClick = document.body.dataset.vtBarClick === '1'
+                                                        || document.body.dataset.vtModeClick === '1';
+                                                if (!uiClick) {
+                                                        toolbar.hide();
+                                                        hideEditingUi();
+                                                }
+                                                updateEdgeBars();
+                                        };
 
                         td.addEventListener('blur', (e) => {
                                 const cell = grid[r]?.[c];
@@ -1758,9 +1755,9 @@ export function renderBlock(
                                 // iPad bug1：WebKit 派发 blur 时 relatedTarget 常为 null（切格被误判成离表），
                                 // commit → 整表重渲染会把用户正点击的目标 td 销毁，导致切格要点两次。
                                 // 改为延迟一拍，用焦点实际落点判定：仍在表内 = 切格，不 commit 不收 UI。
-                                if ((e as FocusEvent).relatedTarget) {
+                                if ((e).relatedTarget) {
                                         // 支持相关目标的浏览器：沿用同步判定，行为不变
-                                        const related = (e as FocusEvent).relatedTarget as HTMLElement | null;
+                                        const related = (e).relatedTarget as HTMLElement | null;
                                         if (related?.closest('.vt') !== td.closest('.vt')) {
                                                 commit();
                                                 const uiClick = document.body.dataset.vtBarClick === '1'
@@ -1957,16 +1954,16 @@ export function renderBlock(
                 for (let c = 0; c < (grid[0]?.length ?? 0); c++) {
                         const td = rowCells[c];
                         if (!td) continue;
-                        const cd = grid[0]![c]!;
+                        const cd = grid[0][c];
                         if (bg) {
-                                td.setCssProps({ background: bg });
-                                td.setCssProps({ color: contrastTextColor(bg) });
+                                td.style.background = bg;
+                                td.style.color = contrastTextColor(bg);
                         } else if (cd.bg) { // 还原单元格自身底色（避免误清）
-                                td.setCssProps({ background: cd.bg });
-                                td.setCssProps({ color: contrastTextColor(cd.bg) });
+                                td.style.background = cd.bg;
+                                td.style.color = contrastTextColor(cd.bg);
                         } else {
-                                td.setCssProps({ background: '' });
-                                td.setCssProps({ color: '' });
+                                td.style.background = ``;
+                                td.style.color = ``;
                         }
                 }
         };
@@ -1975,10 +1972,10 @@ export function renderBlock(
         const refreshAppearance = () => {
                 const radius = Math.max(0, Math.min(24, Math.round(settings.tableRadius ?? 0)));
                 if (radius > 0) {
-                        wrap.setCssProps({ borderRadius: `${radius}px` });
+                        wrap.style.borderRadius = `${radius}px`;
                         wrap.addClass('vt-radius');
                 } else {
-                        wrap.setCssProps({ borderRadius: '' });
+                        wrap.style.borderRadius = ``;
                         wrap.removeClass('vt-radius');
                 }
                 refreshHeader();
@@ -2145,7 +2142,7 @@ function caretLineTop(td: HTMLElement): number | null {
 
         // 新版 Chromium：collapsed range 自带 caret rect
         const direct = Array.from(sel.getRangeAt(0).getClientRects());
-        if (direct.length > 0) return direct[0]!.top;
+        if (direct.length > 0) return direct[0].top;
 
         // 兜底：向右/向左临时扩展一个字符，借字符行框定位光标所在行
         const probe = document.createRange();
@@ -2157,13 +2154,13 @@ function caretLineTop(td: HTMLElement): number | null {
                 probe.setEnd(node, Math.min(off + 1, len));
                 if (!probe.collapsed) {
                         const rects = Array.from(probe.getClientRects());
-                        if (rects.length > 0) return rects[0]!.top;
+                        if (rects.length > 0) return rects[0].top;
                 }
                 probe.setEnd(node, off);
                 probe.setStart(node, Math.max(0, off - 1));
                 if (!probe.collapsed) {
                         const rects = Array.from(probe.getClientRects());
-                        if (rects.length > 0) return rects[rects.length - 1]!.top;
+                        if (rects.length > 0) return rects[rects.length - 1].top;
                 }
         } catch {
                 /* 边界越界等异常：视为无法判定 */
@@ -2367,7 +2364,7 @@ function renderMathInNode(root: HTMLElement): boolean {
 
         let found = false;
         for (const textNode of targets) {
-                const frag = splitMath(textNode.textContent!);
+                const frag = splitMath(textNode.textContent);
                 if (!frag) continue;
                 textNode.replaceWith(frag);
                 found = true;
@@ -2380,7 +2377,7 @@ function splitMath(text: string): DocumentFragment | null {
         let match: RegExpExecArray | null;
         let last = 0;
         let matched = false;
-        const frag = document.createDocumentFragment();
+        const frag = createFragment();
 
         while ((match = MATH_RE.exec(text))) {
                 if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2411,7 +2408,7 @@ function renderHtml(root: HTMLElement) {
         }
 
         for (const textNode of targets) {
-                const text = textNode.textContent!;
+                const text = textNode.textContent;
                 if (!/<[a-z][a-z0-9]*\b[^>]*>/i.test(text) && !/<\/[a-z]+>/i.test(text)) continue;
                 textNode.replaceWith(...parseTrustedHtml(text).childNodes);
         }
@@ -2429,7 +2426,7 @@ function renderMarkdown(root: HTMLElement) {
         }
 
         for (const textNode of targets) {
-                const html = mdInlineToHtml(textNode.textContent!);
+                const html = mdInlineToHtml(textNode.textContent);
                 if (html === textNode.textContent) continue;
                 textNode.replaceWith(...parseTrustedHtml(html).childNodes);
         }
@@ -2447,8 +2444,8 @@ function renderInlineCode(root: HTMLElement) {
         }
 
         for (const textNode of targets) {
-                if (!/`[^`]+`/.test(textNode.textContent!)) continue;
-                const html = mdInlineToHtml(textNode.textContent!);
+                if (!/`[^`]+`/.test(textNode.textContent)) continue;
+                const html = mdInlineToHtml(textNode.textContent);
                 if (html === textNode.textContent) continue;
                 textNode.replaceWith(...parseTrustedHtml(html).childNodes);
         }
@@ -2468,14 +2465,14 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
         }
 
         for (const textNode of targets) {
-                const text = textNode.textContent!;
+                const text = textNode.textContent;
                 const lines = text.split('\n');
                 let hasTodo = false;
-                const frag = document.createDocumentFragment();
+                const frag = createFragment();
 
                 const buildTaskItem = (m: RegExpMatchArray) => {
                         hasTodo = true;
-                        const item = createEl('div');
+                        const item = createDiv();
                         item.className = 'vt-task-item';
                         const cb = createEl('input');
                         cb.type = 'checkbox';
@@ -2487,23 +2484,23 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         // 对齐用内联样式：input 的 margin 会被 Obsidian 全局规则吃掉（CSS 对抗不稳）；
                         // box-sizing + 显式尺寸锁定绘制盒（防主题框溢出导致偏上），
                         // border/padding 不动——主题自绘 checkbox 靠它们画框，清掉会让未勾选框消失
-                        cb.setCssProps({ margin: '0.225em 0 0' });
+                        cb.style.margin = `0.225em 0 0`;
                         // font-size 显式继承：<input> 的 UA 默认样式不继承 font-size，1em 会参照浏览器
                         // 默认字号——iPad（新默认大字号）下复选框不随系统字号放大（桌面被 Obsidian
                         // 全局规则归一所以正常）。钉死继承后 1em/0.225em 全部跟随文字字号
-                        cb.setCssProps({ fontSize: 'inherit' });
-                        cb.setCssProps({ width: '1em' });
-                        cb.setCssProps({ height: '1em' });
-                        cb.setCssProps({ boxSizing: 'border-box' });
+                        cb.style.fontSize = `inherit`;
+                        cb.style.width = `1em`;
+                        cb.style.height = `1em`;
+                        cb.style.boxSizing = `border-box`;
                         // iPad 触控：1em 视觉盒太小难点中——外包均匀 5px 热区（负 margin 抵消，视觉位置不变）
-                        const hit = createEl('span');
+                        const hit = createSpan();
                         hit.className = 'vt-cb-hit';
-                        hit.setCssProps({ display: 'inline-flex' });
-                        hit.setCssProps({ padding: '5px' });
-                        hit.setCssProps({ margin: '-5px' });
-                        hit.setCssProps({ marginTop: 'calc(-5px + 0.1em)' });
-                        hit.setCssProps({ cursor: 'pointer' });
-                        hit.setCssProps({ borderRadius: '4px' });
+                        hit.style.display = `inline-flex`;
+                        hit.style.padding = `5px`;
+                        hit.style.margin = `-5px`;
+                        hit.style.marginTop = `calc(-5px + 0.1em)`;
+                        hit.style.cursor = `pointer`;
+                        hit.style.borderRadius = `4px`;
                         hit.addEventListener('mousedown', (e) => e.preventDefault());
                         // 任务6：点框打勾——不聚焦 td（保持渲染态）、不触发选区/清选区手势
                         if (onTodoToggle) {
@@ -2526,7 +2523,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         }
                         hit.appendChild(cb);
                         item.appendChild(hit);
-                        const span = createEl('span');
+                        const span = createSpan();
                         span.textContent = m[2] ?? '';
                         item.appendChild(span);
                         return item;
@@ -2538,7 +2535,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                 type Out = { kind: 'task' | 'text'; s: string; m?: RegExpMatchArray };
                 const outs: Out[] = [];
                 for (let i = 0; i < lines.length; i++) {
-                        const line = lines[i]!;
+                        const line = lines[i];
                         const m = line.match(TODO_LINE_RE);
                         if (m) {
                                 outs.push({ kind: 'task', s: line, m });
@@ -2548,14 +2545,14 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                                 // 空行：下一个非空行是任务行 → 属于任务块分隔空行，丢弃
                                 let nx = -1;
                                 for (let j = i + 1; j < lines.length; j++) {
-                                        if (lines[j]!.trim()) { nx = j; break; }
+                                        if (lines[j].trim()) { nx = j; break; }
                                 }
-                                if (nx >= 0 && TODO_LINE_RE.test(lines[nx]!)) continue;
+                                if (nx >= 0 && TODO_LINE_RE.test(lines[nx])) continue;
                         }
                         outs.push({ kind: 'text', s: line + (i < lines.length - 1 ? '\n' : '') });
                 }
                 for (let i = 0; i < outs.length; i++) {
-                        if (outs[i]!.kind !== 'task') continue;
+                        if (outs[i].kind !== 'task') continue;
                         const prev = outs[i - 1];
                         if (prev && prev.kind === 'text') prev.s = prev.s.replace(/\n+$/, '');
                         const next = outs[i + 1];
@@ -2603,11 +2600,11 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
 
         for (const textNode of targets) {
                 IMG_RE.lastIndex = 0;
-                const text = textNode.textContent!;
+                const text = textNode.textContent;
                 let match: RegExpExecArray | null;
                 let last = 0;
                 let found = false;
-                const frag = document.createDocumentFragment();
+                const frag = createFragment();
 
                 while ((match = IMG_RE.exec(text))) {
                         if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2619,7 +2616,7 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                                 continue;
                         }
 
-                        const linkText = match[1]!.trim();
+                        const linkText = match[1].trim();
                         const sizeText = (match[2] ?? '').trim();
                         // ![[x | 50]]：| 后纯数字 = 恒定像素宽（| 前后空格容忍，等比缩放）；
                         // 非数字保持原有 alt 语义；无 | 保持原状。HTML 语法不在此管线，无需支持
@@ -2631,8 +2628,8 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                                 const img = createEl('img');
                                 img.src = src;
                                 img.alt = altText || linkText;
-                                img.setCssProps({ maxWidth: '100%' });
-                                if (sizeNum !== null) img.setCssProps({ width: `${sizeNum}px` });
+                                img.style.maxWidth = `100%`;
+                                if (sizeNum !== null) img.style.width = `${sizeNum}px`;
                                 frag.appendChild(img);
                         } else {
                                 frag.appendChild(document.createTextNode(match[0]));
@@ -2661,10 +2658,10 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                 if (text && text.includes('[[')) targets.push(node as Text);
         }
         for (const textNode of targets) {
-                const text = textNode.textContent!;
+                const text = textNode.textContent;
                 WIKILINK_RE.lastIndex = 0;
                 if (!WIKILINK_RE.test(text)) continue;
-                const frag = document.createDocumentFragment();
+                const frag = createFragment();
                 let last = 0;
                 WIKILINK_RE.lastIndex = 0;
                 let m: RegExpExecArray | null;
@@ -2673,7 +2670,7 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                         if (m.index > 0 && text[m.index - 1] === '!') continue;
                         if (isWikiLinkInsideBackticks(text, m.index)) continue;
                         if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-                        const linkText = m[1]!.trim();
+                        const linkText = m[1].trim();
                         const display = (m[2]?.trim() || linkText);
                         const a = createEl('a');
                         a.className = 'internal-link';
@@ -2763,7 +2760,7 @@ function copyCtxToClipboard(ctx: MenuCtx): void {
 /** 清空内容：选区 → 清空所选；单格 → 清空本格（光标保持） */
 function clearCtxContent(ctx: MenuCtx): void {
         if (ctx.sel && ctx.sel.rects.length) { ctx.sel.clearContent(); return; }
-        ctx.apply(() => { ctx.grid[ctx.r]![ctx.c]!.t = ''; });
+        ctx.apply(() => { ctx.grid[ctx.r][ctx.c].t = ''; });
 }
 
 /** 纯文本 → 单元格 html：转义后换行转 <br>（t 的换行存法=br 标签，与复制端 cellPlainText 对称） */
@@ -2779,13 +2776,13 @@ function pasteCtxFromClipboard(ctx: MenuCtx): void {
                 if (!text) return;
                 const rows = text.replace(/\r/g, '').split('\n').map(l => l.split('\t'));
                 if (ctx.sel && ctx.sel.rects.length) {
-                        const rc = ctx.sel.rects[0]!;
+                        const rc = ctx.sel.rects[0];
                         ctx.apply(() => {
                                 for (let dr = 0; dr < rows.length; dr++) {
-                                        for (let dc = 0; dc < rows[dr]!.length; dc++) {
+                                        for (let dc = 0; dc < rows[dr].length; dc++) {
                                                 const cd = ctx.grid[rc.r1 + dr]?.[rc.c1 + dc];
                                                 if (!cd || !visible(cd)) continue;
-                                                cd.t = plainToCellHtml(rows[dr]![dc]!);
+                                                cd.t = plainToCellHtml(rows[dr][dc]);
                                         }
                                 }
                         });
@@ -2944,7 +2941,7 @@ function parseMenuConfig(src: string): MenuItemSpec[] {
                 const line = raw.trim();
                 if (!line) continue;
                 if (line === '---') {
-                        if (out.length && out[out.length - 1]!.kind !== 'sep') out.push({ kind: 'sep' });
+                        if (out.length && out[out.length - 1].kind !== 'sep') out.push({ kind: 'sep' });
                         continue;
                 }
                 if (line.includes('｜')) {
@@ -2957,7 +2954,7 @@ function parseMenuConfig(src: string): MenuItemSpec[] {
                         ? { kind: 'act', id: line.slice(0, bar).trim(), icon: line.slice(bar + 1).trim() || undefined }
                         : { kind: 'act', id: line });
         }
-        while (out.length && out[out.length - 1]!.kind === 'sep') out.pop();
+        while (out.length && out[out.length - 1].kind === 'sep') out.pop();
         return out;
 }
 

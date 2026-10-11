@@ -11,7 +11,7 @@ type VtRcBindFlags = HTMLElement & {
         __vtCornerScrollBound?: boolean;
         __vtHandleScrollBound?: boolean;
 };
-const cornerBinds = (wrap: HTMLElement): VtRcBindFlags => wrap as VtRcBindFlags;
+const cornerBinds = (wrap: HTMLElement): VtRcBindFlags => wrap;
 
 
 const MODE_HINTS: Record<VtMode, string> = {
@@ -32,7 +32,7 @@ export class ModeSwitcher {
 
         constructor(parent: HTMLElement) {
                 this.el = parent.createDiv({ cls: 'vt-mode-bar' });
-                this.el.setCssProps({ display: 'none' });
+                this.el.style.display = `none`;
                 for (const mode of ['OL', 'HS', 'RC'] as VtMode[]) {
                         // 任务4 v2：彻底弃用 button 元素——主题对 button 的样式污染（焦点圈/边框/背景）
                         // 用 CSS 对抗不可靠，直接换成无默认样式的 div，cursor 由 CSS 提供。
@@ -56,12 +56,12 @@ export class ModeSwitcher {
         }
 
         show(active: VtMode) {
-                this.el.setCssProps({ display: 'flex' });
+                this.el.style.display = `flex`;
                 this.setActive(active);
         }
 
         hide() {
-                this.el.setCssProps({ display: 'none' });
+                this.el.style.display = `none`;
         }
 
         setActive(mode: VtMode) {
@@ -85,8 +85,8 @@ export function applyModeStyles(
         wrap.toggleClass('vt-rc-scroll', isRc);
         // RC 表格可窄于/等于容器：此时无溢出，不显示自定义滚动条（与界面同宽或更小 → 隐藏拖条）
         if (hsBar) {
-                if (isRc) hsBar.setCssProps({ display: wrap.scrollWidth > wrap.clientWidth + 1 ? 'block' : 'none' });
-                else hsBar.setCssProps({ display: isHs ? 'block' : 'none' });
+                if (isRc) hsBar.style.display = wrap.scrollWidth > wrap.clientWidth + 1 ? 'block' : 'none';
+                else hsBar.style.display = isHs ? 'block' : 'none';
         }
 
         if (data.mode !== 'RC') {
@@ -112,20 +112,20 @@ export function applyModeStyles(
         for (let c = 0; c < cols; c++) {
                 const col = colgroup.createEl('col');
                 const w = data.colWidths?.[c];
-                if (w && w > 0) col.setCssProps({ width: `${w}px` });
-                else col.setCssProps({ width: '120px' }); // 默认列宽，避免挤压
+                if (w && w > 0) col.style.width = `${w}px`;
+                else col.style.width = `120px`; // 默认列宽，避免挤压
         }
 
         table.querySelectorAll<HTMLTableRowElement>('tr').forEach((tr, r) => {
                 const h = data.rowHeights?.[r];
-                if (h && h > 0) tr.setCssProps({ height: `${h}px` });
+                if (h && h > 0) tr.style.height = `${h}px`;
                 else tr.style.removeProperty('height');
         });
 
         table.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
                 const rh = data.rowHeights?.[parseInt(td.dataset.vtR ?? '-1', 10)];
                 // rowSpan>1 的格子高度由跨行布局自然决定，锁 minHeight 会被浏览器分摊误撑其它行
-                if (rh && rh > 0 && (td.rowSpan ?? 1) <= 1) td.setCssProps({ minHeight: `${rh}px` });
+                if (rh && rh > 0 && (td.rowSpan ?? 1) <= 1) td.style.minHeight = `${rh}px`;
                 else td.style.removeProperty('min-height');
         });
 }
@@ -139,20 +139,20 @@ export function setupHsScrollBar(wrap: HTMLElement, barEl: HTMLElement) {
         const syncThumb = () => {
                 // 仅在 HS 或 RC 模式下显示自定义滚动条
                 if (!wrap.hasClass('vt-hs-scroll') && !wrap.hasClass('vt-rc-scroll')) {
-                        barEl.setCssProps({ display: 'none' });
+                        barEl.style.display = `none`;
                         return;
                 }
                 const maxScroll = wrap.scrollWidth - wrap.clientWidth;
                 if (maxScroll <= 0) {
-                        barEl.setCssProps({ display: 'none' });
+                        barEl.style.display = `none`;
                         return;
                 }
-                barEl.setCssProps({ display: 'block' });
+                barEl.style.display = `block`;
                 const ratio = wrap.clientWidth / wrap.scrollWidth;
                 const thumbW = Math.max(24, track.clientWidth * ratio);
-                thumb.setCssProps({ width: `${thumbW}px` });
+                thumb.style.width = `${thumbW}px`;
                 const maxThumbLeft = track.clientWidth - thumbW;
-                thumb.setCssProps({ left: `${maxScroll > 0 ? (wrap.scrollLeft / maxScroll) * maxThumbLeft : 0}px` });
+                thumb.style.left = `${maxScroll > 0 ? (wrap.scrollLeft / maxScroll) * maxThumbLeft : 0}px`;
         };
 
         wrap.addEventListener('scroll', syncThumb);
@@ -171,7 +171,7 @@ export function setupHsScrollBar(wrap: HTMLElement, barEl: HTMLElement) {
                 dragging = true;
                 startX = e.clientX;
                 startLeft = thumb.offsetLeft;
-                (thumb as HTMLElement).setPointerCapture(e.pointerId);
+                (thumb).setPointerCapture(e.pointerId);
         });
 
         thumb.addEventListener('pointermove', (e) => {
@@ -207,10 +207,10 @@ export function bindRcResizeHandles(
         editing: boolean,
         onUpdate: () => void,
 ) {
-        const wrap = table.closest('.vt-table-wrap') as HTMLElement | null;
+        const wrap = table.closest<HTMLElement>('.vt-table-wrap');
         if (!wrap) return;
 
-        let overlay = wrap.querySelector('.vt-rc-overlay') as HTMLElement | null;
+        let overlay = wrap.querySelector<HTMLElement>('.vt-rc-overlay');
         if (data.mode !== 'RC' || !editing) {
                 overlay?.remove();
                 return;
@@ -261,12 +261,12 @@ export function bindRcResizeHandles(
                         const rect = tr.getBoundingClientRect();
                         rowPos.push({ g, top: Math.min(rect.bottom - tableRect0.top - hit / 2, tableH - hit) });
                 });
-                for (const { g, left } of colPos) g.setCssProps({ left: `${left}px` });
+                for (const { g, left } of colPos) g.style.left = `${left}px`;
                 for (const { g, top } of rowPos) {
                         // 行把手横贯表格宽度：只铺可视区段（可视左缘起、铺到可视右缘），滚动跟随
-                        g.setCssProps({ top: `${top}px` });
-                        g.setCssProps({ left: `${visL}px` });
-                        g.setCssProps({ width: `${wrapW}px` });
+                        g.style.top = `${top}px`;
+                        g.style.left = `${visL}px`;
+                        g.style.width = `${wrapW}px`;
                 }
         };
         for (let c = 0; c < cols; c++) {
@@ -281,10 +281,10 @@ export function bindRcResizeHandles(
                 const colHandle = overlay.createDiv({ cls: 'vt-rc-handle vt-rc-handle-col' });
                 colHandle.dataset.vtC = String(c); // placeHandles 重放时按此定位
                 // 初始位置：clamp 在表格盒内 + wrap 可视区内（问题4：超宽列把手贴可视边缘）
-                colHandle.setCssProps({ left: `${Math.max(wrap.scrollLeft, Math.min(rect.right - tableRect.left - hit / 2, table.offsetWidth - hit, wrap.scrollLeft + wrap.clientWidth - hit))}px` });
-                colHandle.setCssProps({ top: '0' });
-                colHandle.setCssProps({ height: `${table.offsetHeight}px` });
-                colHandle.setCssProps({ width: `${hit}px` });
+                colHandle.style.left = `${Math.max(wrap.scrollLeft, Math.min(rect.right - tableRect.left - hit / 2, table.offsetWidth - hit, wrap.scrollLeft + wrap.clientWidth - hit))}px`;
+                colHandle.style.top = `0`;
+                colHandle.style.height = `${table.offsetHeight}px`;
+                colHandle.style.width = `${hit}px`;
 
                 // iPad：touchstart 不拦会触发长按选择/放大镜/滚动接管，吃掉后续 pointer 事件导致拖不动
                 colHandle.addEventListener('touchstart', (te) => te.preventDefault(), { passive: false });
@@ -301,7 +301,7 @@ export function bindRcResizeHandles(
                                 data.colWidths![c] = newW;
                                 const colgroup = table.querySelector('colgroup');
                                 const col = colgroup?.children[c] as HTMLElement | undefined;
-                                if (col) col.setCssProps({ width: `${newW}px` });
+                                if (col) col.style.width = `${newW}px`;
                         };
                         // 监听挂 window 而非手柄：不依赖 pointer capture（WKWebView 上 capture 时有失效），
                         // 手指移到任何元素上 move 都能收到；onUp 必摘监听，无泄漏
@@ -322,13 +322,13 @@ export function bindRcResizeHandles(
         rows.forEach((tr, r) => {
                 const rect = tr.getBoundingClientRect();
                 const tableRect = table.getBoundingClientRect();
-                const rowHandle = overlay!.createDiv({ cls: 'vt-rc-handle vt-rc-handle-row' });
+                const rowHandle = overlay.createDiv({ cls: 'vt-rc-handle vt-rc-handle-row' });
                 // 同上：钳制在表格盒内，最后一条行把手不探出表格底缘
-                rowHandle.setCssProps({ top: `${Math.min(rect.bottom - tableRect.top - hit / 2, table.offsetHeight - hit)}px` });
+                rowHandle.style.top = `${Math.min(rect.bottom - tableRect.top - hit / 2, table.offsetHeight - hit)}px`;
                 // 问题4：left/width 由 placeHandles 统一铺可视区段（超宽表格时只铺 wrap 可视范围，滚动跟随）
-                rowHandle.setCssProps({ left: `${wrap.scrollLeft}px` });
-                rowHandle.setCssProps({ width: `${wrap.clientWidth}px` });
-                rowHandle.setCssProps({ height: `${hit}px` });
+                rowHandle.style.left = `${wrap.scrollLeft}px`;
+                rowHandle.style.width = `${wrap.clientWidth}px`;
+                rowHandle.style.height = `${hit}px`;
                 rowHandle.dataset.vtR = String(r); // placeHandles 重放时按此现算 top
 
                 // 同上：touchstart 拦截 + 拖拽监听挂 window（不依赖 pointer capture）
@@ -350,19 +350,19 @@ export function bindRcResizeHandles(
                                 if ((t.rowSpan ?? 1) > 1) return;
                                 const tR = parseInt(t.dataset.vtR ?? '-1', 10);
                                 if (tR === r) return; // 被拖行由 onMove 设新值
-                                t.setCssProps({ minHeight: `${t.offsetHeight}px` });
+                                t.style.minHeight = `${t.offsetHeight}px`;
                         });
                         try { rowHandle.setPointerCapture(e.pointerId); } catch { /* ignore */ }
 
                         const onMove = (ev: PointerEvent) => {
                                 const newH = Math.max(24, Math.round(startH + (ev.clientY - startY)));
                                 data.rowHeights![r] = newH;
-                                tr.setCssProps({ height: `${newH}px` });
+                                tr.style.height = `${newH}px`;
                                 // rowSpan>1 的格子不锁 minHeight：跨行格的高度需求会被浏览器
                                 // 分摊到它跨越的各行（优先撑未锁定行、自上而下）→ "误调别的行"的根因
                                 tr.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
                                         if ((td.rowSpan ?? 1) > 1) return;
-                                        td.setCssProps({ minHeight: `${newH}px` });
+                                        td.style.minHeight = `${newH}px`;
                                 });
                         };
                         const onUp = (ev: PointerEvent) => {
@@ -386,10 +386,10 @@ export function bindRcResizeHandles(
         const corner = overlay.createDiv({ cls: 'vt-rc-handle vt-rc-corner' });
         // 位置：贴表格右下角；表格宽于 wrap（横向滚动）时钳制在 wrap 可视右缘，保证始终可点
         const placeCorner = () => {
-                corner.setCssProps({ left: `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cornerSize}px` });
-                corner.setCssProps({ top: `${wrap.scrollTop + table.offsetHeight - cornerSize}px` });
-                corner.setCssProps({ width: `${cornerSize}px` });
-                corner.setCssProps({ height: `${cornerSize}px` });
+                corner.style.left = `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cornerSize}px`;
+                corner.style.top = `${wrap.scrollTop + table.offsetHeight - cornerSize}px`;
+                corner.style.width = `${cornerSize}px`;
+                corner.style.height = `${cornerSize}px`;
         };
         placeCorner();
         // 表格尺寸变化（行高自膨胀/单元格文字撑高/增删行列）→ 把手重定位：
@@ -409,8 +409,8 @@ export function bindRcResizeHandles(
                         const c = wrap.querySelector<HTMLElement>('.vt-rc-corner');
                         if (!c) return;
                         const cs = Math.max(hit, 14);
-                        c.setCssProps({ left: `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cs}px` });
-                        c.setCssProps({ top: `${wrap.scrollTop + table.offsetHeight - cs}px` });
+                        c.style.left = `${Math.min(table.offsetWidth, wrap.scrollLeft + wrap.clientWidth) - cs}px`;
+                        c.style.top = `${wrap.scrollTop + table.offsetHeight - cs}px`;
                 }, { passive: true });
         }
         // 问题4：列/行把手滚动跟随（与 corner 同款防重；placeHandles 现查当前把手，重渲染后自动作用）
@@ -452,16 +452,16 @@ export function bindRcResizeHandles(
                                 const w = Math.max(40, Math.round(startWs[c] + dx / cols));
                                 data.colWidths![c] = w;
                                 const col = colgroup?.children[c] as HTMLElement | undefined;
-                                if (col) col.setCssProps({ width: `${w}px` });
+                                if (col) col.style.width = `${w}px`;
                         }
                         rows.forEach((tr, r) => {
                                 const h = Math.max(24, Math.round(startHs[r] + dy / rows.length));
                                 data.rowHeights![r] = h;
-                                tr.setCssProps({ height: `${h}px` });
+                                tr.style.height = `${h}px`;
                                 // 同行高把手：rowSpan>1 的格子不锁 minHeight（跨行分摊会误撑别的行）
                                 tr.querySelectorAll<HTMLTableCellElement>('td').forEach(td => {
                                         if ((td.rowSpan ?? 1) > 1) return;
-                                        td.setCssProps({ minHeight: `${h}px` });
+                                        td.style.minHeight = `${h}px`;
                                 });
                         });
                         placeCorner(); // 把手跟随表格新尺寸
@@ -498,9 +498,9 @@ export function autoExpandRowHeight(
         const cur = data.rowHeights[r] ?? 0;
         if (needed > cur) {
                 data.rowHeights[r] = needed;
-                const tr = td.closest('tr') as HTMLTableRowElement | null;
-                if (tr) tr.setCssProps({ height: `${needed}px` });
+                const tr = td.closest<HTMLTableRowElement>('tr');
+                if (tr) tr.style.height = `${needed}px`;
                 // rowSpan>1 的格子不锁 minHeight（跨行分摊会误撑别的行），撑 tr 即可
-                if ((td.rowSpan ?? 1) <= 1) td.setCssProps({ minHeight: `${needed}px` });
+                if ((td.rowSpan ?? 1) <= 1) td.style.minHeight = `${needed}px`;
         }
 }

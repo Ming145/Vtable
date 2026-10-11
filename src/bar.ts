@@ -6,8 +6,7 @@
  */
 
 import {
-        VtData, serialize, gridToMdTable,
-        mergeRight, mergeDown, splitCell,
+        VtData, serialize, mergeRight, mergeDown, splitCell,
         insertRow, insertCol, deleteRow, deleteCol,
         toggleWrapTag,
 } from './builder';
@@ -31,8 +30,8 @@ export class Toolbar {
         private animatedTimer: number | null = null;
 
         constructor() {
-                this.el = document.body.createEl('div', { cls: 'vt-bar' });
-                this.el.setCssProps({ display: 'none' });
+                this.el = document.body.createDiv({ cls: 'vt-bar' });
+                this.el.style.display = `none`;
                 this.buildRows();
         }
 
@@ -46,7 +45,7 @@ export class Toolbar {
 
         private buildRows() {
                 // 第一行：B I A- A+ | 拆 合↓ 合→
-                const row1 = this.el.createEl('div', { cls: 'vt-bar-row' });
+                const row1 = this.el.createDiv({ cls: 'vt-bar-row' });
                 const fmtDefs: Array<[string, string, () => void]> = [
                         ['B',  t('加粗', 'Bold'),          () => this.fmt('bold')],
                         ['I',  t('斜体', 'Italic'),        () => this.fmt('italic')],
@@ -63,7 +62,7 @@ export class Toolbar {
                                 window.setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
                         });
                 }
-                row1.createEl('span', { cls: 'vt-bar-sep' });
+                row1.createSpan({ cls: 'vt-bar-sep' });
 
                 // 拆分按钮
                 const splitBtn = row1.createEl('button', { cls: 'vt-bar-btn', text: t('拆', 'SP') });
@@ -88,7 +87,7 @@ export class Toolbar {
                 }
 
                 // 第二行：＋行 ＋列 －行 －列 MD H5
-                const row2 = this.el.createEl('div', { cls: 'vt-bar-row' });
+                const row2 = this.el.createDiv({ cls: 'vt-bar-row' });
                 const opDefs: Array<[string, SelOpKind, string, (g: VtData['rows'], r: number, c: number) => void]> = [
                         [t('＋行', '+R'), 'insRowBelow', t('下方插入行', 'Insert row below'), (g, r) => insertRow(g, r)],
                         [t('＋列', '+C'), 'insColRight', t('右侧插入列', 'Insert column right'), (g, _r, c) => insertCol(g, c)],
@@ -103,7 +102,7 @@ export class Toolbar {
                                 this.structOp(kind, fn);
                         });
                 }
-                row2.createEl('span', { cls: 'vt-bar-sep' });
+                row2.createSpan({ cls: 'vt-bar-sep' });
 
                 const mdBtn = row2.createEl('button', { cls: 'vt-bar-btn', text: 'MD' });
                 mdBtn.title = t('转换为 markdown 表格', 'Convert to Markdown table');
@@ -219,11 +218,11 @@ export class Toolbar {
 
                 if (animate) {
                         this.animated = true;
-                        this.el.setCssProps({ transition: '' });
+                        this.el.style.transition = ``;
                         window.requestAnimationFrame(() => {
                                 window.requestAnimationFrame(() => {
-                                        this.el.setCssProps({ transform: 'scale(1) translateY(0)' });
-                                        this.el.setCssProps({ opacity: '1' });
+                                        this.el.style.transform = `scale(1) translateY(0)`;
+                                        this.el.style.opacity = `1`;
                                         this.reposition();
                                 });
                         });
@@ -233,20 +232,20 @@ export class Toolbar {
 
         /** 先隐藏布局再测量尺寸，避免首次显示时 offsetWidth 为 0 导致定位偏移 */
         private prepareVisible(animate: boolean): boolean {
-                this.el.setCssProps({ transition: 'none' });
-                this.el.setCssProps({ visibility: 'hidden' });
-                this.el.setCssProps({ display: 'flex' });
-                this.el.setCssProps({ transform: animate ? 'scale(0.8) translateY(6px)' : 'scale(1) translateY(0)' });
-                this.el.setCssProps({ opacity: animate ? '0.7' : '1' });
+                this.el.style.transition = `none`;
+                this.el.style.visibility = `hidden`;
+                this.el.style.display = `flex`;
+                this.el.style.transform = animate ? 'scale(0.8) translateY(6px)' : 'scale(1) translateY(0)';
+                this.el.style.opacity = animate ? '0.7' : '1';
 
                 void this.el.offsetWidth;
                 if (!this.reposition()) {
-                        this.el.setCssProps({ display: 'none' });
-                        this.el.setCssProps({ visibility: '' });
+                        this.el.style.display = `none`;
+                        this.el.style.visibility = ``;
                         return false;
                 }
 
-                this.el.setCssProps({ visibility: 'visible' });
+                this.el.style.visibility = `visible`;
                 void this.el.offsetWidth;
                 return true;
         }
@@ -259,9 +258,9 @@ export class Toolbar {
         }
 
         hide() {
-                this.el.setCssProps({ transform: '' });
-                this.el.setCssProps({ opacity: '' });
-                this.el.setCssProps({ display: 'none' });
+                this.el.style.transform = ``;
+                this.el.style.opacity = ``;
+                this.el.style.display = `none`;
                 this.cell = null;
                 this.data = null;
                 this.onCommit = null;
@@ -279,7 +278,7 @@ export class Toolbar {
         }
 
         private reposition(): boolean {
-                const scroller = document.querySelector('.workspace-leaf.mod-active .cm-scroller') as HTMLElement | null;
+                const scroller = document.querySelector<HTMLElement>('.workspace-leaf.mod-active .cm-scroller');
                 if (!scroller) return false;
                 const sRect = scroller.getBoundingClientRect();
                 if (sRect.width <= 0 || sRect.height <= 0) return false;
@@ -299,10 +298,10 @@ export class Toolbar {
                         refRect.left + (refRect.width - w) / 2,
                         window.innerWidth - w - 8,
                 ));
-                this.el.setCssProps({ position: 'fixed' });
-                this.el.setCssProps({ left: `${left}px` });
-                this.el.setCssProps({ top: `${sRect.top + sRect.height * 0.8}px` });
-                this.el.setCssProps({ zIndex: '9999' });
+                this.el.style.position = `fixed`;
+                this.el.style.left = `${left}px`;
+                this.el.style.top = `${sRect.top + sRect.height * 0.8}px`;
+                this.el.style.zIndex = `9999`;
                 return true;
         }
 
@@ -325,11 +324,11 @@ export class Toolbar {
                 const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
                 const next = Math.max(8, Math.min(72, cur + delta));
                 if (!sel.isCollapsed) {
-                        const span = createEl('span');
-                        span.setCssProps({ fontSize: `${next}px` });
+                        const span = createSpan();
+                        span.style.fontSize = `${next}px`;
                         try { range.surroundContents(span); } catch { /* 跨节点选区忽略 */ }
                 } else if (this.cell) {
-                        this.cell.setCssProps({ fontSize: `${next}px` });
+                        this.cell.style.fontSize = `${next}px`;
                 }
         }
 
