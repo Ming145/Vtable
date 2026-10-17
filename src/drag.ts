@@ -141,17 +141,20 @@ export function bindRowColDrag(
                 const wr = wrap.getBoundingClientRect();
                 // 触屏：列把手右端避让加号右条（wrap 右缘外），留出触摸空间
                 const rightLimit = _isTouch ? wr.right - EDGE_GAP_TOUCH : wr.right;
-                // 视口垂直边界：iPad 软键盘顶起时可视区被压缩，把手底部若超出会被键盘/视口
-                // 挡住难点到（"最后一行边缘拖不到"）——同 edge-bar"吸视口底"的处理，
-                // 把手可见段钳进 [0, vh]，只在真正可触碰的区域内显示
+                // 文档区视口范围 = 编辑器滚动容器（.cm-scroller）的视口 rect：把手钳进文档输入区，
+                // 滚到最顶/最底时不会贴到 app 顶栏/底栏上（此前钳视口 [0, vh]，把手"飞出文档边界"）；
+                // iPad 软键盘顶起压缩可视区时 scroller 底缘即可视底，语义同前
+                const scroller = wrap.closest<HTMLElement>('.cm-scroller');
+                const docTop = scroller ? scroller.getBoundingClientRect().top : 0;
+                const docBottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
                 const vh = window.innerHeight;
                 rows.forEach((tr, r) => {
                         const g = rowGrips[r];
                         if (!g.classList.contains('vt-drag-on')) return;
                         const b = tr.getBoundingClientRect();
-                        // 垂直可见段：行滚出视口上/下缘或键盘压缩可视区时竖条缩到可见部分，完全滚出则隐藏
-                        const visT = Math.max(b.top, wr.top, 0);
-                        const visB = Math.min(b.bottom, wr.bottom, vh - 2);
+                        // 垂直可见段：行滚出文档区上/下缘时竖条缩到可见部分，完全滚出则隐藏
+                        const visT = Math.max(b.top, wr.top, docTop);
+                        const visB = Math.min(b.bottom, wr.bottom, docBottom);
                         const visH = visB - visT;
                         if (visH <= 0) { g.style.display = `none`; return; }
                         g.style.display = ``;
@@ -173,7 +176,7 @@ export function bindRowColDrag(
                         if (visW <= 0) { g.style.display = `none`; return; }
                         g.style.display = ``;
                         g.style.left = `${visL}px`;
-                        g.style.top = `${Math.max(GAP, Math.min(tb.top - GRIP_COL - GAP, vh - GRIP_COL - 2))}px`;
+                        g.style.top = `${Math.max(docTop + GAP, Math.min(tb.top - GRIP_COL - GAP, docBottom - GRIP_COL - 2))}px`;
                         g.style.width = `${visW}px`;
                         g.style.height = `${GRIP_COL}px`;
                 });

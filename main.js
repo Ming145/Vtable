@@ -1224,14 +1224,17 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     const tb = tableRect();
     const wr = wrap.getBoundingClientRect();
     const rightLimit = _isTouch ? wr.right - EDGE_GAP_TOUCH : wr.right;
+    const scroller = wrap.closest(".cm-scroller");
+    const docTop = scroller ? scroller.getBoundingClientRect().top : 0;
+    const docBottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
     const vh = window.innerHeight;
     rows.forEach((tr, r) => {
       const g = rowGrips[r];
       if (!g.classList.contains("vt-drag-on"))
         return;
       const b = tr.getBoundingClientRect();
-      const visT = Math.max(b.top, wr.top, 0);
-      const visB = Math.min(b.bottom, wr.bottom, vh - 2);
+      const visT = Math.max(b.top, wr.top, docTop);
+      const visB = Math.min(b.bottom, wr.bottom, docBottom);
       const visH = visB - visT;
       if (visH <= 0) {
         g.style.display = `none`;
@@ -1256,7 +1259,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
       }
       g.style.display = ``;
       g.style.left = `${visL}px`;
-      g.style.top = `${Math.max(GAP, Math.min(tb.top - GRIP_COL - GAP, vh - GRIP_COL - 2))}px`;
+      g.style.top = `${Math.max(docTop + GAP, Math.min(tb.top - GRIP_COL - GAP, docBottom - GRIP_COL - 2))}px`;
       g.style.width = `${visW}px`;
       g.style.height = `${GRIP_COL}px`;
     });
@@ -2777,7 +2780,8 @@ function renderSegContent(el, seg, ctx) {
     case "void-img":
       el.replaceChildren(...parseTrustedHtml(seg.raw).childNodes);
       ctx.renderPasses(el, ctx);
-      attachImgResize(el);
+      if (ctx.imgResizeEnabled !== false)
+        attachImgResize(el);
       break;
     case "fence": {
       const body = seg.raw.replace(/^```[^\n]*\n?/, "").replace(/```\s*$/, "");
@@ -3306,6 +3310,7 @@ function attachWysiwyg(td, ctx) {
     if (e.key === "Backspace" || e.key === "Delete") {
       const off = caretSourceOffset(td) ?? st.lastCaret;
       st.delHasText = segHasText(projectSource(td), off);
+      st.delHadBlankOnly = segIsBlankOnly(projectSource(td), off);
     }
   });
   td.addEventListener("beforeinput", (e) => {
@@ -3469,9 +3474,10 @@ function attachWysiwyg(td, ctx) {
           return;
         }
       }
-      if (st.delHasText || ie.inputType === "deleteByCut" || ie.inputType === "deleteByDrag") {
+      if (st.delHasText || st.delHadBlankOnly || ie.inputType === "deleteByCut" || ie.inputType === "deleteByDrag") {
         pendingCollapse = "del";
         st.delHasText = false;
+        st.delHadBlankOnly = false;
       }
       if (ie.inputType === "deleteContentBackward") {
         const selBk = window.getSelection();
@@ -3504,6 +3510,18 @@ function attachWysiwyg(td, ctx) {
               programEdit(td, st, at, at, "<br>");
               return;
             }
+          }
+        }
+      }
+      {
+        const lastN = td.lastChild;
+        if (lastN != null && lastN.instanceOf(HTMLElement) && lastN.classList.contains(SEG_CLS) && lastN.dataset.view === "src" && lastN.dataset.src === "") {
+          const prevN = lastN.previousSibling;
+          if (prevN != null && prevN.instanceOf(HTMLElement) && prevN.classList.contains(SEG_CLS) && prevN.dataset.view === "render") {
+            const eAt = parseInt(prevN.dataset.e ?? "0", 10);
+            e.preventDefault();
+            programEdit(td, st, eAt, eAt, "<br>");
+            return;
           }
         }
       }
@@ -3678,6 +3696,21 @@ function segHasText(t2, off) {
   }
   return /[^\s\u00A0]/i.test(parts[parts.length - 1]);
 }
+function segIsBlankOnly(t2, off) {
+  const parts = t2.split(/<br>/i);
+  let acc = 0;
+  const check = (line) => {
+    const withoutNbsp = line.replace(/\u00A0/g, "");
+    return withoutNbsp.length > 0 && !/[^\s]/.test(withoutNbsp);
+  };
+  for (let i = 0; i < parts.length; i++) {
+    const segEnd = acc + parts[i].length;
+    if (off <= segEnd)
+      return check(parts[i]);
+    acc = segEnd + 4;
+  }
+  return check(parts[parts.length - 1]);
+}
 function collapseDelLight(t2, caretOff) {
   if (segHasText(t2, caretOff))
     return t2;
@@ -3761,7 +3794,7 @@ function rebuild(td, st, caretOff) {
     }
     enterWysiwyg(td, src, st.ctx);
     placeSuppressed(td, st, Math.max(0, Math.min(caretOff, src.length)));
-    settleCaretAfterEdit(td, st, st.queuedCaret);
+    settleCaretAfterEdit(td, st, caretOff);
   } finally {
     st.editing = false;
   }
@@ -3992,12 +4025,12 @@ function setupHsScrollBar(wrap, barEl) {
     wrap.scrollLeft = ratio * maxScroll;
   });
 }
-function bindRcResizeHandles(table, data, editing, onUpdate) {
+function bindRcResizeHandles(table, data, editing, onUpdate, enabled = true) {
   const wrap = table.closest(".vt-table-wrap");
   if (!wrap)
     return;
   let overlay = wrap.querySelector(".vt-rc-overlay");
-  if (data.mode !== "RC" || !editing) {
+  if (data.mode !== "RC" || !editing || !enabled) {
     overlay?.remove();
     return;
   }
@@ -4421,11 +4454,11 @@ function noteScrollAnchor(el) {
   };
 }
 function requestInitialFocus(r, c, expectSource) {
-  pendingFocusRestore = { r, c, caretAtEnd: false, expires: Date.now() + 2500, expectSource };
+  pendingFocusRestore = { r, c, caretAtEnd: false, expires: Date.now() + 2500, expectSource, createdAt: Date.now() };
   startFocusPoll();
 }
-var latestRenderSource = "";
-var latestFocusRunner = null;
+var focusRunnerLog = [];
+var FOCUS_RUNNER_LOG_MAX = 12;
 var focusPollTimer = null;
 function startFocusPoll() {
   if (focusPollTimer !== null)
@@ -4439,9 +4472,20 @@ function startFocusPoll() {
       }
       return;
     }
-    if (req.expectSource === void 0 || latestRenderSource !== req.expectSource || !latestFocusRunner)
+    if (req.expectSource === void 0)
       return;
-    if (latestFocusRunner(req.r, req.c, req.caretAtEnd, req.textOffset ?? null)) {
+    let cand = null;
+    for (const ent of focusRunnerLog) {
+      if (ent.source !== req.expectSource)
+        continue;
+      if (req.createdAt !== void 0 && ent.buildAt < req.createdAt)
+        continue;
+      if (!cand || ent.buildAt < cand.buildAt)
+        cand = ent;
+    }
+    if (!cand)
+      return;
+    if (cand.runner(req.r, req.c, req.caretAtEnd, req.textOffset ?? null)) {
       pendingFocusRestore = null;
       if (focusPollTimer !== null) {
         window.clearInterval(focusPollTimer);
@@ -4492,7 +4536,8 @@ function preserveVisualSnapshot(el) {
   ghostMap.set(el, ghost);
   window.setTimeout(() => clearVisualSnapshot(el), 600);
 }
-function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, onCommit, onConvertToMd, onConvertToHtml, onExitTable, onPickColor, onOpenLink, obsidianCommand) {
+function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, onCommit, onConvertToMd, onConvertToHtml, onExitTable, onPickColor, onOpenLink, obsidianCommand, onConvertToChart) {
+  const renderStart = Date.now();
   preserveVisualSnapshot(el);
   el.empty();
   el.classList.add("vtable-container");
@@ -4503,6 +4548,56 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const grid = data.rows;
   const modeBar = new ModeSwitcher(el);
   const wrap = el.createDiv({ cls: "vt-table-wrap" });
+  const hasChartHeader = (grid[0] ?? []).some(
+    (c) => (c?.t ?? "").trim() === "vbarchart" || (c?.t ?? "").trim() === "vline" || (c?.t ?? "").trim() === "vpie"
+  );
+  if (hasChartHeader) {
+    const chartUid = `u${Math.random().toString(36).slice(2, 10)}`;
+    el.dataset.vtChartUid = chartUid;
+    const chartBtn = document.body.createDiv({ cls: "vt-chart-btn" });
+    chartBtn.dataset.vtUid = chartUid;
+    chartBtn.setAttribute("aria-label", t("\u8F6C\u6362\u4E3A\u56FE\u8868", "Convert to chart"));
+    (0, import_obsidian3.setIcon)(chartBtn, "bar-chart-3");
+    chartBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      onConvertToChart(el);
+    });
+    const placeChartBtn = () => {
+      const wr = wrap.getBoundingClientRect();
+      const offscreen = wr.bottom < -4 || wr.top > window.innerHeight + 4 || wr.right < -4 || wr.left > window.innerWidth + 4;
+      chartBtn.classList.toggle("vt-chart-hidden", offscreen);
+      if (offscreen)
+        return;
+      const scroller = el.closest(".cm-scroller");
+      const docTop = scroller ? scroller.getBoundingClientRect().top : 0;
+      const docBottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
+      chartBtn.style.left = `${Math.round(Math.min(wr.right + 6, window.innerWidth - 32))}px`;
+      chartBtn.style.top = `${Math.round(Math.min(Math.max(wr.bottom - 26, docTop), docBottom - 28))}px`;
+    };
+    let disconnectedFrames = 0;
+    const chartTick = () => {
+      if (chartBtn.dataset.vtUid !== (el.dataset.vtChartUid ?? "")) {
+        chartBtn.remove();
+        return;
+      }
+      window.requestAnimationFrame(chartTick);
+      if (!el.isConnected) {
+        chartBtn.classList.add("vt-chart-hidden");
+        disconnectedFrames++;
+        if (disconnectedFrames > 600) {
+          chartBtn.remove();
+          return;
+        }
+        return;
+      }
+      disconnectedFrames = 0;
+      if (!chartBtn.isConnected)
+        document.body.appendChild(chartBtn);
+      placeChartBtn();
+    };
+    window.requestAnimationFrame(chartTick);
+  }
   const table = wrap.createEl("table", { cls: "vt" });
   const tbody = table.createEl("tbody");
   const hsBar = el.createDiv({ cls: "vt-hs-bar" });
@@ -4617,7 +4712,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       pendingFocusRestore = { r: focusedR, c: focusedC, caretAtEnd: false };
       flushActiveCell();
       onCommit(serialize(data));
-    });
+    }, settings.enableRcScale);
     bindRowColDrag(table, data, wrap, editing, {
       getFocused: () => ({ r: focusedR, c: focusedC }),
       selectCells: (rects, additive) => {
@@ -4830,7 +4925,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     selGesture = null;
     renderSel();
   };
-  let fillHandle = import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet ? null : new FillHandle({
+  let fillHandle = !settings.enableFillHandle || import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet ? null : new FillHandle({
     cellTd: (r, c) => cellMap[r]?.[c] ?? null,
     cellValue: (r, c) => grid[r]?.[c]?.t ?? "",
     cellVisible: (r, c) => visible(grid[r]?.[c] ?? null),
@@ -4850,6 +4945,10 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const syncFillHandle = () => {
     if (!fillHandle)
       return;
+    if (!settings.enableFillHandle) {
+      fillHandle.hide();
+      return;
+    }
     let a = null;
     if (selRects.length === 1 && selRects[0].r1 === selRects[0].r2 && selRects[0].c1 === selRects[0].c2) {
       a = { r: selRects[0].r1, c: selRects[0].c1 };
@@ -4868,6 +4967,9 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     else
       fillHandle.hide();
   };
+  table.addEventListener("focusin", () => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(syncFillHandle));
+  });
   const onOutsidePointer = (e) => {
     if (!el.isConnected) {
       document.removeEventListener("pointerdown", onOutsidePointer, true);
@@ -5650,6 +5752,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       const wysiwygCtx = {
         sourcePath,
         resolveImage,
+        imgResizeEnabled: settings.enableImgResize,
         onTodoToggle: onTodoToggle(r, c),
         onOpenLink: handleOpenLink,
         onMdGridPaste: (r0, c0, rows) => {
@@ -5952,7 +6055,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   });
   applyModeStyles(wrap, table, data, hsBar);
   bindRcResizeHandles(table, data, false, () => {
-  });
+  }, settings.enableRcScale);
   scheduleMathRender(table);
   const refreshHeader = () => {
     const style = settings.headerStyle ?? "none";
@@ -6047,23 +6150,32 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     window.requestAnimationFrame(bringBack);
     window.setTimeout(bringBack, 250);
   };
-  latestRenderSource = source;
-  latestFocusRunner = (r, c, caretAtEnd3, textOffset) => {
-    const td = cellMap[r]?.[c];
-    if (!td || !td.isConnected)
-      return false;
-    if (document.activeElement !== td) {
-      if (!focusCell(r, c, caretAtEnd3, textOffset))
+  focusRunnerLog.push({
+    source,
+    buildAt: renderStart,
+    runner: (r, c, caretAtEnd3, textOffset) => {
+      const td = cellMap[r]?.[c];
+      if (!td || !td.isConnected)
         return false;
-      if (document.activeElement !== td)
-        return false;
+      if (document.activeElement !== td) {
+        if (!focusCell(r, c, caretAtEnd3, textOffset))
+          return false;
+        if (document.activeElement !== td)
+          return false;
+      }
+      finishInitialFocus(r, c);
+      return true;
     }
-    finishInitialFocus(r, c);
-    return true;
-  };
+  });
+  if (focusRunnerLog.length > FOCUS_RUNNER_LOG_MAX) {
+    focusRunnerLog.splice(0, focusRunnerLog.length - FOCUS_RUNNER_LOG_MAX);
+  }
   if (pendingFocusRestore) {
     const req = pendingFocusRestore;
     if (req.expectSource !== void 0 && source !== req.expectSource) {
+      if (req.expires !== void 0 && Date.now() > req.expires)
+        pendingFocusRestore = null;
+    } else if (req.createdAt !== void 0 && renderStart < req.createdAt) {
       if (req.expires !== void 0 && Date.now() > req.expires)
         pendingFocusRestore = null;
     } else {
@@ -7348,35 +7460,68 @@ var Toolbar = class {
   }
 };
 
+// src/chart-labels.ts
+var TITLE_VARIANTS = ["\u6807\u9898", "Title"];
+var X_RANGE_VARIANTS = ["x\u8303\u56F4", "x range"];
+var Y_RANGE_VARIANTS = ["y\u8303\u56F4", "y range"];
+function isChartTitle(t2) {
+  return TITLE_VARIANTS.includes(t2);
+}
+function isChartXRange(t2) {
+  return X_RANGE_VARIANTS.includes(t2);
+}
+function isChartYRange(t2) {
+  return Y_RANGE_VARIANTS.includes(t2);
+}
+function isChartPercentOn(t2) {
+  return t2 === "\u662F" || t2 === "yes" || t2 === "1";
+}
+
 // src/vbarchart.ts
-var HEADER_LABELS = ["vbarchart", "\u6807\u9898", "v%", "x\u8303\u56F4", "x", "y\u8303\u56F4", "y"];
+var HEADER_VARIANTS = [["vbarchart"], ["\u6807\u9898", "Title"], ["x\u8303\u56F4", "x range"], ["x"], ["y\u8303\u56F4", "y range"], ["y"]];
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function generateBarChart(grid) {
-  if (grid.length < 8)
+  if (grid.length < 7)
     return null;
-  for (let i = 0; i < HEADER_LABELS.length; i++) {
+  let headerIdx = 0;
+  for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS.length; i++) {
     const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-    if (cellText !== HEADER_LABELS[i])
+    if (cellText === "v%")
+      continue;
+    if (!HEADER_VARIANTS[headerIdx].includes(cellText))
       return null;
+    headerIdx++;
   }
-  const get = (idx) => grid[idx]?.[1]?.t?.trim() ?? "";
-  const title = get(1);
-  const vPercent = get(2);
-  const xLabel = get(4);
-  const yLabel = get(6);
-  const showPercent = vPercent === "\u662F" || vPercent === "yes" || vPercent === "1";
+  if (headerIdx < HEADER_VARIANTS.length)
+    return null;
+  let title = "", xLabel = "", yLabel = "", yRangeRaw = "", vPercent = "";
+  for (let i = 0; i < grid.length; i++) {
+    const a = grid[i]?.[0]?.t?.trim() ?? "";
+    const b = grid[i]?.[1]?.t?.trim() ?? "";
+    if (isChartTitle(a))
+      title = b;
+    else if (a === "x")
+      xLabel = b;
+    else if (isChartYRange(a))
+      yRangeRaw = b;
+    else if (a === "y")
+      yLabel = b;
+    else if (a === "v%")
+      vPercent = b;
+  }
   let yMax = 100;
-  const yRangeRaw = get(5);
   const yMatch = yRangeRaw.match(/([\d.]+)\s*-\s*([\d.]+)/);
   if (yMatch)
     yMax = parseFloat(yMatch[2]);
   const data = [];
-  for (let i = 7; i < grid.length; i++) {
+  for (let i = 0; i < grid.length; i++) {
     const label = grid[i]?.[0]?.t?.trim();
     const valStr = grid[i]?.[1]?.t?.trim();
     if (!label || !valStr)
+      continue;
+    if (label === "v%" || isChartTitle(label) || isChartXRange(label) || label === "x" || isChartYRange(label) || label === "y" || label === "vbarchart")
       continue;
     if (/^…+/.test(label))
       continue;
@@ -7387,6 +7532,7 @@ function generateBarChart(grid) {
   }
   if (data.length === 0)
     return null;
+  const showPercent = isChartPercentOn(vPercent);
   const n = data.length;
   const chartTop = 80;
   const chartBottom = 330;
@@ -7451,14 +7597,19 @@ function generateBarChart(grid) {
 }
 
 // src/vpiechart.ts
-var HEADER_LABELS2 = ["vpie", "\u6807\u9898"];
+var HEADER_VARIANTS2 = [["vpie"], ["\u6807\u9898", "Title"]];
 function generatePieChart(grid) {
   if (grid.length < 3)
     return null;
-  for (let i = 0; i < HEADER_LABELS2.length; i++) {
-    if ((grid[i]?.[0]?.t?.trim() ?? "") !== HEADER_LABELS2[i])
+  let headerIdx = 0;
+  for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS2.length; i++) {
+    const cellText = grid[i]?.[0]?.t?.trim() ?? "";
+    if (!HEADER_VARIANTS2[headerIdx].includes(cellText))
       return null;
+    headerIdx++;
   }
+  if (headerIdx < HEADER_VARIANTS2.length)
+    return null;
   const title = grid[1]?.[1]?.t?.trim() ?? "";
   const data = [];
   for (let i = 2; i < grid.length; i++) {
@@ -7488,17 +7639,24 @@ function generatePieChart(grid) {
 }
 
 // src/vlinechart.ts
-var HEADER_LABELS3 = ["vline", "\u6807\u9898", "x\u8303\u56F4", "x", "y\u8303\u56F4", "y"];
+var HEADER_VARIANTS3 = [["vline"], ["\u6807\u9898", "Title"], ["x\u8303\u56F4", "x range"], ["x"], ["y\u8303\u56F4", "y range"], ["y"]];
 function escapeXml2(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function generateLineChart(grid) {
   if (grid.length < 7)
     return null;
-  for (let i = 0; i < HEADER_LABELS3.length; i++) {
-    if ((grid[i]?.[0]?.t?.trim() ?? "") !== HEADER_LABELS3[i])
+  let headerIdx = 0;
+  for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS3.length; i++) {
+    const cellText = grid[i]?.[0]?.t?.trim() ?? "";
+    if (cellText === "v%")
+      continue;
+    if (!HEADER_VARIANTS3[headerIdx].includes(cellText))
       return null;
+    headerIdx++;
   }
+  if (headerIdx < HEADER_VARIANTS3.length)
+    return null;
   const get = (idx) => grid[idx]?.[1]?.t?.trim() ?? "";
   const title = get(1);
   const xLabel = get(3);
@@ -7584,20 +7742,236 @@ function generateLineChart(grid) {
   return `<div class="chart-container"><style>${style}</style>${titleHtml}${svg}</div>`;
 }
 
+// src/vcombochart.ts
+function escapeXml3(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function parseRange2(raw) {
+  const m = raw.match(/(-?[\d.]+)\s*-\s*(-?[\d.]+)/);
+  if (m) {
+    const min = parseFloat(m[1]);
+    const max = parseFloat(m[2]);
+    if (!isNaN(min) && !isNaN(max) && max > min)
+      return { min, max };
+  }
+  const v = parseFloat(raw.replace(/[^0-9.-]/g, ""));
+  if (!isNaN(v) && v > 0)
+    return { min: 0, max: v };
+  return { min: 0, max: 100 };
+}
+function scanSegments(grid) {
+  const segs = [];
+  const row0 = grid[0] ?? [];
+  for (let c = 0; c < row0.length; c++) {
+    const t2 = row0[c]?.t?.trim() ?? "";
+    if (t2 === "vbarchart")
+      segs.push({ type: "bar", col: c });
+    else if (t2 === "vline")
+      segs.push({ type: "line", col: c });
+  }
+  return segs;
+}
+function generateComboChart(grid) {
+  if (grid.length < 5)
+    return null;
+  const segments = scanSegments(grid);
+  if (segments.length === 0)
+    return null;
+  const KEYWORDS = /* @__PURE__ */ new Set(["\u6807\u9898", "Title", "x\u8303\u56F4", "x range", "x", "y\u8303\u56F4", "y range", "y", "v%", "vbarchart", "vline", "vpie"]);
+  const left = segments[0];
+  const parsed = segments.map((s) => ({ type: s.type, range: { min: 0, max: 100 }, data: [] }));
+  let title = "";
+  let xAxisName = "";
+  let yAxisName = "";
+  let vPercent = "";
+  for (let i = 1; i < grid.length; i++) {
+    for (let k = 0; k < segments.length; k++) {
+      const a = grid[i]?.[segments[k].col]?.t?.trim() ?? "";
+      const b = grid[i]?.[segments[k].col + 1]?.t?.trim() ?? "";
+      const seg = parsed[k];
+      if (isChartYRange(a)) {
+        seg.range = parseRange2(b);
+        continue;
+      }
+      if (a === "v%" && seg.type === "bar") {
+        if (isChartPercentOn(b))
+          vPercent = b;
+        continue;
+      }
+      if (a && !KEYWORDS.has(a)) {
+        const v = parseFloat(b.replace(/[^0-9.-]/g, ""));
+        if (!isNaN(v))
+          seg.data.push({ label: a, value: v });
+      }
+      if (k === 0) {
+        if (isChartTitle(a))
+          title = b;
+        else if (a === "x")
+          xAxisName = b;
+        else if (a === "y")
+          yAxisName = b;
+      }
+    }
+  }
+  const active = parsed.filter((s) => s.data.length > 0);
+  if (active.length === 0)
+    return null;
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (const s of active) {
+    yMin = Math.min(yMin, s.range.min);
+    yMax = Math.max(yMax, s.range.max);
+  }
+  const span = yMax - yMin;
+  if (!(span > 0))
+    return null;
+  const showPercent = vPercent === "\u662F" || vPercent === "yes" || vPercent === "1";
+  const barSegs = active.filter((s) => s.type === "bar");
+  const axisSeg = barSegs[0] ?? active[0];
+  const cats = axisSeg.data.map((d) => d.label);
+  const catIndex = new Map(cats.map((c, i) => [c, i]));
+  const n = cats.length;
+  if (n === 0)
+    return null;
+  const chartTop = 80;
+  const chartBottom = 330;
+  const chartHeight = chartBottom - chartTop;
+  const chartLeft = 80;
+  const chartRight = 540;
+  const chartWidth = chartRight - chartLeft;
+  const pixelPerUnit = chartHeight / span;
+  const yOf = (v) => chartBottom - (v - yMin) * pixelPerUnit;
+  const slotW = chartWidth / n;
+  const barCount = barSegs.length;
+  const barWidth = Math.min(55, slotW * 0.7 / Math.max(1, barCount));
+  const barGap = 6;
+  const cx = (i) => chartLeft + slotW * (i + 0.5);
+  const barLeft0 = (k) => chartLeft + (slotW - barCount * barWidth - (barCount - 1) * barGap) / 2 + k * (barWidth + barGap);
+  const cls = ".chart-container";
+  const mc = ".main-title";
+  const gl = ".grid-line";
+  const al = ".axis-line";
+  const at = ".axis-label";
+  const bv = ".bar-value";
+  const dv = ".data-value";
+  const xl = ".x-label";
+  const ln = ".line-path";
+  const dot = ".data-dot";
+  const lightBarColors = ["#111", "#333", "#555", "#777", "#999", "#aaa"];
+  const darkBarColors = ["#93C5FD", "#7DD3FC", "#A5B4FC", "#6EE7B7", "#67E8F9", "#C4B5FD"];
+  const lightLineColors = ["#1E40AF", "#0E7490", "#6D28D9", "#0F766E", "#9A3412", "#B45309"];
+  const darkLineColors = ["#FDBA74", "#FDE68A", "#FCA5A5", "#F9A8D4", "#FDBA74", "#FDE68A"];
+  const sLight = `${cls}{width:650px;padding:30px;background:#fff;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.08);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}${mc}{text-align:center;font-size:28px;font-weight:700;margin:10px 0 24px;color:#111}${gl}{stroke:#eee}${al}{stroke:#333}${at}{fill:#666}${bv}{fill:#111}${xl}{fill:#333}`;
+  let sSegs = "";
+  let sSegsDark = "";
+  let barK = 0;
+  let lineK = 0;
+  const segColorIdx = active.map((s) => s.type === "bar" ? barK++ : lineK++);
+  active.forEach((s, k) => {
+    const ci = segColorIdx[k];
+    if (s.type === "bar") {
+      for (let i = 0; i < n; i++) {
+        sSegs += `.cbar-${k}-${i}{fill:${lightBarColors[(ci * 2 + i) % lightBarColors.length]}}`;
+        sSegsDark += `.theme-dark .cbar-${k}-${i}{fill:${darkBarColors[ci % darkBarColors.length]}}`;
+      }
+    } else {
+      sSegs += `.cline-${k}{fill:none;stroke:${lightLineColors[ci % lightLineColors.length]};stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.cdot-${k}{fill:${lightLineColors[ci % lightLineColors.length]}}.cval-${k}{fill:${lightLineColors[ci % lightLineColors.length]}}`;
+      sSegsDark += `.theme-dark .cline-${k}{stroke:${darkLineColors[ci % darkLineColors.length]}}.theme-dark .cdot-${k}{fill:${darkLineColors[ci % darkLineColors.length]}}.theme-dark .cval-${k}{fill:${darkLineColors[ci % darkLineColors.length]}}`;
+    }
+  });
+  const sDark = `.theme-dark ${cls}{background:#111827;box-shadow:0 12px 40px rgba(0,0,0,.45)}.theme-dark ${mc}{color:#F9FAFB}.theme-dark ${gl}{stroke:rgba(255,255,255,.08)}.theme-dark ${al}{stroke:#6B7280}.theme-dark ${at}{fill:#9CA3AF}.theme-dark ${bv}{fill:#F9FAFB}.theme-dark ${xl}{fill:#D1D5DB}.theme-dark ${dv}{fill:#60A5FA}`;
+  const style = sLight + sSegs + sDark + sSegsDark;
+  const parts = [];
+  const ySteps = 4;
+  for (let i = 1; i <= ySteps; i++) {
+    const y = chartTop + chartHeight / ySteps * i;
+    parts.push(`<line x1="${chartLeft}" y1="${y}" x2="${chartRight}" y2="${y}" class="grid-line"/>`);
+  }
+  for (let i = 0; i <= ySteps; i++) {
+    const y = chartBottom - chartHeight / ySteps * i;
+    const val = Math.round(yMin + span * i / ySteps);
+    const label = showPercent ? val + "%" : String(val);
+    parts.push(`<text x="${chartLeft - 25}" y="${y + 4}" text-anchor="end" font-size="12" class="axis-label">${label}</text>`);
+  }
+  parts.push(`<line x1="${chartLeft}" y1="${chartTop}" x2="${chartLeft}" y2="${chartBottom}" class="axis-line" stroke-width="2"/>`);
+  parts.push(`<line x1="${chartLeft}" y1="${chartBottom}" x2="${chartRight}" y2="${chartBottom}" class="axis-line" stroke-width="2"/>`);
+  active.forEach((s, k) => {
+    if (s.type !== "bar")
+      return;
+    const ci = segColorIdx[k];
+    for (let i = 0; i < n; i++) {
+      const d = s.data.find((x2) => x2.label === cats[i]);
+      if (!d)
+        continue;
+      const x = Math.round(barLeft0(k) + slotW * i);
+      const barHeight = Math.max(0, Math.min((d.value - yMin) * pixelPerUnit, chartHeight));
+      const barY = chartBottom - barHeight;
+      const barColor = lightBarColors[(ci * 2 + i) % lightBarColors.length];
+      parts.push(`<rect x="${x}" y="${barY}" width="${Math.round(barWidth)}" height="${barHeight}" rx="8" fill="${barColor}" class="cbar-${k}-${i}"/>`);
+      const displayVal = showPercent ? Math.round(d.value) + "%" : String(Math.round(d.value * 10) / 10);
+      parts.push(`<text x="${x + barWidth / 2}" y="${barY - 15}" text-anchor="middle" font-size="14" font-weight="600" fill="#111" class="bar-value">${escapeXml3(displayVal)}</text>`);
+    }
+  });
+  for (let i = 0; i < n; i++) {
+    parts.push(`<text x="${cx(i)}" y="${chartBottom + 30}" text-anchor="middle" font-size="14" class="x-label">${escapeXml3(cats[i])}</text>`);
+  }
+  active.forEach((s, k) => {
+    if (s.type !== "line")
+      return;
+    const ci = segColorIdx[k];
+    const pts = [];
+    for (const d of s.data) {
+      const i = catIndex.get(d.label);
+      if (i === void 0)
+        continue;
+      pts.push({ x: Math.round(cx(i)), y: Math.round(yOf(d.value)), value: d.value });
+    }
+    if (pts.length >= 2) {
+      const lineColor = lightLineColors[ci % lightLineColors.length];
+      parts.push(`<polyline points="${pts.map((p) => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${lineColor}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" class="cline-${k}"/>`);
+    }
+    for (const p of pts) {
+      const lineColor = lightLineColors[ci % lightLineColors.length];
+      parts.push(`<circle cx="${p.x}" cy="${p.y}" r="5" fill="${lineColor}" class="cdot-${k}"/>`);
+      const displayVal = String(Math.round(p.value * 10) / 10);
+      parts.push(`<text x="${p.x}" y="${p.y - 15}" text-anchor="middle" font-size="14" font-weight="600" fill="${lineColor}" class="cval-${k}">${escapeXml3(displayVal)}</text>`);
+    }
+  });
+  if (xAxisName) {
+    parts.push(`<text x="310" y="${chartBottom + 70}" text-anchor="middle" font-size="14" class="axis-label">${escapeXml3(xAxisName)}</text>`);
+  }
+  if (yAxisName) {
+    parts.push(`<text x="20" y="210" transform="rotate(-90 20 210)" text-anchor="middle" font-size="14" class="axis-label">${escapeXml3(yAxisName)}</text>`);
+  }
+  const svgContent = parts.join("");
+  const svg = `<svg width="600" height="${chartBottom + 90}" viewBox="0 0 600 ${chartBottom + 90}">${svgContent}</svg>`;
+  const titleHtml = title ? `<h1 class="main-title">${escapeXml3(title)}</h1>` : "";
+  return `<div class="chart-container"><style>${style}</style>${titleHtml}${svg}</div>`;
+}
+
 // src/charts.ts
 var CHART_HEADERS = {
   bar: "vbarchart",
   pie: "vpie",
-  line: "vline"
+  line: "vline",
+  combo: "vbarchart+vline"
 };
 function detectChartType(grid) {
-  const h = grid[0]?.[0]?.t?.trim() ?? "";
-  if (h === CHART_HEADERS.bar)
-    return "bar";
-  if (h === CHART_HEADERS.pie)
+  const row0 = grid[0] ?? [];
+  const marks = [];
+  for (let c = 0; c < row0.length; c++) {
+    const h = row0[c]?.t?.trim() ?? "";
+    if (h === CHART_HEADERS.bar)
+      marks.push({ t: "bar", col: c });
+    else if (h === CHART_HEADERS.line)
+      marks.push({ t: "line", col: c });
+  }
+  if (marks.length >= 2 || marks.length === 1 && marks[0].col !== 0)
+    return "combo";
+  if (marks.length === 1)
+    return marks[0].t;
+  if ((row0[0]?.t?.trim() ?? "") === CHART_HEADERS.pie)
     return "pie";
-  if (h === CHART_HEADERS.line)
-    return "line";
   return null;
 }
 function gridToChart(grid) {
@@ -7611,6 +7985,8 @@ function gridToChart(grid) {
       return generatePieChart(grid);
     case "line":
       return generateLineChart(grid);
+    case "combo":
+      return generateComboChart(grid);
   }
 }
 
@@ -7630,7 +8006,10 @@ var DEFAULT_SETTINGS = {
   tblStyleEnabled: false,
   zebraStyle: "none",
   zebraColor: "#e8f0fe",
-  zebraEnabled: false
+  zebraEnabled: false,
+  enableFillHandle: true,
+  enableRcScale: true,
+  enableImgResize: true
 };
 var VtPlugin = class extends import_obsidian4.Plugin {
   constructor() {
@@ -7639,8 +8018,9 @@ var VtPlugin = class extends import_obsidian4.Plugin {
      *  （阅读模式下 CM posAtDOM 不可用——el 不在编辑器 DOM 里，两条旧路径全失败 = 勾选不保存的根因） */
     this.sectionInfoCache = /* @__PURE__ */ new WeakMap();
   }
-  // 模板自动生成函数
-  async ensureTemplates() {
+  // 图表模板按需添加（设置面板按钮调用；启动时不再自动写入）
+  // 第二列全部留空，让用户自己填；文件已存在则跳过不覆盖
+  async addChartTemplates(lang2) {
     const vault = this.app.vault;
     let templateFolder = "TEMPLATE";
     const internalPlugins = this.app.internalPlugins;
@@ -7658,18 +8038,31 @@ var VtPlugin = class extends import_obsidian4.Plugin {
           throw err;
       }
     }
-    const templates = [
+    const templates = lang2 === "zh" ? [
       {
         name: "\u67F1\u72B6\u56FE\u6A21\u677F.md",
-        content: '```vtable\n{"rows":[\n  [{"t":"vbarchart"},{"t":""}],\n  [{"t":"\u6807\u9898"},{"t":""}],\n  [{"t":"v%"},{"t":""}],\n  [{"t":"x\u8303\u56F4"},{"t":""}],\n  [{"t":"x"},{"t":""}],\n  [{"t":"y\u8303\u56F4"},{"t":""}],\n  [{"t":"y"},{"t":""}],\n  [{"t":"\u4E00\u6708"},{"t":""}],\n  [{"t":"\u4E8C\u6708"},{"t":""}],\n  [{"t":"\u4E09\u6708"},{"t":""}],\n  [{"t":"\u56DB\u6708"},{"t":""}]\n]}\n```'
+        content: '```vtable\n{"rows":[\n  [{"t":"vbarchart"},{"t":""}],\n  [{"t":"\u6807\u9898"},{"t":"\u6708\u5EA6\u9500\u91CF"}],\n  [{"t":"x\u8303\u56F4"},{"t":"\u6708\u4EFD"}],\n  [{"t":"x"},{"t":"\u6708\u4EFD"}],\n  [{"t":"y\u8303\u56F4"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"\u9500\u91CF"}],\n  [{"t":"\u4E00\u6708"},{"t":"35"}],\n  [{"t":"\u4E8C\u6708"},{"t":"62"}],\n  [{"t":"\u4E09\u6708"},{"t":"48"}],\n  [{"t":"\u56DB\u6708"},{"t":"90"}],\n  [{"t":"v%"},{"t":"\u5426"}]\n]}\n```'
       },
       {
         name: "\u997C\u56FE\u6A21\u677F.md",
-        content: '```vtable\n{"rows":[\n  [{"t":"vpie"},{"t":""}],\n  [{"t":"\u6807\u9898"},{"t":""}],\n  [{"t":"\u4EA7\u54C1A"},{"t":""}],\n  [{"t":"\u4EA7\u54C1B"},{"t":""}],\n  [{"t":"\u4EA7\u54C1C"},{"t":""}],\n  [{"t":"\u4EA7\u54C1D"},{"t":""}],\n  [{"t":"\u5176\u4ED6"},{"t":""}]\n]}\n```'
+        content: '```vtable\n{"rows":[\n  [{"t":"vpie"},{"t":""}],\n  [{"t":"\u6807\u9898"},{"t":"\u9500\u552E\u5360\u6BD4"}],\n  [{"t":"\u4EA7\u54C1A"},{"t":"30"}],\n  [{"t":"\u4EA7\u54C1B"},{"t":"25"}],\n  [{"t":"\u4EA7\u54C1C"},{"t":"20"}],\n  [{"t":"\u4EA7\u54C1D"},{"t":"15"}],\n  [{"t":"\u5176\u4ED6"},{"t":"10"}]\n]}\n```'
       },
       {
         name: "\u6298\u7EBF\u56FE\u6A21\u677F.md",
-        content: '```vtable\n{"rows":[\n  [{"t":"vline"},{"t":""}],\n  [{"t":"\u6807\u9898"},{"t":""}],\n  [{"t":"x\u8303\u56F4"},{"t":""}],\n  [{"t":"x"},{"t":""}],\n  [{"t":"y\u8303\u56F4"},{"t":""}],\n  [{"t":"y"},{"t":""}],\n  [{"t":"\u4E00\u6708"},{"t":""}],\n  [{"t":"\u4E8C\u6708"},{"t":""}],\n  [{"t":"\u4E09\u6708"},{"t":""}],\n  [{"t":"\u56DB\u6708"},{"t":""}],\n  [{"t":"\u4E94\u6708"},{"t":""}],\n  [{"t":"\u516D\u6708"},{"t":""}]\n]}\n```'
+        content: '```vtable\n{"rows":[\n  [{"t":"vline"},{"t":""}],\n  [{"t":"\u6807\u9898"},{"t":"\u6708\u5EA6\u5229\u6DA6"}],\n  [{"t":"x\u8303\u56F4"},{"t":"\u6708\u4EFD"}],\n  [{"t":"x"},{"t":"\u6708\u4EFD"}],\n  [{"t":"y\u8303\u56F4"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"\u5229\u6DA6"}],\n  [{"t":"\u4E00\u6708"},{"t":"20"}],\n  [{"t":"\u4E8C\u6708"},{"t":"45"}],\n  [{"t":"\u4E09\u6708"},{"t":"38"}],\n  [{"t":"\u56DB\u6708"},{"t":"66"}],\n  [{"t":"\u4E94\u6708"},{"t":"80"}],\n  [{"t":"\u516D\u6708"},{"t":"95"}]\n]}\n```'
+      }
+    ] : [
+      {
+        name: "Bar Chart Template.md",
+        content: '```vtable\n{"rows":[\n  [{"t":"vbarchart"},{"t":""}],\n  [{"t":"Title"},{"t":"Monthly Sales"}],\n  [{"t":"x range"},{"t":"Month"}],\n  [{"t":"x"},{"t":"Month"}],\n  [{"t":"y range"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"Sales"}],\n  [{"t":"January"},{"t":"35"}],\n  [{"t":"February"},{"t":"62"}],\n  [{"t":"March"},{"t":"48"}],\n  [{"t":"April"},{"t":"90"}],\n  [{"t":"v%"},{"t":"no"}]\n]}\n```'
+      },
+      {
+        name: "Pie Chart Template.md",
+        content: '```vtable\n{"rows":[\n  [{"t":"vpie"},{"t":""}],\n  [{"t":"Title"},{"t":"Sales Share"}],\n  [{"t":"Product A"},{"t":"30"}],\n  [{"t":"Product B"},{"t":"25"}],\n  [{"t":"Product C"},{"t":"20"}],\n  [{"t":"Product D"},{"t":"15"}],\n  [{"t":"Others"},{"t":"10"}]\n]}\n```'
+      },
+      {
+        name: "Line Chart Template.md",
+        content: '```vtable\n{"rows":[\n  [{"t":"vline"},{"t":""}],\n  [{"t":"Title"},{"t":"Monthly Profit"}],\n  [{"t":"x range"},{"t":"Month"}],\n  [{"t":"x"},{"t":"Month"}],\n  [{"t":"y range"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"Profit"}],\n  [{"t":"January"},{"t":"20"}],\n  [{"t":"February"},{"t":"45"}],\n  [{"t":"March"},{"t":"38"}],\n  [{"t":"April"},{"t":"66"}],\n  [{"t":"May"},{"t":"80"}],\n  [{"t":"June"},{"t":"95"}]\n]}\n```'
       }
     ];
     for (const tpl of templates) {
@@ -7683,6 +8076,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
         }
       }
     }
+    new import_obsidian4.Notice(lang2 === "zh" ? `\u5DF2\u5C06\u4E2D\u6587\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u81F3\u6A21\u677F\u6587\u4EF6\u5939\u300C${templateFolder}\u300D` : `English chart templates added to the templates folder "${templateFolder}"`);
   }
   /** 官方"加载失败"提示不带技术细节：onload 全量捕获，错误消息直达 Notice 供真机定位 */
   async onload() {
@@ -7726,7 +8120,6 @@ ${first}`, 0);
       await this.saveSettings();
     }
     setUiLang(this.settings.uiLang);
-    await this.ensureTemplates();
     this.addCommand({
       id: "delete-current-table",
       name: t("\u5220\u9664\u5F53\u524D Vtable \u8868\u683C", "Delete current vtable"),
@@ -7779,6 +8172,31 @@ ${first}`, 0);
             name: c.name,
             run: () => this.app.commands.executeCommandById(cmdId)
           };
+        },
+        // 图表表格右下角小按钮：点击直接转换（与"转换为图表"命令等效，无需跳出表格）
+        (elHost) => {
+          const ed = this.activeEditor();
+          if (!ed) {
+            new import_obsidian4.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
+            return;
+          }
+          let anchor = -1;
+          const info = ctx.getSectionInfo(elHost);
+          if (info) {
+            for (let ln = info.lineStart; ln <= info.lineEnd; ln++) {
+              if (/^```vtable\s*$/.test(ed.getLine(ln).trim())) {
+                anchor = ln;
+                break;
+              }
+            }
+          }
+          if (anchor >= 0) {
+            ed.setCursor({ line: anchor + 1, ch: 0 });
+          } else if (!findVtableBlock(ed)) {
+            new import_obsidian4.Notice(t("\u672A\u627E\u5230\u53EF\u8F6C\u6362\u7684\u56FE\u8868 vtable \u6A21\u677F", "No chart vtable template found"));
+            return;
+          }
+          this.vtableToChart(ed);
         }
       );
       window.requestAnimationFrame(() => {
@@ -8446,12 +8864,18 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     new import_obsidian4.Setting(containerEl).setName(t("vtable \u8BBE\u7F6E", "vtable Settings")).setHeading();
+    addDocLinks(containerEl);
     new import_obsidian4.Setting(containerEl).setName(t("\u754C\u9762\u8BED\u8A00", "UI language")).setDesc(t("\u8BBE\u7F6E\u9762\u677F\u3001\u6D6E\u7A97\u6309\u94AE\u4E0E\u53F3\u952E\u83DC\u5355\u6587\u672C\u7684\u8BED\u8A00\u3002", "Language of the settings panel, toolbar buttons and context menus.")).addDropdown((d) => d.addOptions({ zh: "\u4E2D\u6587", en: "English" }).setValue(this.plugin.settings.uiLang).onChange(async (value) => {
       this.plugin.settings.uiLang = value;
       setUiLang(value);
       await this.plugin.saveSettings();
       this.plugin.toolbar.rebuild();
       this.display();
+    }));
+    new import_obsidian4.Setting(containerEl).setName(t("\u56FE\u8868\u6A21\u677F", "Chart templates")).setDesc(t("\u628A\u5BF9\u5E94\u8BED\u8A00\u7684\u56FE\u8868\u6A21\u677F\uFF08\u67F1\u72B6\u56FE/\u997C\u56FE/\u6298\u7EBF\u56FE\uFF09\u6DFB\u52A0\u5230\u6A21\u677F\u6587\u4EF6\u5939\uFF0C\u5199\u5165\u68C0\u6D4B\u5230\u7684\u6A21\u677F\u76EE\u5F55\u3002", "Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.")).addButton((b) => b.setButtonText("+\u4E2D\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
+      this.plugin.addChartTemplates("zh").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
+    })).addButton((b) => b.setButtonText("+\u82F1\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
+      this.plugin.addChartTemplates("en").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
     }));
     if (this.plugin.settings.uiLang === "en") {
       const legend = containerEl.createDiv({ cls: "vt-setting-hint" });
@@ -8468,6 +8892,18 @@ ${barLegend()}`;
     }));
     new import_obsidian4.Setting(containerEl).setName(t("\u6A21\u5F0F\u5207\u6362\u6309\u94AE", "Mode switcher")).setDesc(t("\u7F16\u8F91\u8868\u683C\u65F6\u663E\u793A OL / HS / RC \u4E09\u79CD\u6A21\u5F0F\u7684\u5207\u6362\u6309\u94AE", "Show the OL / HS / RC mode switcher while editing")).addToggle((t2) => t2.setValue(this.plugin.settings.enableModeSwitcher).onChange(async (value) => {
       this.plugin.settings.enableModeSwitcher = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian4.Setting(containerEl).setName(t("\u81EA\u52A8\u586B\u5145\u67C4", "Auto fill handle")).setDesc(t("\u9009\u4E2D\u5355\u5143\u683C\u65F6\u5728\u53F3\u4E0B\u89D2\u663E\u793A\u586B\u5145\u67C4\uFF0C\u62D6\u62FD\u53EF\u590D\u5236\u6216\u6309\u5E8F\u5217\u586B\u5145\u76F8\u90BB\u5355\u5143\u683C\uFF08\u684C\u9762\u7AEF\u4E13\u5C5E\uFF09\u3002", "Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).")).addToggle((t2) => t2.setValue(this.plugin.settings.enableFillHandle).onChange(async (value) => {
+      this.plugin.settings.enableFillHandle = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian4.Setting(containerEl).setName(t("RC \u6574\u4F53\u7F29\u653E\u628A\u624B", "RC whole-table scaling handle")).setDesc(t("RC \u6A21\u5F0F\u4E0B\u5728\u8868\u683C\u53F3\u4E0B\u89D2\u663E\u793A\u7F29\u653E\u628A\u624B\uFF0C\u62D6\u62FD\u53EF\u6574\u4F53\u62C9\u4F38\u6240\u6709\u884C\u9AD8\u5217\u5BBD\u3002", "In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.")).addToggle((t2) => t2.setValue(this.plugin.settings.enableRcScale).onChange(async (value) => {
+      this.plugin.settings.enableRcScale = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian4.Setting(containerEl).setName(t("\u56FE\u7247\u7F29\u653E\u67C4", "Image resize handle")).setDesc(t("\u7F16\u8F91\u65F6\u5728\u5D4C\u5165\u56FE\u7247\u65C1\u663E\u793A L \u5F62\u62D6\u67C4\uFF0C\u62D6\u62FD\u8C03\u6574\u56FE\u7247\u5BBD\u5EA6\uFF08\u5199\u56DE |\u6570\u5B57 \u5C3A\u5BF8\u8BED\u6CD5\uFF09\u3002", "Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).")).addToggle((t2) => t2.setValue(this.plugin.settings.enableImgResize).onChange(async (value) => {
+      this.plugin.settings.enableImgResize = value;
       await this.plugin.saveSettings();
     }));
     const styleSection = containerEl.createEl("details", { cls: "vt-style-section" });
@@ -8635,8 +9071,16 @@ ${barLegend()}`;
       )
     });
     help.createEl("a", { text: "README", href: `${REPO_URL}#right-click-menu` }).setAttribute("target", "_blank");
+    addDocLinks(containerEl);
   }
 };
+function addDocLinks(host) {
+  const row = host.createDiv({ cls: "vt-setting-hint" });
+  row.createSpan({ text: t("\u4F7F\u7528\u6587\u6863\uFF1A", "Documentation: ") });
+  row.createEl("a", { text: t("\u4E2D\u6587\u6587\u6863", "Chinese documentation"), href: `${REPO_URL}/blob/main/README_CN.md` });
+  row.createSpan({ text: " | " });
+  row.createEl("a", { text: t("\u82F1\u6587\u6587\u6863", "English documentation"), href: `${REPO_URL}/blob/main/README.md` });
+}
 function findHtmlTable(ed) {
   const cur = ed.getCursor().line;
   const n = ed.lineCount();

@@ -89,8 +89,9 @@ Start a cell with `=FUNC(range)` and it shows the computed result; focus the cel
 Turn table data into SVG charts that follow dark/light themes:
 
 - `vbarchart` bar charts, `vpie` pie charts, `vline` line charts
-- A **Convert to chart** command auto-detects the header type
-- Template files are generated automatically so you can start from a ready-made structure
+- A **Convert to chart** command auto-detects the header type; when a chart header is detected, a small **icon button** appears at the table's bottom-right corner — click it to convert without leaving the table
+- Chart templates (Chinese/English sets, with sample content) can be added with one click from the settings panel
+- **Combo charts**: any number of bar/line charts can live in one big table and render as a single fused chart — lines align to bar categories and overlay the bars, and multiple bar segments sit side by side within each category slot. The y-axis range takes the smallest lower bound and the largest upper bound across all segments' `y范围` entries (e.g. 0-3 and 1-5 → 0-5); the title and x/y axis names come from the leftmost segment. The table is a vertical merge where each segment occupies two columns (left = type/labels, right = values): declare the type (`vbarchart`/`vline`, any count) in each segment's left column on the first row, then fill config rows (`y范围` / `y` can be shared side by side across segments) and data rows (label｜value) in each segment's own two columns, with the `v%` row at the very bottom. There is no ready-made combo template — build one by moving rows from the single-chart tables
 
 ### Conversions
 
@@ -143,6 +144,7 @@ The context menu is fully customizable in **Settings → vtable → 右键菜单
 - UI language (中文 / English; floating toolbar abbreviations get an in-settings legend when English is selected). Command names follow the UI language — reload the plugin after switching
 - Show the floating toolbar on desktop / mobile independently
 - Show the OL/HS/RC mode switcher
+- **Interactive component toggles**: fill handle / row & column drag handles / image resize handles can each be turned off (all on by default)
 - **Table style** (collapsible section): table corner radius; header row background color (theme accent or custom); line-style presets (three-line / no grid / horizontal-only) with a global enable toggle; zebra stripes (theme or custom color, with the color picker shown when custom is selected) — plus per-table commands for header background and zebra stripes
 - Export: keep alignment & colors in Markdown export via nested HTML tags
 - Customizable context menu (see above)
@@ -191,3 +193,7 @@ Want an AI assistant (Claude, ChatGPT, …) to write Vtable source code for you?
 ## License
 
 [MIT](LICENSE)
+
+## Disclaimer
+
+This plugin has no affiliation with, and is not related to ByteDance's VTable (VisActor) in any way. The "V" in "Vtable" is merely a prefix from our own plugin series naming and carries no meaning of its own.

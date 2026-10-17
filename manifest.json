@@ -1,10 +1,10 @@
 {
-        "id": "vtable",
-        "name": "Vtable",
-        "version": "2.0.6",
-        "minAppVersion": "1.4.0",
-        "description": "Create and edit enhanced tables with merged cells, in-cell line breaks, Excel-style formulas, checkable tasks, images, math, charts, diagonal split headers, and export to Markdown or HTML.",
-        "author": "Vmsimab",
-        "isDesktopOnly": false,
-        "fundingUrl": "https://picui.ogmua.cn/s1/2026/10/07/6ac6138e53080.webp"
+  "id": "vtable",
+  "name": "Vtable",
+  "version": "2.0.7",
+  "minAppVersion": "1.4.0",
+  "description": "Create and edit enhanced tables with merged cells, in-cell line breaks, Excel-style formulas, checkable tasks, images, math, charts, diagonal split headers, and export to Markdown or HTML.",
+  "author": "Vmsimab",
+  "isDesktopOnly": false,
+  "fundingUrl": "https://picui.ogmua.cn/s1/2026/10/07/6ac6138e53080.webp"
 }

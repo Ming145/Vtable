@@ -42,6 +42,12 @@ export interface VtSettings {
         zebraColor: string;
         /** 全局隔行变色开关（默认关：单表用「隔行变色样式」命令驱动） */
         zebraEnabled: boolean;
+        /** 自动填充柄：选中单元格右下角贴边三角，拖拽复制/序列填充（桌面端专属） */
+        enableFillHandle: boolean;
+        /** RC 整体缩放把手：RC 模式表格右下角 8 方向把手，拖拽整体均分行列增量 */
+        enableRcScale: boolean;
+        /** 图片缩放柄：编辑态嵌入图片旁 L 形拖柄，拖拽写回 |数字 宽度语法 */
+        enableImgResize: boolean;
 }
 
 const DEFAULT_SETTINGS: VtSettings = {
@@ -59,6 +65,9 @@ const DEFAULT_SETTINGS: VtSettings = {
         zebraStyle: 'none',
         zebraColor: '#e8f0fe',
         zebraEnabled: false,
+        enableFillHandle: true,
+        enableRcScale: true,
+        enableImgResize: true,
 };
 
 /** 旧版默认菜单配置（历史存档对照用；现行升级策略=按"缺对齐组"插入，见 onload） */
@@ -66,8 +75,9 @@ export default class VtPlugin extends Plugin {
         private toolbar!: Toolbar;
         private settings!: VtSettings;
 
-        // 模板自动生成函数
-        async ensureTemplates() {
+        // 图表模板按需添加（设置面板按钮调用；启动时不再自动写入）
+        // 第二列全部留空，让用户自己填；文件已存在则跳过不覆盖
+        async addChartTemplates(lang: 'zh' | 'en') {
                 const vault = this.app.vault;
 
                 // 1. 检测模板文件夹路径（优先读取官方 Templates 核心插件设置）
@@ -83,9 +93,9 @@ export default class VtPlugin extends Plugin {
                 }
 
                 // 2. 确保文件夹存在
-                //    启动早期 vault 文件索引可能尚未就绪：getAbstractFileByPath 对磁盘上已存在的文件夹
-                //    误判 null，createFolder 随即报 already exists 并炸掉整个 onload（首次启动必现、
-                //    重开因索引已建而正常）。createFolder 幂等化：already exists 视为目标状态达成
+                //    vault 文件索引可能尚未就绪：getAbstractFileByPath 对磁盘上已存在的文件夹
+                //    误判 null，createFolder 随即报 already exists。createFolder 幂等化：
+                //    already exists 视为目标状态达成
                 if (vault.getAbstractFileByPath(normalizePath(templateFolder)) == null) {
                         try {
                                 await vault.createFolder(templateFolder);
@@ -94,21 +104,36 @@ export default class VtPlugin extends Plugin {
                         }
                 }
 
-                // 3. 三个模板的内容（第二列全部留空，让用户自己填）
-                const templates = [
-                        {
-                                name: '柱状图模板.md',
-                                content: '```vtable\n{"rows":[\n  [{"t":"vbarchart"},{"t":""}],\n  [{"t":"标题"},{"t":""}],\n  [{"t":"v%"},{"t":""}],\n  [{"t":"x范围"},{"t":""}],\n  [{"t":"x"},{"t":""}],\n  [{"t":"y范围"},{"t":""}],\n  [{"t":"y"},{"t":""}],\n  [{"t":"一月"},{"t":""}],\n  [{"t":"二月"},{"t":""}],\n  [{"t":"三月"},{"t":""}],\n  [{"t":"四月"},{"t":""}]\n]}\n```'
-                        },
-                        {
-                                name: '饼图模板.md',
-                                content: '```vtable\n{"rows":[\n  [{"t":"vpie"},{"t":""}],\n  [{"t":"标题"},{"t":""}],\n  [{"t":"产品A"},{"t":""}],\n  [{"t":"产品B"},{"t":""}],\n  [{"t":"产品C"},{"t":""}],\n  [{"t":"产品D"},{"t":""}],\n  [{"t":"其他"},{"t":""}]\n]}\n```'
-                        },
-                        {
-                                name: '折线图模板.md',
-                                content: '```vtable\n{"rows":[\n  [{"t":"vline"},{"t":""}],\n  [{"t":"标题"},{"t":""}],\n  [{"t":"x范围"},{"t":""}],\n  [{"t":"x"},{"t":""}],\n  [{"t":"y范围"},{"t":""}],\n  [{"t":"y"},{"t":""}],\n  [{"t":"一月"},{"t":""}],\n  [{"t":"二月"},{"t":""}],\n  [{"t":"三月"},{"t":""}],\n  [{"t":"四月"},{"t":""}],\n  [{"t":"五月"},{"t":""}],\n  [{"t":"六月"},{"t":""}]\n]}\n```'
-                        }
-                ];
+                // 3. 模板内容：中文/英文两组（表头语法一致，仅示例标签与文件名不同）
+                const templates = lang === 'zh'
+                        ? [
+                                {
+                                        name: '柱状图模板.md',
+                                        content: '```vtable\n{"rows":[\n  [{"t":"vbarchart"},{"t":""}],\n  [{"t":"标题"},{"t":"月度销量"}],\n  [{"t":"x范围"},{"t":"月份"}],\n  [{"t":"x"},{"t":"月份"}],\n  [{"t":"y范围"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"销量"}],\n  [{"t":"一月"},{"t":"35"}],\n  [{"t":"二月"},{"t":"62"}],\n  [{"t":"三月"},{"t":"48"}],\n  [{"t":"四月"},{"t":"90"}],\n  [{"t":"v%"},{"t":"否"}]\n]}\n```'
+                                },
+                                {
+                                        name: '饼图模板.md',
+                                        content: '```vtable\n{"rows":[\n  [{"t":"vpie"},{"t":""}],\n  [{"t":"标题"},{"t":"销售占比"}],\n  [{"t":"产品A"},{"t":"30"}],\n  [{"t":"产品B"},{"t":"25"}],\n  [{"t":"产品C"},{"t":"20"}],\n  [{"t":"产品D"},{"t":"15"}],\n  [{"t":"其他"},{"t":"10"}]\n]}\n```'
+                                },
+                                {
+                                        name: '折线图模板.md',
+                                        content: '```vtable\n{"rows":[\n  [{"t":"vline"},{"t":""}],\n  [{"t":"标题"},{"t":"月度利润"}],\n  [{"t":"x范围"},{"t":"月份"}],\n  [{"t":"x"},{"t":"月份"}],\n  [{"t":"y范围"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"利润"}],\n  [{"t":"一月"},{"t":"20"}],\n  [{"t":"二月"},{"t":"45"}],\n  [{"t":"三月"},{"t":"38"}],\n  [{"t":"四月"},{"t":"66"}],\n  [{"t":"五月"},{"t":"80"}],\n  [{"t":"六月"},{"t":"95"}]\n]}\n```'
+                                }
+                        ]
+                        : [
+                                {
+                                        name: 'Bar Chart Template.md',
+                                        content: '```vtable\n{"rows":[\n  [{"t":"vbarchart"},{"t":""}],\n  [{"t":"Title"},{"t":"Monthly Sales"}],\n  [{"t":"x range"},{"t":"Month"}],\n  [{"t":"x"},{"t":"Month"}],\n  [{"t":"y range"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"Sales"}],\n  [{"t":"January"},{"t":"35"}],\n  [{"t":"February"},{"t":"62"}],\n  [{"t":"March"},{"t":"48"}],\n  [{"t":"April"},{"t":"90"}],\n  [{"t":"v%"},{"t":"no"}]\n]}\n```'
+                                },
+                                {
+                                        name: 'Pie Chart Template.md',
+                                        content: '```vtable\n{"rows":[\n  [{"t":"vpie"},{"t":""}],\n  [{"t":"Title"},{"t":"Sales Share"}],\n  [{"t":"Product A"},{"t":"30"}],\n  [{"t":"Product B"},{"t":"25"}],\n  [{"t":"Product C"},{"t":"20"}],\n  [{"t":"Product D"},{"t":"15"}],\n  [{"t":"Others"},{"t":"10"}]\n]}\n```'
+                                },
+                                {
+                                        name: 'Line Chart Template.md',
+                                        content: '```vtable\n{"rows":[\n  [{"t":"vline"},{"t":""}],\n  [{"t":"Title"},{"t":"Monthly Profit"}],\n  [{"t":"x range"},{"t":"Month"}],\n  [{"t":"x"},{"t":"Month"}],\n  [{"t":"y range"},{"t":"0-100"}],\n  [{"t":"y"},{"t":"Profit"}],\n  [{"t":"January"},{"t":"20"}],\n  [{"t":"February"},{"t":"45"}],\n  [{"t":"March"},{"t":"38"}],\n  [{"t":"April"},{"t":"66"}],\n  [{"t":"May"},{"t":"80"}],\n  [{"t":"June"},{"t":"95"}]\n]}\n```'
+                                }
+                        ];
 
                 // 4. 逐个检查并创建缺失的文件（不覆盖已有文件；create 的 already exists 同上幂等处理）
                 for (const tpl of templates) {
@@ -121,6 +146,11 @@ export default class VtPlugin extends Plugin {
                                 }
                         }
                 }
+
+                // 5. 完成告示（含具体目录）
+                new Notice(lang === 'zh'
+                        ? `已将中文图表模板添加至模板文件夹「${templateFolder}」`
+                        : `English chart templates added to the templates folder "${templateFolder}"`);
         }
 
         /** 官方"加载失败"提示不带技术细节：onload 全量捕获，错误消息直达 Notice 供真机定位 */
@@ -167,7 +197,6 @@ export default class VtPlugin extends Plugin {
                         await this.saveSettings();
                 }
                 setUiLang(this.settings.uiLang);
-                await this.ensureTemplates();
 
 
                 this.addCommand({
@@ -231,6 +260,34 @@ export default class VtPlugin extends Plugin {
                                                 name: c.name,
                                                 run: () => (this.app.commands as unknown as { executeCommandById: (id: string) => void }).executeCommandById(cmdId),
                                         };
+                                },
+                                // 图表表格右下角小按钮：点击直接转换（与"转换为图表"命令等效，无需跳出表格）
+                                (elHost) => {
+                                        const ed = this.activeEditor();
+                                        if (!ed) {
+                                                new Notice(t('当前没有可用的编辑器', 'No active editor'));
+                                                return;
+                                        }
+                                        // 一律以按钮宿主表格为准（光标可能停留在上一个转换过的表格里，
+                                        // 按光标找块会转错表）：定位宿主 section 里的 vtable 块，把光标送进再转换
+                                        let anchor = -1;
+                                        const info = ctx.getSectionInfo(elHost);
+                                        if (info) {
+                                                for (let ln = info.lineStart; ln <= info.lineEnd; ln++) {
+                                                        if (/^```vtable\s*$/.test(ed.getLine(ln).trim())) {
+                                                                anchor = ln;
+                                                                break;
+                                                        }
+                                                }
+                                        }
+                                        if (anchor >= 0) {
+                                                ed.setCursor({ line: anchor + 1, ch: 0 });
+                                        } else if (!findVtableBlock(ed)) {
+                                                // 宿主 section 定位失败（罕见）：退回光标语义
+                                                new Notice(t('未找到可转换的图表 vtable 模板', 'No chart vtable template found'));
+                                                return;
+                                        }
+                                        this.vtableToChart(ed);
                                 },
                         );
                         // 阅读模式：渲染完成后缓存 section 行号（勾选等写回用；阅读模式下 CM 定位不可用）
@@ -966,6 +1023,9 @@ class VtSettingTab extends PluginSettingTab {
                 containerEl.empty();
                 new Setting(containerEl).setName(t('vtable 设置', 'vtable Settings')).setHeading();
 
+                // 面板开头/结尾的双语文档链接（GitHub README 中文版 + 英文版）
+                addDocLinks(containerEl);
+
                 // ===== 界面语言（默认中文）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
                 new Setting(containerEl)
                         .setName(t('界面语言', 'UI language'))
@@ -979,6 +1039,21 @@ class VtSettingTab extends PluginSettingTab {
                                         await this.plugin.saveSettings();
                                         this.plugin.toolbar.rebuild();
                                         this.display();
+                                }));
+
+                // 图表模板按需添加：两个语言按钮固定显示（文案不随界面语言切换）
+                new Setting(containerEl)
+                        .setName(t('图表模板', 'Chart templates'))
+                        .setDesc(t('把对应语言的图表模板（柱状图/饼图/折线图）添加到模板文件夹，写入检测到的模板目录。', 'Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.'))
+                        .addButton(b => b
+                                .setButtonText('+中文图表模板')
+                                .onClick(() => {
+                                        this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                                }))
+                        .addButton(b => b
+                                .setButtonText('+英文图表模板')
+                                .onClick(() => {
+                                        this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
                                 }));
 
                 // 英文模式：浮窗按钮为 ≤2 字符缩写，给出对照说明行
@@ -1014,6 +1089,37 @@ class VtSettingTab extends PluginSettingTab {
                                 .setValue(this.plugin.settings.enableModeSwitcher)
                                 .onChange(async (value) => {
                                         this.plugin.settings.enableModeSwitcher = value;
+                                        await this.plugin.saveSettings();
+                                }));
+
+                // ===== 把手类交互开关：新渲染的表格生效（填充柄额外在同步点即时隐藏） =====
+                new Setting(containerEl)
+                        .setName(t('自动填充柄', 'Auto fill handle'))
+                        .setDesc(t('选中单元格时在右下角显示填充柄，拖拽可复制或按序列填充相邻单元格（桌面端专属）。', 'Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).'))
+                        .addToggle(t => t
+                                .setValue(this.plugin.settings.enableFillHandle)
+                                .onChange(async (value) => {
+                                        this.plugin.settings.enableFillHandle = value;
+                                        await this.plugin.saveSettings();
+                                }));
+
+                new Setting(containerEl)
+                        .setName(t('RC 整体缩放把手', 'RC whole-table scaling handle'))
+                        .setDesc(t('RC 模式下在表格右下角显示缩放把手，拖拽可整体拉伸所有行高列宽。', 'In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.'))
+                        .addToggle(t => t
+                                .setValue(this.plugin.settings.enableRcScale)
+                                .onChange(async (value) => {
+                                        this.plugin.settings.enableRcScale = value;
+                                        await this.plugin.saveSettings();
+                                }));
+
+                new Setting(containerEl)
+                        .setName(t('图片缩放柄', 'Image resize handle'))
+                        .setDesc(t('编辑时在嵌入图片旁显示 L 形拖柄，拖拽调整图片宽度（写回 |数字 尺寸语法）。', 'Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).'))
+                        .addToggle(t => t
+                                .setValue(this.plugin.settings.enableImgResize)
+                                .onChange(async (value) => {
+                                        this.plugin.settings.enableImgResize = value;
                                         await this.plugin.saveSettings();
                                 }));
 
@@ -1261,7 +1367,19 @@ class VtSettingTab extends PluginSettingTab {
                         ),
                 });
                 help.createEl('a', { text: 'README', href: `${REPO_URL}#right-click-menu` }).setAttribute('target', '_blank');
+
+                // 面板结尾的双语文档链接（与开头同一套）
+                addDocLinks(containerEl);
         }
+}
+
+/** 设置面板开头/结尾的双语文档链接（GitHub README 中文版 + 英文版） */
+function addDocLinks(host: HTMLElement) {
+        const row = host.createDiv({ cls: 'vt-setting-hint' });
+        row.createSpan({ text: t('使用文档：', 'Documentation: ') });
+        row.createEl('a', { text: t('中文文档', 'Chinese documentation'), href: `${REPO_URL}/blob/main/README_CN.md` });
+        row.createSpan({ text: ' | ' });
+        row.createEl('a', { text: t('英文文档', 'English documentation'), href: `${REPO_URL}/blob/main/README.md` });
 }
 
 /** 从光标所在行出发，判断是否处于原始 HTML 表格内，若是则返回 <table>...</table> 的完整行范围 */

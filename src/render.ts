@@ -238,10 +238,13 @@ let pendingFocusRestore: {
         caretAtEnd: boolean;
         /** 恢复时把光标放到此字符偏移处（bug2：插入行列后光标留在原位置）；null = 走 caretAtEnd 逻辑 */
         textOffset?: number | null;
-        /** 创建表格的自动聚焦：请求有效期（防重复消费与过期重挂） */
+        /** 创建表格的自动聚焦：有效期（防重复消费与过期重挂） */
         expires?: number;
         /** 创建表格的自动聚焦：目标代码块源文本（多表文档里只有匹配的块可消费此请求） */
         expectSource?: string;
+        /** 创建表格的自动聚焦：请求发出时刻。源文本可能撞车（新建空表与文档中同内容表格
+         *  源文本完全相同，expectSource 区分不了）——只有"请求发出后完成构建"的表格才可消费 */
+        createdAt?: number;
 } | null = null;
 
 /** 提交后恢复选区（批量操作后 re-render 时使用）；host 保证只作用于原表格 */
@@ -285,9 +288,11 @@ export function noteScrollAnchor(el: HTMLElement) {
 }
 
 /** 预约下一次渲染的 vtable 自动聚焦到指定单元格（用于「创建 vtable」后直接进入 A1 编辑）。
- *  expectSource：创建命令传入新代码块源文本——多表文档里其它 vtable 重渲染时不得偷走此请求 */
+ *  expectSource：创建命令传入新代码块源文本——多表文档里其它 vtable 重渲染时不得偷走此请求。
+ *  createdAt：同源撞车防线——新建表源文本固定，文档中已存在的同内容表格（如此前创建的空表）
+ *  会与其源文本完全相同；只有请求发出之后构建的表格才允许消费，创建前渲染过的旧表一律不认 */
 export function requestInitialFocus(r: number, c: number, expectSource?: string) {
-        pendingFocusRestore = { r, c, caretAtEnd: false, expires: Date.now() + 2500, expectSource };
+        pendingFocusRestore = { r, c, caretAtEnd: false, expires: Date.now() + 2500, expectSource, createdAt: Date.now() };
         startFocusPoll();
 }
 
@@ -295,10 +300,19 @@ export function requestInitialFocus(r: number, c: number, expectSource?: string)
  *  renderBlock 内的消费路径有时序盲区：CM 渲染 code block 时可能重建 widget（连渲两轮），
  *  第一轮消费请求后其 DOM 被丢弃——"挂回"依赖下一次 renderBlock，但 widget 重建不重跑
  *  markdown processor，请求会挂到过期（症状：创建后光标一直停在表格上方）。
- *  轮询器不依赖 renderBlock 再次执行：每 100ms 检查"最新完成构建的表格"（含 widget 重建
- *  后的最终 DOM），就绪即聚焦。不变量：pendingFocusRestore 挂着 = 聚焦任务未完成。 */
-let latestRenderSource = '';
-let latestFocusRunner: ((r: number, c: number, caretAtEnd: boolean, textOffset: number | null) => boolean) | null = null;
+ *  轮询器不依赖 renderBlock 再次执行：检查"构建登记表"里源匹配且在请求发出后构建的表格，
+ *  就绪即聚焦。不变量：pendingFocusRestore 挂着 = 聚焦任务未完成。
+ *  为什么登记表而非"最新一张"（latest）：同源撞车——新建空表源文本固定，下方已存在的
+ *  同内容表格若渲染得更晚，"最新"就会被它冒领，光标跳进别的表格；改取"请求后构建的
+ *  同源表格中最早构建者"（新插入块所在 section 最先重渲，几乎必然先于下方表格）。 */
+type FocusRunnerEntry = {
+        source: string;
+        /** 该表格 renderBlock 开始构建的时刻（>= 请求 createdAt 才有资格消费创建请求） */
+        buildAt: number;
+        runner: (r: number, c: number, caretAtEnd: boolean, textOffset: number | null) => boolean;
+};
+const focusRunnerLog: FocusRunnerEntry[] = [];
+const FOCUS_RUNNER_LOG_MAX = 12;
 let focusPollTimer: number | null = null;
 
 function startFocusPoll() {
@@ -309,10 +323,16 @@ function startFocusPoll() {
                         if (focusPollTimer !== null) { window.clearInterval(focusPollTimer); focusPollTimer = null; }
                         return;
                 }
-                if (req.expectSource === undefined
-                        || latestRenderSource !== req.expectSource
-                        || !latestFocusRunner) return;
-                if (latestFocusRunner(req.r, req.c, req.caretAtEnd, req.textOffset ?? null)) {
+                if (req.expectSource === undefined) return;
+                // 同源撞车防线：创建请求只认"请求发出后构建"的同源表格；多张匹配取最早构建者
+                let cand: FocusRunnerEntry | null = null;
+                for (const ent of focusRunnerLog) {
+                        if (ent.source !== req.expectSource) continue;
+                        if (req.createdAt !== undefined && ent.buildAt < req.createdAt) continue;
+                        if (!cand || ent.buildAt < cand.buildAt) cand = ent;
+                }
+                if (!cand) return;
+                if (cand.runner(req.r, req.c, req.caretAtEnd, req.textOffset ?? null)) {
                         pendingFocusRestore = null;
                         if (focusPollTimer !== null) { window.clearInterval(focusPollTimer); focusPollTimer = null; }
                 }
@@ -375,7 +395,10 @@ export function renderBlock(
         onPickColor: (initial: string, cb: (color: string | null) => void) => void,
         onOpenLink: (linkText: string) => void,
         obsidianCommand: (cmdId: string) => { name: string; run: () => void } | null,
+        onConvertToChart: (elHost: HTMLElement) => void,
 ) {
+        // 本轮构建开始时刻：创建请求消费校验用它区分"请求前已存在的表格"与"请求后新构建的表格"
+        const renderStart = Date.now();
         preserveVisualSnapshot(el);
         el.empty();
         el.classList.add('vtable-container');
@@ -387,8 +410,72 @@ export function renderBlock(
 
         const data = parseSource(source);
         const grid = data.rows;
+
         const modeBar = new ModeSwitcher(el);
         const wrap = el.createDiv({ cls: 'vt-table-wrap' });
+
+        // 图表模板检测（需求 2026-10-17）：首行任一列出现 vbarchart / vline / vpie（数量不限）
+        // → 表格外右下角贴"转换为图表"小按钮（仅图标），点击等效转换命令但无需跳出表格。
+        // 按钮挂 document.body + fixed（照 edge-bar 先例：el 内 absolute/fixed 会被
+        // .cm-embed-block 的 overflow/contain 裁剪——按钮"从未出现"同源根因）；rAF 轮询同步位置。
+        const hasChartHeader = (grid[0] ?? []).some(
+                (c) => (c?.t ?? '').trim() === 'vbarchart' || (c?.t ?? '').trim() === 'vline' || (c?.t ?? '').trim() === 'vpie',
+        );
+        if (hasChartHeader) {
+                const chartUid = `u${Math.random().toString(36).slice(2, 10)}`;
+                el.dataset.vtChartUid = chartUid;
+                const chartBtn = document.body.createDiv({ cls: 'vt-chart-btn' });
+                chartBtn.dataset.vtUid = chartUid;
+                chartBtn.setAttribute('aria-label', t('转换为图表', 'Convert to chart'));
+                setIcon(chartBtn, 'bar-chart-3');
+                chartBtn.addEventListener('click', (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        onConvertToChart(el);
+                });
+                const placeChartBtn = () => {
+                        const wr = wrap.getBoundingClientRect();
+                        // 表格完全离开视口（上下滑动滚出）→ 隐藏；回到视口内 → 恢复常显
+                        const offscreen = wr.bottom < -4 || wr.top > window.innerHeight + 4 || wr.right < -4 || wr.left > window.innerWidth + 4;
+                        chartBtn.classList.toggle('vt-chart-hidden', offscreen);
+                        if (offscreen) return;
+                        // 钳进文档区（编辑器滚动容器 rect，同 drag.ts 把手钳制基准），不贴 app 顶/底栏
+                        const scroller = el.closest<HTMLElement>('.cm-scroller');
+                        const docTop = scroller ? scroller.getBoundingClientRect().top : 0;
+                        const docBottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
+                        // 右下角外贴 6px；贴近视口边缘时内收，保证可点
+                        chartBtn.style.left = `${Math.round(Math.min(wr.right + 6, window.innerWidth - 32))}px`;
+                        chartBtn.style.top = `${Math.round(Math.min(Math.max(wr.bottom - 26, docTop), docBottom - 28))}px`;
+                };
+                let disconnectedFrames = 0;
+                const chartTick = () => {
+                        // 宿主被新渲染替换（新渲染设了新 uid）→ 旧按钮销毁、链终止（新按钮有自己的链）
+                        if (chartBtn.dataset.vtUid !== (el.dataset.vtChartUid ?? '')) {
+                                chartBtn.remove();
+                                return;
+                        }
+                        window.requestAnimationFrame(chartTick);
+                        if (!el.isConnected) {
+                                // 宿主短暂脱离（重渲染/CM 装饰重建/滚动）→ 只隐藏待复活，不删；
+                                // 超约 10s 视为真销毁，链终止
+                                chartBtn.classList.add('vt-chart-hidden');
+                                disconnectedFrames++;
+                                if (disconnectedFrames > 600) {
+                                        chartBtn.remove();
+                                        return;
+                                }
+                                return;
+                        }
+                        disconnectedFrames = 0;
+                        // 自愈：宿主存活而按钮不在 DOM（曾被脱离期清理/外部移除）→ 挂回。
+                        // 转换一张表会 replaceRange 使其它表行号位移、CM 重建装饰，
+                        // 全文档按钮都靠这条自愈保活
+                        if (!chartBtn.isConnected) document.body.appendChild(chartBtn);
+                        placeChartBtn();
+                };
+                window.requestAnimationFrame(chartTick);
+        }
+
         const table = wrap.createEl('table', { cls: 'vt' });
         const tbody = table.createEl('tbody');
         const hsBar = el.createDiv({ cls: 'vt-hs-bar' });
@@ -521,7 +608,7 @@ export function renderBlock(
                         // 未离焦就拖把手：正在编辑格的内容还在 DOM 没回 grid，不 flush 会被 serialize 回滚成旧值（内容"消失"）
                         flushActiveCell();
                         onCommit(serialize(data));
-                });
+                }, settings.enableRcScale);
                 // 行列自由拖动把手（编辑态全模式；把手悬浮挂 body，不依赖 rc-overlay）
                 bindRowColDrag(table, data, wrap, editing, {
                         getFocused: () => ({ r: focusedR, c: focusedC }),
@@ -762,8 +849,8 @@ export function renderBlock(
                 renderSel();
         };
 
-        // 自动填充（桌面端专属；移动端不创建）
-        let fillHandle: FillHandle | null = (Platform.isMobile || Platform.isTablet)
+        // 自动填充（桌面端专属；移动端不创建；设置关闭时不创建，已显示的在下方 sync 点即时隐藏）
+        let fillHandle: FillHandle | null = (!settings.enableFillHandle || Platform.isMobile || Platform.isTablet)
                 ? null
                 : new FillHandle({
                         cellTd: (r, c) => cellMap[r]?.[c] ?? null,
@@ -782,9 +869,11 @@ export function renderBlock(
                                 clearSelection(); // 用户约定：批量操作完成后选框不残留
                         },
                 });
-        // 填充柄同步：单格选区（含退化聚焦格）显示柄，其余隐藏；斜分格不参与填充
+        // 填充柄同步：单格选区（含退化聚焦格）显示柄，其余隐藏；斜分格不参与填充；
+        // 设置关闭 → 即时隐藏（渲染中表格无需重渲染）
         const syncFillHandle = () => {
                 if (!fillHandle) return;
+                if (!settings.enableFillHandle) { fillHandle.hide(); return; }
                 let a: { r: number; c: number } | null = null;
                 if (selRects.length === 1 && selRects[0].r1 === selRects[0].r2
                         && selRects[0].c1 === selRects[0].c2) {
@@ -800,6 +889,13 @@ export function renderBlock(
                 if (a) fillHandle.showAt(a.r, a.c);
                 else fillHandle.hide();
         };
+
+        // 老 bug：刚进入表格的瞬时重渲染会让填充柄首次定位扑空（td rect 未就绪），
+        // 且焦点不再变化就不会重新 sync → 柄一直不出现。进入格子的瞬间延迟两帧重放一次
+        // sync（等布局稳定后柄必现）；showAt/hide 自带拖动护栏，重放幂等
+        table.addEventListener('focusin', () => {
+                window.requestAnimationFrame(() => window.requestAnimationFrame(syncFillHandle));
+        });
 
         // 点击表格之外（编辑器正文/侧栏/标签页/任何位置）→ 强制清光所有浮在页面上的东西：
         // 选框 + 浮动工具条。仅表格自身与它挂的 UI（工具条/菜单/弹窗/拖动把手/拖影）除外。
@@ -1602,6 +1698,7 @@ export function renderBlock(
                         const wysiwygCtx: WysiwygCtx = {
                                 sourcePath,
                                 resolveImage,
+                                imgResizeEnabled: settings.enableImgResize,
                                 onTodoToggle: onTodoToggle(r, c),
                                 onOpenLink: handleOpenLink,
                                 onMdGridPaste: (r0, c0, rows) => { pasteGridRows(r0, c0, rows, false); clearSelection(); },
@@ -1923,7 +2020,7 @@ export function renderBlock(
         });
 
         applyModeStyles(wrap, table, data, hsBar);
-        bindRcResizeHandles(table, data, false, () => {});
+        bindRcResizeHandles(table, data, false, () => {}, settings.enableRcScale);
         scheduleMathRender(table);
 
         // 任务7：表头底色。第一行存在纵向合并（rs>1）→ 底色停用并提示；拆分后恢复再提示
@@ -2029,23 +2126,36 @@ export function renderBlock(
                 window.requestAnimationFrame(bringBack);
                 window.setTimeout(bringBack, 250);
         };
-        latestRenderSource = source;
-        latestFocusRunner = (r, c, caretAtEnd, textOffset) => {
-                const td = cellMap[r]?.[c];
-                if (!td || !td.isConnected) return false;
-                if (document.activeElement !== td) {
-                        if (!focusCell(r, c, caretAtEnd, textOffset)) return false;
-                        if (document.activeElement !== td) return false;
-                }
-                finishInitialFocus(r, c);
-                return true;
-        };
+        // 构建登记：轮询器从中选"源匹配且请求后构建"的表格（不再用"最新一张"——同源撞车时
+        // 下方旧表后渲染会冒领请求，光标跳进别的表格）
+        focusRunnerLog.push({
+                source,
+                buildAt: renderStart,
+                runner: (r, c, caretAtEnd, textOffset) => {
+                        const td = cellMap[r]?.[c];
+                        if (!td || !td.isConnected) return false;
+                        if (document.activeElement !== td) {
+                                if (!focusCell(r, c, caretAtEnd, textOffset)) return false;
+                                if (document.activeElement !== td) return false;
+                        }
+                        finishInitialFocus(r, c);
+                        return true;
+                },
+        });
+        if (focusRunnerLog.length > FOCUS_RUNNER_LOG_MAX) {
+                focusRunnerLog.splice(0, focusRunnerLog.length - FOCUS_RUNNER_LOG_MAX);
+        }
 
         if (pendingFocusRestore) {
                 const req = pendingFocusRestore;
                 // 创建请求带目标源文本：多表文档里其它块重渲染不得偷走（源不匹配 → 留给目标块）
                 if (req.expectSource !== undefined && source !== req.expectSource) {
                         // 不消费；但过期后清理，防泄漏
+                        if (req.expires !== undefined && Date.now() > req.expires) pendingFocusRestore = null;
+                } else if (req.createdAt !== undefined && renderStart < req.createdAt) {
+                        // 同源撞车防线：请求发出前就构建好的表格不得消费创建请求——
+                        // 新建空表源文本固定，下方已存在的同内容表格（源文本相同）重渲染到此处
+                        // 不得冒领（留给新插入的目标块）
                         if (req.expires !== undefined && Date.now() > req.expires) pendingFocusRestore = null;
                 } else {
                         pendingFocusRestore = null;

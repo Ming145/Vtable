@@ -206,12 +206,13 @@ export function bindRcResizeHandles(
         data: VtData,
         editing: boolean,
         onUpdate: () => void,
+        enabled = true,
 ) {
         const wrap = table.closest<HTMLElement>('.vt-table-wrap');
         if (!wrap) return;
 
         let overlay = wrap.querySelector<HTMLElement>('.vt-rc-overlay');
-        if (data.mode !== 'RC' || !editing) {
+        if (data.mode !== 'RC' || !editing || !enabled) {
                 overlay?.remove();
                 return;
         }

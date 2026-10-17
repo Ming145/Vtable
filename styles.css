@@ -233,7 +233,7 @@ table.vt-mode-rc td {
 /* 6 圆点 grip：竖排（行）/横排（列）各 6 点，稍浅稍小 */
 .vt-drag-grip {
         position: fixed;
-        z-index: 1000; /* body 直挂 + 弹层层级：低层级会被 Obsidian 编辑区内容遮挡（"把手/加号被裁掉一部分"的观感） */
+        z-index: 50; /* body 直挂：压过编辑区内容（DOM 靠后+此保险）；须低于 Obsidian 菜单/模态层级——此前 1000 会遮住右键菜单/设置面板 */
         pointer-events: auto;
         cursor: grab;
         touch-action: none;
@@ -1004,7 +1004,7 @@ table.vt td.vt-diag {
         pointer-events: none;
         cursor: pointer;
         transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-        z-index: 1000; /* body 直挂 + 弹层层级：免疫容器裁剪与内容遮挡（同 .vt-drag-grip），低于 Obsidian 模态 */
+        z-index: 50; /* body 直挂：压过编辑区内容；低于 Obsidian 菜单/模态——此前 1000 会遮住右键菜单/设置面板 */
 }
 
 .vt-edge-bar.vt-edge-row { height: 16px; }
@@ -1249,4 +1249,38 @@ table.vt td.vt-diag {
         width: 20px;
         height: 20px;
         pointer-events: none;
+}
+
+/* 图表表格右下角"转换为图表"小按钮（仅图标）：表格外右下角贴边，点击等效转换命令 */
+/* body 直挂 + fixed：免疫 Obsidian 代码块容器（.cm-embed-block）overflow/contain 裁剪（edge-bar 同案先例） */
+.vt-chart-btn {
+        position: fixed;
+        width: 26px;
+        height: 26px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        color: var(--text-muted, #888);
+        background: var(--background-secondary, #f2f3f5);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+        cursor: pointer;
+        opacity: 0.75;
+        transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+        z-index: 50; /* body 直挂：压过编辑区内容；低于 Obsidian 菜单/模态——此前 1000 会遮住菜单/设置面板 */
+}
+
+.vt-chart-btn:hover {
+        opacity: 1;
+        color: var(--text-accent, #4c7ef3);
+        background: var(--background-secondary-alt, #e8eaed);
+}
+
+.vt-chart-btn svg {
+        width: 16px;
+        height: 16px;
+}
+
+.vt-chart-btn.vt-chart-hidden {
+	display: none;
 }

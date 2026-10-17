@@ -29,6 +29,8 @@ import { parseTrustedHtml } from './html';
 export interface WysiwygCtx {
         sourcePath: string;
         resolveImage: (linkText: string) => string | null;
+        /** 图片缩放柄开关（设置项）：关闭时嵌入图片不挂 L 形拖柄 */
+        imgResizeEnabled?: boolean;
         onTodoToggle?: (idx: number, checked: boolean) => void;
         onOpenLink?: (linkText: string) => void;
         /** 复用 render.ts 的渲染 pass（renderInlineCode/renderMarkdown/renderImages/renderWikiLinks/renderTodos） */
@@ -329,7 +331,7 @@ function renderSegContent(el: HTMLElement, seg: Seg, ctx: WysiwygCtx): void {
                 case 'void-img':
                         el.replaceChildren(...parseTrustedHtml(seg.raw).childNodes);
                         ctx.renderPasses(el, ctx);
-                        attachImgResize(el);
+                        if (ctx.imgResizeEnabled !== false) attachImgResize(el);
                         break;
                 case 'fence': {
                         const body = seg.raw.replace(/^```[^\n]*\n?/, '').replace(/```\s*$/, '');
@@ -821,6 +823,9 @@ interface TdState {
         /** 删除前快照：keydown Backspace/Delete 时记录"光标所在行是否有字"。
          *  beforeinput 派发时 DOM 已是删后状态（Chromium 实测），“删前行有字”只能在这里拿 */
         delHasText?: boolean;
+        /** 删除前快照：光标行只有空白字符（空格等）但并非真空行——空格删光同属"删光一行内容"，
+         *  内核同样补尾占位 <br> 出假行；但 segHasText 把空白行判"无字"，不补这个状态就不置折叠位 */
+        delHadBlankOnly?: boolean;
 }
 
 const tdStates = new WeakMap<HTMLElement, TdState>();
@@ -889,6 +894,8 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                 if (e.key === 'Backspace' || e.key === 'Delete') {
                         const off = caretSourceOffset(td) ?? st.lastCaret;
                         st.delHasText = segHasText(projectSource(td), off);
+                        // 空格行（行内有空白字符但无正文，真空行不算）：删光空格同样触发内核补尾占位出假行
+                        st.delHadBlankOnly = segIsBlankOnly(projectSource(td), off);
                 }
         });
 
@@ -1079,11 +1086,13 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                                 }
                         }
                         // 假行折叠置位：正常 Backspace/Delete 走 keydown 快照（删前行有字才置）；
-                        // 剪切/拖拽删除无 keydown 快照，硬置位——rebuild 折叠判定兜底
-                        //（光标行仍有字→原样，不会误吞）。删空行（删前行无字）不置位，避免误吞合法空行
-                        if (st.delHasText || ie.inputType === 'deleteByCut' || ie.inputType === 'deleteByDrag') {
+                        // 空格行（删前行只有空白）同属"删光一行内容"，一并置位——rebuild 折叠判定
+                        // 仍以"删后光标行无字"为准，不会误吞。剪切片/拖拽删除无 keydown 快照，硬置位。
+                        // 真空行（删前行完全无字符）不置位，避免误吞合法空行
+                        if (st.delHasText || st.delHadBlankOnly || ie.inputType === 'deleteByCut' || ie.inputType === 'deleteByDrag') {
                                 pendingCollapse = 'del';
                                 st.delHasText = false;
+                                st.delHadBlankOnly = false;
                         }
                         // 跨行删除折回识别（2026-10-09 用户报：块+换行，次行行首 Backspace 删换行，
                         // 光标应落块后缘，实际落块内源码 *123|*）：删 br 后 Chromium 把光标折进前一
@@ -1139,6 +1148,26 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                                                         programEdit(td, st, at, at, '<br>');
                                                         return;
                                                 }
+                                        }
+                                }
+                        }
+                        // Chromium 哑火变体（2026-10-12 用户真机实锤，Playwright 定位）：光标紧贴行末渲染块后缘
+                        // 按 Enter，Chromium 静默哑火并把选区重置到块后的尾锚点段（nbsp）内 —— 此时
+                        // locateStart 读到的是 src 段（view=src），上面的接管判定（只认 view=render）漏掉，
+                        // 换行静默丢失（真机表象="跳一下又回去"，rebuild 后原样弹回）。
+                        // 锚点段是"块后有内容哨兵"的占位：它紧跟渲染段时，其内 Enter 的语义 = 块后缘换行 → 同样接管。
+                        // （不破坏末尾空行连加：连续加行后锚点段的前一个节点是 <br> 而非渲染段，不满足条件）
+                        {
+                                const lastN = td.lastChild;
+                                if (lastN != null && lastN.instanceOf(HTMLElement)
+                                        && lastN.classList.contains(SEG_CLS) && lastN.dataset.view === 'src' && lastN.dataset.src === '') {
+                                        const prevN = lastN.previousSibling;
+                                        if (prevN != null && prevN.instanceOf(HTMLElement)
+                                                && prevN.classList.contains(SEG_CLS) && prevN.dataset.view === 'render') {
+                                                const eAt = parseInt(prevN.dataset.e ?? '0', 10);
+                                                e.preventDefault();
+                                                programEdit(td, st, eAt, eAt, '<br>');
+                                                return;
                                         }
                                 }
                         }
@@ -1331,6 +1360,25 @@ export function segHasText(t: string, off: number): boolean {
         return /[^\s\u00A0]/i.test(parts[parts.length - 1]);
 }
 
+/** 光标偏移所在段是否"只有空白字符"（空格等，用户可输入的占位内容）。
+ *  与 segHasText 的差别：segHasText 把纯空白行判"无字"（锚点 nbsp 占位也排除），
+ *  本函数把"空格行"识别出来——空格删光与正文删光同样触发内核补尾占位（假行），
+ *  但真空行（nbsp 占位/完全空）不算，避免误吞合法空行 */
+export function segIsBlankOnly(t: string, off: number): boolean {
+        const parts = t.split(/<br>/i);
+        let acc = 0;
+        const check = (line: string): boolean => {
+                const withoutNbsp = line.replace(/\u00A0/g, ''); // 锚点占位 nbsp 不算用户输入的空白
+                return withoutNbsp.length > 0 && !/[^\s]/.test(withoutNbsp);
+        };
+        for (let i = 0; i < parts.length; i++) {
+                const segEnd = acc + parts[i].length;
+                if (off <= segEnd) return check(parts[i]);
+                acc = segEnd + 4;
+        }
+        return check(parts[parts.length - 1]);
+}
+
 /** 删光折叠：删除后光标所在行无字（该行刚被删光）→ 清掉内核补的尾占位。
  *  - td 已无正文、只剩换行残留 → 全清（空格子态）
  *  - 末行删光后内核补占位（尾连续 ≥2 个 <br>）→ 删掉最靠后的一个（连同分隔空格）
@@ -1457,7 +1505,11 @@ function rebuild(td: HTMLElement, st: TdState, caretOff: number): void {
                 // 光标落在渲染段内部 → 立即切源码（稳定态：光标所在段为源码）；
                 // 贴段外边缘不切（settleCaretAfterEdit 统一判定，光标无感原则）；
                 // 快照落在渲染段内 → 块内留存（切源码映射进段），杜绝"块内删改→光标跳出"
-                settleCaretAfterEdit(td, st, st.queuedCaret);
+                // settle 判定实参必须=刚放置的光标位（caretOff）：scheduleRebuild 链内两者
+                // 同值行为不变；direct rebuild（点击离开源码段，caretOff=点击处）若用残留的
+                // queuedCaret（上次块内编辑的快照）判定，会把光标拉回块内并切源码——表现为
+                // "块内按过一次删除后，光标永远无法点到块外（点一下弹回）"（2026-10-14 用户真机实锤）
+                settleCaretAfterEdit(td, st, caretOff);
         } finally {
                 st.editing = false;
         }
