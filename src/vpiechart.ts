@@ -4,25 +4,19 @@
  */
 
 import type { Grid } from './builder';
-
-const HEADER_VARIANTS: string[][] = [['vpie'], ['标题', 'Title']];
+import { isChartTitle } from './chart-labels';
 
 export function generatePieChart(grid: Grid): string | null {
         if (grid.length < 3) return null;
+        // 类型标记已由 detectChartType 判定；标题行按内容识别（Row 1，中英兼容）
+        if ((grid[0]?.[0]?.t?.trim() ?? '') !== 'vpie') return null;
 
-        let headerIdx = 0;
-        for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS.length; i++) {
-                const cellText = grid[i]?.[0]?.t?.trim() ?? '';
-                if (!HEADER_VARIANTS[headerIdx].includes(cellText)) return null;
-                headerIdx++;
-        }
-        if (headerIdx < HEADER_VARIANTS.length) return null;
-
-        const title = grid[1]?.[1]?.t?.trim() ?? '';
+        const title = isChartTitle(grid[1]?.[0]?.t?.trim() ?? '') ? (grid[1]?.[1]?.t?.trim() ?? '') : '';
 
         const data: Array<{ label: string; value: number }> = [];
-        for (let i = 2; i < grid.length; i++) {
+        for (let i = 1; i < grid.length; i++) {
                 const label = grid[i]?.[0]?.t?.trim();
+                if (isChartTitle(label ?? '')) continue; // 标题行跳过
                 const valStr = grid[i]?.[1]?.t?.trim();
                 if (!label || !valStr) continue;
                 if (/^…+/.test(label)) continue;

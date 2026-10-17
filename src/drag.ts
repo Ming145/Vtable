@@ -93,7 +93,7 @@ export function bindRowColDrag(
                 return (c >= cols ? tableRect().width : colX(c + 1)) - colX(c);
         }
 
-        /* ===== 把手（挂 body，fixed 悬浮表格边缘外——同加号按钮模式） ===== */
+        /* ===== 把手（挂 body 末尾，fixed 悬浮表格边缘外——同加号按钮模式） ===== */
         const doc = document.body;
         const rowGrips: HTMLElement[] = rows.map((tr, r) => {
                 const g = doc.createDiv({ cls: 'vt-drag-grip vt-drag-row' });

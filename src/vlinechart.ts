@@ -4,8 +4,7 @@
  */
 
 import type { Grid } from './builder';
-
-const HEADER_VARIANTS: string[][] = [['vline'], ['标题', 'Title'], ['x范围', 'x range'], ['x'], ['y范围', 'y range'], ['y']];
+import { isChartTitle, isChartYRange } from './chart-labels';
 
 function escapeXml(s: string): string {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -13,32 +12,30 @@ function escapeXml(s: string): string {
 
 export function generateLineChart(grid: Grid): string | null {
         if (grid.length < 7) return null;
+        // 类型标记已由 detectChartType 判定；配置行按内容识别（位置无关），x范围 行可省略
+        if ((grid[0]?.[0]?.t?.trim() ?? '') !== 'vline') return null;
 
-        let headerIdx = 0;
-        for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS.length; i++) {
-                const cellText = grid[i]?.[0]?.t?.trim() ?? '';
-                if (cellText === 'v%') continue;
-                if (!HEADER_VARIANTS[headerIdx].includes(cellText)) return null;
-                headerIdx++;
+        let title = '', xLabel = '', yLabel = '', yRangeRaw = '';
+        for (let i = 0; i < grid.length; i++) {
+                const a = grid[i]?.[0]?.t?.trim() ?? '';
+                const b = grid[i]?.[1]?.t?.trim() ?? '';
+                if (isChartTitle(a)) title = b;
+                else if (a === 'x') xLabel = b;
+                else if (isChartYRange(a)) yRangeRaw = b;
+                else if (a === 'y') yLabel = b;
         }
-        if (headerIdx < HEADER_VARIANTS.length) return null;
-
-        const get = (idx: number) => grid[idx]?.[1]?.t?.trim() ?? '';
-        const title = get(1);
-        const xLabel = get(3);
-        const yLabel = get(5);
 
         let yMax = 100;
-        const yRangeRaw = get(4);
         const yMatch = yRangeRaw.match(/([\d.]+)\s*-\s*([\d.]+)/);
         if (yMatch) yMax = parseFloat(yMatch[2]);
 
-        // 收集数据行
+        // 收集数据行（关键词排除，v% 位置不限）
         const data: Array<{ label: string; value: number }> = [];
-        for (let i = 6; i < grid.length; i++) {
+        for (let i = 1; i < grid.length; i++) {
                 const label = grid[i]?.[0]?.t?.trim();
                 const valStr = grid[i]?.[1]?.t?.trim();
                 if (!label || !valStr) continue;
+                if (isChartTitle(label) || label === 'x' || isChartYRange(label) || label === 'y' || label === 'v%' || label === 'vline') continue;
                 if (/^…+/.test(label)) continue;
                 const value = parseFloat(valStr.replace(/[^0-9.-]/g, ''));
                 if (isNaN(value)) continue;

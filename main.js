@@ -7478,23 +7478,13 @@ function isChartPercentOn(t2) {
 }
 
 // src/vbarchart.ts
-var HEADER_VARIANTS = [["vbarchart"], ["\u6807\u9898", "Title"], ["x\u8303\u56F4", "x range"], ["x"], ["y\u8303\u56F4", "y range"], ["y"]];
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function generateBarChart(grid) {
   if (grid.length < 7)
     return null;
-  let headerIdx = 0;
-  for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS.length; i++) {
-    const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-    if (cellText === "v%")
-      continue;
-    if (!HEADER_VARIANTS[headerIdx].includes(cellText))
-      return null;
-    headerIdx++;
-  }
-  if (headerIdx < HEADER_VARIANTS.length)
+  if ((grid[0]?.[0]?.t?.trim() ?? "") !== "vbarchart")
     return null;
   let title = "", xLabel = "", yLabel = "", yRangeRaw = "", vPercent = "";
   for (let i = 0; i < grid.length; i++) {
@@ -7597,23 +7587,17 @@ function generateBarChart(grid) {
 }
 
 // src/vpiechart.ts
-var HEADER_VARIANTS2 = [["vpie"], ["\u6807\u9898", "Title"]];
 function generatePieChart(grid) {
   if (grid.length < 3)
     return null;
-  let headerIdx = 0;
-  for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS2.length; i++) {
-    const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-    if (!HEADER_VARIANTS2[headerIdx].includes(cellText))
-      return null;
-    headerIdx++;
-  }
-  if (headerIdx < HEADER_VARIANTS2.length)
+  if ((grid[0]?.[0]?.t?.trim() ?? "") !== "vpie")
     return null;
-  const title = grid[1]?.[1]?.t?.trim() ?? "";
+  const title = isChartTitle(grid[1]?.[0]?.t?.trim() ?? "") ? grid[1]?.[1]?.t?.trim() ?? "" : "";
   const data = [];
-  for (let i = 2; i < grid.length; i++) {
+  for (let i = 1; i < grid.length; i++) {
     const label = grid[i]?.[0]?.t?.trim();
+    if (isChartTitle(label ?? ""))
+      continue;
     const valStr = grid[i]?.[1]?.t?.trim();
     if (!label || !valStr)
       continue;
@@ -7639,38 +7623,38 @@ function generatePieChart(grid) {
 }
 
 // src/vlinechart.ts
-var HEADER_VARIANTS3 = [["vline"], ["\u6807\u9898", "Title"], ["x\u8303\u56F4", "x range"], ["x"], ["y\u8303\u56F4", "y range"], ["y"]];
 function escapeXml2(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function generateLineChart(grid) {
   if (grid.length < 7)
     return null;
-  let headerIdx = 0;
-  for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS3.length; i++) {
-    const cellText = grid[i]?.[0]?.t?.trim() ?? "";
-    if (cellText === "v%")
-      continue;
-    if (!HEADER_VARIANTS3[headerIdx].includes(cellText))
-      return null;
-    headerIdx++;
-  }
-  if (headerIdx < HEADER_VARIANTS3.length)
+  if ((grid[0]?.[0]?.t?.trim() ?? "") !== "vline")
     return null;
-  const get = (idx) => grid[idx]?.[1]?.t?.trim() ?? "";
-  const title = get(1);
-  const xLabel = get(3);
-  const yLabel = get(5);
+  let title = "", xLabel = "", yLabel = "", yRangeRaw = "";
+  for (let i = 0; i < grid.length; i++) {
+    const a = grid[i]?.[0]?.t?.trim() ?? "";
+    const b = grid[i]?.[1]?.t?.trim() ?? "";
+    if (isChartTitle(a))
+      title = b;
+    else if (a === "x")
+      xLabel = b;
+    else if (isChartYRange(a))
+      yRangeRaw = b;
+    else if (a === "y")
+      yLabel = b;
+  }
   let yMax = 100;
-  const yRangeRaw = get(4);
   const yMatch = yRangeRaw.match(/([\d.]+)\s*-\s*([\d.]+)/);
   if (yMatch)
     yMax = parseFloat(yMatch[2]);
   const data = [];
-  for (let i = 6; i < grid.length; i++) {
+  for (let i = 1; i < grid.length; i++) {
     const label = grid[i]?.[0]?.t?.trim();
     const valStr = grid[i]?.[1]?.t?.trim();
     if (!label || !valStr)
+      continue;
+    if (isChartTitle(label) || label === "x" || isChartYRange(label) || label === "y" || label === "v%" || label === "vline")
       continue;
     if (/^…+/.test(label))
       continue;

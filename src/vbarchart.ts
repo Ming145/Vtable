@@ -6,9 +6,6 @@
 import type { Grid } from './builder';
 import { isChartTitle, isChartXRange, isChartYRange, isChartPercentOn } from './chart-labels';
 
-// 表头按序匹配（中英模板兼容：标题/Title、x范围/x range、y范围/y range）
-const HEADER_VARIANTS: string[][] = [['vbarchart'], ['标题', 'Title'], ['x范围', 'x range'], ['x'], ['y范围', 'y range'], ['y']];
-
 function escapeXml(s: string): string {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -28,16 +25,9 @@ function escapeXml(s: string): string {
  */
 export function generateBarChart(grid: Grid): string | null {
         if (grid.length < 7) return null;
-
-        // 表头按序匹配；v% 行位置不限（末行/Row 2 等旧位置），校验时跳过
-        let headerIdx = 0;
-        for (let i = 0; i < grid.length && headerIdx < HEADER_VARIANTS.length; i++) {
-                const cellText = grid[i]?.[0]?.t?.trim() ?? '';
-                if (cellText === 'v%') continue;
-                if (!HEADER_VARIANTS[headerIdx].includes(cellText)) return null;
-                headerIdx++;
-        }
-        if (headerIdx < HEADER_VARIANTS.length) return null;
+        // 类型标记已由 detectChartType 判定；配置行按内容识别（位置/行序宽容），
+        // x范围 行可省略（解析本就忽略它），v% 行位置不限
+        if ((grid[0]?.[0]?.t?.trim() ?? '') !== 'vbarchart') return null;
 
         // 配置取值按行内容识别（位置无关）：新旧模板（v% 在 Row 2 或末行）通吃
         let title = '', xLabel = '', yLabel = '', yRangeRaw = '', vPercent = '';

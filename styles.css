@@ -233,7 +233,7 @@ table.vt-mode-rc td {
 /* 6 圆点 grip：竖排（行）/横排（列）各 6 点，稍浅稍小 */
 .vt-drag-grip {
         position: fixed;
-        z-index: 50; /* body 直挂：压过编辑区内容（DOM 靠后+此保险）；须低于 Obsidian 菜单/模态层级——此前 1000 会遮住右键菜单/设置面板 */
+        z-index: 1; /* body 末尾直挂：压过编辑区内容；实证最低可行层级（0/负会被工作区背景盖死） */
         pointer-events: auto;
         cursor: grab;
         touch-action: none;
@@ -988,7 +988,9 @@ table.vt td.vt-diag {
 /* ===== 任务11：边缘快捷加行/加列条（完全镂空，hover 底/右框线出现，点按末尾追加） ===== */
 
 .vt-edge-bar {
-        position: fixed; /* 挂 document.body：免疫 Obsidian 代码块容器（.cm-embed-block）的 overflow/contain 裁剪——el 内无论 fixed 还是 absolute 都会被裁（桌面条"从未出现"、iPad 条消失的根因） */
+        position: fixed;
+        z-index: 1; /* 同 .vt-drag-grip：实证最低可行层级 */
+        /* 挂 document.body：免疫 Obsidian 代码块容器（.cm-embed-block）的 overflow/contain 裁剪——el 内无论 fixed 还是 absolute 都会被裁（桌面条"从未出现"、iPad 条消失的根因） */
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1004,7 +1006,6 @@ table.vt td.vt-diag {
         pointer-events: none;
         cursor: pointer;
         transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-        z-index: 50; /* body 直挂：压过编辑区内容；低于 Obsidian 菜单/模态——此前 1000 会遮住右键菜单/设置面板 */
 }
 
 .vt-edge-bar.vt-edge-row { height: 16px; }
@@ -1255,6 +1256,7 @@ table.vt td.vt-diag {
 /* body 直挂 + fixed：免疫 Obsidian 代码块容器（.cm-embed-block）overflow/contain 裁剪（edge-bar 同案先例） */
 .vt-chart-btn {
         position: fixed;
+        z-index: 1; /* 同 .vt-drag-grip：实证最低可行层级 */
         width: 26px;
         height: 26px;
         display: flex;
@@ -1267,7 +1269,6 @@ table.vt td.vt-diag {
         cursor: pointer;
         opacity: 0.75;
         transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
-        z-index: 50; /* body 直挂：压过编辑区内容；低于 Obsidian 菜单/模态——此前 1000 会遮住菜单/设置面板 */
 }
 
 .vt-chart-btn:hover {
@@ -1282,5 +1283,5 @@ table.vt td.vt-diag {
 }
 
 .vt-chart-btn.vt-chart-hidden {
-	display: none;
+        display: none;
 }
