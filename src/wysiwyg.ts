@@ -1295,7 +1295,7 @@ function revealSeg(td: HTMLElement, st: TdState, el: HTMLElement, loc: LocateRes
                 const contentLen = Math.max(0, raw.length - prefix - segSuffix(el));
                 // 端点语义：点内容最右端 → 真正的末尾（越过闭标记，如 *这是斜体|* 之外的 *|）；
                 // 点内容最左端 → 真正的开头（前标记之前）。中间位置保持 prefix 补偿映射
-                if (loc.innerF <= 0) target = s;
+                if (loc.innerF <= 0) target = s + prefix;
                 else if (loc.innerF >= contentLen) target = e;
                 else target = s + prefix + loc.innerF;
         }
@@ -1339,6 +1339,77 @@ function placeSuppressed(td: HTMLElement, st: TdState, off: number): void {
                 st.lastLoc = loc.el ? { el: loc.el, where: loc.where, innerF: loc.innerF } : null;
         }
         window.setTimeout(() => { st.suppress = false; }, 0);
+}
+
+/** 浮窗改 grid 后按新源码重投该格段 DOM（2026-10-18 浮窗保存修复）。
+ *  重投后 DOM 与数据闭环（防离焦投影回写旧值覆盖 grid 新值）；焦点在 td 自身，
+ *  替换子节点不 blur；旧 TdState 的 lastSrcSeg 有 isConnected 防护自动失效。 */
+export function resyncCellFromSource(td: HTMLElement, src: string): void {
+        const st = tdStates.get(td);
+        if (!st) return;
+        enterWysiwyg(td, src, st.ctx);
+        placeCaretAtSourceOffset(td, src.length);
+}
+
+/** ←/shift+← 从段后缘（空锚点段）跨入前段：端点落「前段源码全文末字符前」（e-1，逐字符语义）。
+ *  2026-10-18 C 案：原生跨段把语法符当整体跳过，用户语义是"把符号当字符"。渲染态前段先切
+ *  源码。extend=true 只动焦点端（保留 anchor）。（→ 侧对称场景未报，暂不接管。） */
+export function arrowIntoSegTail(left: boolean, extend: boolean): boolean {
+        if (!left) return false;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return false;
+        if (extend ? sel.isCollapsed : !sel.isCollapsed) return false;
+        const fNode = sel.focusNode;
+        if (!fNode) return false;
+        const fEl = (fNode.nodeType === 1 ? fNode : fNode.parentElement) as Element | null;
+        if (!fEl) return false;
+        const td = fEl.closest('td');
+        if (!td) return false;
+        const st = tdStates.get(td);
+        if (!st || st.composing || st.suppress) return false;
+        let prevSeg: HTMLElement | null = null;
+        const inSeg = fEl.closest(`.${SEG_CLS}`);
+        if (inSeg instanceof HTMLElement) {
+                if ((inSeg.dataset.src ?? '') !== '') return false; // 非空段内：段内逐字符交原生
+                prevSeg = inSeg.previousElementSibling;
+        } else if (fNode === td) {
+                let n: Node | null = sel.focusOffset > 0 ? td.childNodes[sel.focusOffset - 1] : null;
+                while (n && !(n.nodeType === 1 && (n as Element).classList.contains(SEG_CLS))) n = n.previousSibling;
+                prevSeg = n as HTMLElement | null;
+        } else if (fNode.nodeType === 3 && fNode.parentElement === td) {
+                let n: Node | null = sel.focusOffset === 0 ? (fNode as Text).previousSibling : null;
+                while (n && !(n.nodeType === 1 && (n as Element).classList.contains(SEG_CLS))) n = n.previousSibling;
+                prevSeg = n as HTMLElement | null;
+        } else { return false; }
+        while (prevSeg && !prevSeg.classList.contains(SEG_CLS)) prevSeg = prevSeg.previousElementSibling as HTMLElement | null;
+        if (!prevSeg) return false;
+        const prev = prevSeg;
+        const raw = prev.dataset.src ?? '';
+        if (!raw) return false;
+        if (prev.dataset.view === 'render') setSegSource(prev, raw);
+        const textNode = prev.firstChild;
+        if (!textNode || textNode.nodeType !== 3) return false;
+        const len = (textNode as Text).length;
+        if (len < 1) return false;
+        const target = len - 1;
+        try {
+                if (extend) {
+                        if (!sel.anchorNode) return false;
+                        sel.setBaseAndExtent(sel.anchorNode, sel.anchorOffset, textNode, target);
+                } else {
+                        const r2 = document.createRange();
+                        r2.setStart(textNode, target);
+                        r2.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(r2);
+                }
+        } catch {
+                return false;
+        }
+        st.suppress = true;
+        st.lastSrcSeg = prev;
+        window.setTimeout(() => { st.suppress = false; }, 0);
+        return true;
 }
 
 let rebuildQueued = false;

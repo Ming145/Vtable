@@ -449,6 +449,16 @@ table.vt-mode-rc td {
         flex: 0 0 auto;
 }
 
+/* 居中格任务跟随（2026-10-18）：flex 布局不吃 text-align，居中后 checkbox 留在最左、
+   只有文字（flex:1 的 span）居中。居中时取消文字拉伸、整组（checkbox+文字）收缩居中，
+   checkbox 跟着到中间最前。属性选择器命中 td 内联 text-align: center（JS 设 td.style.textAlign） */
+table.vt td[style*="text-align: center"] .vt-task-item {
+        justify-content: center;
+}
+table.vt td[style*="text-align: center"] .vt-task-item > span:not(.vt-cb-hit) {
+        flex: 0 1 auto;
+}
+
 
 table.vt th {
         background: var(--table-header-background, rgba(0, 0, 0, 0.05));

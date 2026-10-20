@@ -1902,6 +1902,14 @@ var FillHandle = class {
       this.el.style.display = `none`;
       return;
     }
+    const wrapEl = td.closest(".vt-table-wrap");
+    if (wrapEl) {
+      const wr = wrapEl.getBoundingClientRect();
+      if (rect.right > wr.right + 1 || rect.bottom > wr.bottom + 1 || rect.left < wr.left - 1 || rect.top < wr.top - 1) {
+        this.el.style.display = `none`;
+        return;
+      }
+    }
     const S = HANDLE_SIZE;
     this.el.style.display = `block`;
     const cs = getComputedStyle(td);
@@ -3633,7 +3641,7 @@ function revealSeg(td, st, el, loc) {
     const prefix = segPrefix(el);
     const contentLen = Math.max(0, raw.length - prefix - segSuffix(el));
     if (loc.innerF <= 0)
-      target = s;
+      target = s + prefix;
     else if (loc.innerF >= contentLen)
       target = e;
     else
@@ -3682,6 +3690,91 @@ function placeSuppressed(td, st, off) {
   window.setTimeout(() => {
     st.suppress = false;
   }, 0);
+}
+function resyncCellFromSource(td, src) {
+  const st = tdStates.get(td);
+  if (!st)
+    return;
+  enterWysiwyg(td, src, st.ctx);
+  placeCaretAtSourceOffset(td, src.length);
+}
+function arrowIntoSegTail(left, extend) {
+  if (!left)
+    return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0)
+    return false;
+  if (extend ? sel.isCollapsed : !sel.isCollapsed)
+    return false;
+  const fNode = sel.focusNode;
+  if (!fNode)
+    return false;
+  const fEl = fNode.nodeType === 1 ? fNode : fNode.parentElement;
+  if (!fEl)
+    return false;
+  const td = fEl.closest("td");
+  if (!td)
+    return false;
+  const st = tdStates.get(td);
+  if (!st || st.composing || st.suppress)
+    return false;
+  let prevSeg = null;
+  const inSeg = fEl.closest(`.${SEG_CLS}`);
+  if (inSeg instanceof HTMLElement) {
+    if ((inSeg.dataset.src ?? "") !== "")
+      return false;
+    prevSeg = inSeg.previousElementSibling;
+  } else if (fNode === td) {
+    let n = sel.focusOffset > 0 ? td.childNodes[sel.focusOffset - 1] : null;
+    while (n && !(n.nodeType === 1 && n.classList.contains(SEG_CLS)))
+      n = n.previousSibling;
+    prevSeg = n;
+  } else if (fNode.nodeType === 3 && fNode.parentElement === td) {
+    let n = sel.focusOffset === 0 ? fNode.previousSibling : null;
+    while (n && !(n.nodeType === 1 && n.classList.contains(SEG_CLS)))
+      n = n.previousSibling;
+    prevSeg = n;
+  } else {
+    return false;
+  }
+  while (prevSeg && !prevSeg.classList.contains(SEG_CLS))
+    prevSeg = prevSeg.previousElementSibling;
+  if (!prevSeg)
+    return false;
+  const prev = prevSeg;
+  const raw = prev.dataset.src ?? "";
+  if (!raw)
+    return false;
+  if (prev.dataset.view === "render")
+    setSegSource(prev, raw);
+  const textNode = prev.firstChild;
+  if (!textNode || textNode.nodeType !== 3)
+    return false;
+  const len = textNode.length;
+  if (len < 1)
+    return false;
+  const target = len - 1;
+  try {
+    if (extend) {
+      if (!sel.anchorNode)
+        return false;
+      sel.setBaseAndExtent(sel.anchorNode, sel.anchorOffset, textNode, target);
+    } else {
+      const r2 = document.createRange();
+      r2.setStart(textNode, target);
+      r2.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r2);
+    }
+  } catch {
+    return false;
+  }
+  st.suppress = true;
+  st.lastSrcSeg = prev;
+  window.setTimeout(() => {
+    st.suppress = false;
+  }, 0);
+  return true;
 }
 var rebuildQueued = false;
 var pendingCollapse = null;
@@ -4039,7 +4132,23 @@ function bindRcResizeHandles(table, data, editing, onUpdate, enabled = true) {
   }
   overlay.empty();
   const rows = Array.from(table.querySelectorAll("tr"));
-  const cols = data.rows[0]?.length ?? 0;
+  const cols = rows[0] ? Array.from(rows[0].querySelectorAll("td")).reduce((s, td) => s + td.colSpan, 0) : 0;
+  const cellCoveringCol = (c) => {
+    for (const tr of rows) {
+      for (const td of Array.from(tr.querySelectorAll("td"))) {
+        if (parseInt(td.dataset.vtC ?? "-1", 10) === c && td.colSpan === 1)
+          return td;
+      }
+    }
+    for (const tr of rows) {
+      for (const td of Array.from(tr.querySelectorAll("td"))) {
+        const c0 = parseInt(td.dataset.vtC ?? "-1", 10);
+        if (c >= c0 && c < c0 + td.colSpan)
+          return td;
+      }
+    }
+    return null;
+  };
   const hit = import_obsidian2.Platform.isMobile || import_obsidian2.Platform.isTablet ? 12 : 6;
   const placeHandles = () => {
     const tableRect0 = table.getBoundingClientRect();
@@ -4048,11 +4157,10 @@ function bindRcResizeHandles(table, data, editing, onUpdate, enabled = true) {
     const wrapW = wrap.clientWidth;
     const tableW = table.offsetWidth;
     const tableH = table.offsetHeight;
-    const firstRowCells = Array.from(rows[0]?.querySelectorAll("td") ?? []);
     const colPos = [];
     wrap.querySelectorAll(".vt-rc-handle-col").forEach((g) => {
       const c = parseInt(g.dataset.vtC ?? "-1", 10);
-      const targetCell = firstRowCells.find((td) => parseInt(td.dataset.vtC ?? "-1", 10) === c);
+      const targetCell = cellCoveringCol(c);
       if (!targetCell)
         return;
       const rect = targetCell.getBoundingClientRect();
@@ -4077,11 +4185,7 @@ function bindRcResizeHandles(table, data, editing, onUpdate, enabled = true) {
     }
   };
   for (let c = 0; c < cols; c++) {
-    const firstRow = rows[0];
-    if (!firstRow)
-      continue;
-    const cells = Array.from(firstRow.querySelectorAll("td"));
-    const targetCell = cells.find((td) => parseInt(td.dataset.vtC ?? "-1", 10) === c);
+    const targetCell = cellCoveringCol(c);
     if (!targetCell)
       continue;
     const rect = targetCell.getBoundingClientRect();
@@ -5615,8 +5719,11 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       addColBar.remove();
       return;
     }
-    if (addRowBar.classList.contains("vt-edge-on") || addColBar.classList.contains("vt-edge-on"))
-      placeEdgeBars();
+    if (!addRowBar.isConnected)
+      document.body.appendChild(addRowBar);
+    if (!addColBar.isConnected)
+      document.body.appendChild(addColBar);
+    updateEdgeBars();
   };
   window.requestAnimationFrame(edgeTick);
   const updateEdgeBars = () => {
@@ -5676,6 +5783,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     onCommit(serialize(data));
   };
   let lastTablePointerDown = 0;
+  let recentPointerTd = null;
   table.addEventListener("pointerdown", () => {
     lastTablePointerDown = Date.now();
   }, true);
@@ -5775,6 +5883,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         }
         if (!td.closest(".cm-editor") || e.button !== 0)
           return;
+        recentPointerTd = td;
         const resetDown = () => {
           window.removeEventListener("pointerup", resetDown);
           window.removeEventListener("pointercancel", resetDown);
@@ -5838,7 +5947,15 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           flushActiveCell,
           () => onConvertToMd(grid),
           () => onConvertToHtml(grid),
-          selOps
+          selOps,
+          // 浮窗文本类操作后按新 grid 源码重投聚焦格（防离焦投影回写旧值覆盖——不保存的根因）
+          (rr, cc) => {
+            const td2 = cellMap[rr]?.[cc];
+            const cd2 = grid[rr]?.[cc];
+            if (!td2 || !cd2 || isDiag(cd2) || !isWysiwyg(td2))
+              return;
+            resyncCellFromSource(td2, cd2.t);
+          }
         );
       });
       const finishDiagEdit = () => {
@@ -5879,6 +5996,8 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         updateEdgeBars();
       };
       td.addEventListener("blur", (e) => {
+        if (recentPointerTd === td && Date.now() - lastTablePointerDown < 500)
+          return;
         const cell2 = grid[r]?.[c];
         if (!cell2)
           return;
@@ -5986,13 +6105,22 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         }
         if (e.key !== "ArrowUp" && e.key !== "ArrowDown" && e.key !== "ArrowLeft" && e.key !== "ArrowRight")
           return;
-        if (e.shiftKey)
+        if (e.shiftKey) {
+          if (e.key === "ArrowLeft" && arrowIntoSegTail(true, true)) {
+            e.preventDefault();
+            return;
+          }
           return;
+        }
         if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
           const left = e.key === "ArrowLeft";
           const sel = window.getSelection();
           const caretInTd = !!sel && sel.rangeCount > 0 && sel.isCollapsed && !!sel.focusNode && td.contains(sel.focusNode);
           if (caretInTd) {
+            if (left && arrowIntoSegTail(true, false)) {
+              e.preventDefault();
+              return;
+            }
             const atEdge = left ? caretAtStart2(td) : caretAtEnd2(td);
             if (!atEdge)
               return;
@@ -7164,6 +7292,12 @@ function isWikiLinkInsideBackticks(text, matchIndex) {
 }
 
 // src/bar.ts
+function wrapFontSize(src, px) {
+  const m = src.match(/^<span style="font-size:\s*[\d.]+px"([^>]*)>([\s\S]*)<\/span>$/);
+  if (m)
+    return `<span style="font-size:${px}px"${m[1]}>${m[2]}</span>`;
+  return `<span style="font-size:${px}px">${src}</span>`;
+}
 var Toolbar = class {
   constructor() {
     this.cell = null;
@@ -7171,6 +7305,8 @@ var Toolbar = class {
     this.cellR = 0;
     this.cellC = 0;
     this.onCommit = null;
+    /** 按新 grid 源码重投聚焦格段 DOM（render.ts 提供；浮窗文本类操作后 DOM 与数据闭环用） */
+    this.syncCell = null;
     this.flushCell = null;
     this.onConvertToMd = null;
     this.onConvertToHtml = null;
@@ -7179,9 +7315,15 @@ var Toolbar = class {
     this.focusShift = null;
     this.animated = false;
     this.animatedTimer = null;
+    /** 窗口缩放跟随（2026-10-18：窗口大小/位置改变后浮窗留在旧视口坐标偏离正中间） */
+    this.onWinResize = () => {
+      if (this.el.style.display !== "none")
+        this.reposition();
+    };
     this.el = document.body.createDiv({ cls: "vt-bar" });
     this.el.style.display = `none`;
     this.buildRows();
+    window.addEventListener("resize", this.onWinResize);
   }
   /* ===== 构建两行 ===== */
   /** 语言切换后重建按钮（label/title 跟随当前 UI 语言） */
@@ -7298,6 +7440,7 @@ var Toolbar = class {
     };
     this.focusShift = shifts[kind] ?? null;
     fn(g, r, c);
+    this.syncCell?.(r, c);
     commit(serialize(this.data));
     this.focusShift = null;
   }
@@ -7331,7 +7474,8 @@ var Toolbar = class {
     return !!this.selOps && this.selOps.rects.length > 0;
   }
   /* ===== 显示/隐藏/定位 ===== */
-  show(cell2, data, r, c, onCommit, flushCell, onConvertToMd, onConvertToHtml, selOps = null) {
+  show(cell2, data, r, c, onCommit, flushCell, onConvertToMd, onConvertToHtml, selOps = null, syncCell = () => {
+  }) {
     this.cell = cell2;
     this.data = data;
     this.cellR = r;
@@ -7341,6 +7485,7 @@ var Toolbar = class {
     this.onConvertToMd = onConvertToMd;
     this.onConvertToHtml = onConvertToHtml;
     this.selOps = selOps;
+    this.syncCell = syncCell;
     if (this.animatedTimer !== null) {
       window.clearTimeout(this.animatedTimer);
       this.animatedTimer = null;
@@ -7450,13 +7595,48 @@ var Toolbar = class {
       } catch {
       }
     } else if (this.cell) {
+      const cd = this.data?.rows[this.cellR]?.[this.cellC];
+      if (cd && (cd.t ?? "").trim() !== "" && this.onCommit) {
+        this.flushCell?.();
+        cd.t = wrapFontSize(cd.t, next);
+        this.syncCell?.(this.cellR, this.cellC);
+        const commit = this.onCommit;
+        commit(serialize(this.data));
+        return;
+      }
       this.cell.style.fontSize = `${next}px`;
     }
   }
   destroy() {
     if (this.animatedTimer !== null)
       window.clearTimeout(this.animatedTimer);
+    window.removeEventListener("resize", this.onWinResize);
     this.el.remove();
+  }
+  /** 临时诊断（vt-diag-bar，定版时随 diagSnapshot 一并删）：浮窗内部状态实锤——
+   *  用户报「A 用后 B 无反应」，mock 全链复现正常 → 真机差异聚焦浮窗存活/事件可达（CM 干预层）。
+   *  cell=null = hide 链竞争（修 hide 时序）；cell=DETACHED = show 未刷新；conn = 链路深处再挖。 */
+  diagState() {
+    const cs = getComputedStyle(this.el);
+    const rect = this.el.getBoundingClientRect();
+    return {
+      cell: this.cell ? this.cell.isConnected ? "conn" : "DETACHED" : "null",
+      cellRC: `${this.cellR},${this.cellC}`,
+      selActive: this.selActive(),
+      rects: this.selOps ? this.selOps.rects.length : -1,
+      data: this.data ? `${this.data.rows.length}x${this.data.rows[0]?.length ?? 0}` : "null",
+      onCommit: this.onCommit ? "yes" : "no",
+      syncCell: this.syncCell ? "yes" : "no",
+      visible: cs.display !== "none" && cs.opacity !== "0",
+      display: cs.display,
+      pointerEvents: cs.pointerEvents,
+      rect: `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`,
+      hitTest: (() => {
+        const r = rect;
+        const el2 = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return el2 ? el2.closest(".vt-bar") ? "bar" : el2.tagName + "." + String(el2.className).slice(0, 20) : "none";
+      })()
+    };
   }
 };
 
@@ -8224,6 +8404,143 @@ ${first}`, 0);
     this.registerHeaderBgCommand();
     this.registerSelectionFormatCommands();
     this.registerArrowIntoTable();
+    {
+      const diag = window;
+      const snapTd = () => {
+        const td = document.activeElement instanceof HTMLElement && document.activeElement.tagName === "TD" ? document.activeElement : document.querySelector("td");
+        const sel = window.getSelection();
+        return {
+          td: td ? { r: td.dataset.vtR, c: td.dataset.vtC, view: td.dataset.vtView, editing: td.className.includes("vt-editing") } : null,
+          segs: td ? [...td.querySelectorAll(".vt-seg")].map((s) => ({
+            v: s.dataset.view,
+            k: s.dataset.kind,
+            src: (s.dataset.src ?? "").slice(0, 24),
+            s: s.dataset.s,
+            e: s.dataset.e,
+            p: s.dataset.prefix,
+            suf: s.dataset.suffix
+          })) : [],
+          sel: sel && sel.rangeCount ? {
+            col: sel.isCollapsed,
+            node: sel.focusNode ? sel.focusNode.nodeType === 3 ? "T@" + sel.focusOffset : sel.focusNode.nodeName + "@" + sel.focusOffset : null
+          } : null,
+          bar: (() => {
+            const b = document.querySelector(".vt-bar");
+            return b ? { d: b.style.display, l: b.style.left, t: b.style.top } : null;
+          })(),
+          ae: document.activeElement ? document.activeElement.tagName + "." + (document.activeElement.className || "").toString().slice(0, 18) : null
+        };
+      };
+      this.addCommand({
+        id: "vt-diag-start",
+        name: "\u3010\u8BCA\u65AD\u3011\u5F00\u59CB\u8BB0\u5F55\uFF08B/D/\u628A\u624B\uFF09",
+        callback: () => {
+          diag.__vtDiag = [];
+          diag.__vtDiagOn = true;
+          diag.__vtDiagStop?.();
+          const push = (ev, extra) => {
+            if (!diag.__vtDiagOn)
+              return;
+            diag.__vtDiag.push({ ev, ...extra ?? {}, snap: snapTd() });
+          };
+          const kd = (e) => {
+            diag.__vtDiag?.push({ ev: "key:" + e.key });
+            setTimeout(() => diag.__vtDiag?.push({ ev: "key-late:" + e.key, pd: e.defaultPrevented }), 0);
+          };
+          const bi = (e) => push("beforeinput:" + e.inputType, { pd: e.defaultPrevented });
+          const pd = (e) => {
+            const t2 = e.target instanceof Element ? e.target.closest("td") : null;
+            push("pointerdown", { cell: t2 ? t2.dataset.vtR + "," + t2.dataset.vtC : "off-table" });
+          };
+          const bl = (e) => push("blur", {
+            from: e.target instanceof Element ? e.target.tagName + "." + String(e.target.className).slice(0, 14) : "?",
+            to: e.relatedTarget instanceof Element ? e.relatedTarget.tagName + "." + String(e.relatedTarget.className).slice(0, 14) : "null"
+          });
+          const fi = (e) => push("focusin", {
+            to: e.target instanceof Element ? e.target.tagName + "." + String(e.target.className).slice(0, 14) : "?"
+          });
+          const sc = () => {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount) {
+              const r = sel.getRangeAt(0);
+              const nd = r.startContainer;
+              diag.__vtDiag?.push({ ev: "sel", pos: nd.nodeType === 3 ? "T@" + r.startOffset : nd.nodeName + "@" + r.startOffset, col: sel.isCollapsed });
+            }
+          };
+          document.addEventListener("keydown", kd, true);
+          document.addEventListener("beforeinput", bi, true);
+          document.addEventListener("pointerdown", pd, true);
+          document.addEventListener("blur", bl, true);
+          document.addEventListener("focusin", fi, true);
+          document.addEventListener("selectionchange", sc, true);
+          diag.__vtDiagStop = () => {
+            document.removeEventListener("keydown", kd, true);
+            document.removeEventListener("beforeinput", bi, true);
+            document.removeEventListener("pointerdown", pd, true);
+            document.removeEventListener("blur", bl, true);
+            document.removeEventListener("focusin", fi, true);
+            document.removeEventListener("selectionchange", sc, true);
+            diag.__vtDiagOn = false;
+          };
+          new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u5F00\u59CB\u8BB0\u5F55");
+        }
+      });
+      this.addCommand({
+        id: "vt-diag-dump",
+        name: "\u3010\u8BCA\u65AD\u3011\u5BFC\u51FA\u8BB0\u5F55\u5230\u526A\u8D34\u677F",
+        callback: async () => {
+          const tbl = document.querySelector("table.vt");
+          const rc = {
+            mode: tbl ? tbl.dataset.vtMode : null,
+            overlay: !!document.querySelector(".vt-rc-overlay"),
+            colHandles: [...document.querySelectorAll(".vt-rc-handle-col")].map((g) => ({ c: g.dataset.vtC, left: g.style.left, w: g.style.width, disp: getComputedStyle(g).display })),
+            firstRowColSpans: tbl ? [...tbl.rows[0]?.cells ?? []].map((c) => c.colSpan) : []
+          };
+          const json = JSON.stringify({ rc, events: diag.__vtDiag ?? [] });
+          try {
+            await navigator.clipboard.writeText(json);
+            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236 " + json.length + " \u5B57\u7B26\u5230\u526A\u8D34\u677F");
+          } catch {
+            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u590D\u5236\u5931\u8D25\uFF08\u957F\u5EA6 " + json.length + "\uFF09");
+          }
+        }
+      });
+      this.addCommand({
+        id: "vt-diag-bar",
+        name: "\u3010\u8BCA\u65AD\u3011\u6D6E\u7A97\u72B6\u6001\u5FEB\u7167",
+        callback: async () => {
+          const ctrl = getActiveTableController();
+          if (!ctrl) {
+            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u65E0\u6D3B\u8DC3\u8868\u683C");
+            return;
+          }
+          const st = ctrl.toolbar.diagState();
+          const json = JSON.stringify(st);
+          try {
+            await navigator.clipboard.writeText(json);
+            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236 " + json.length + " \u5B57\u7B26");
+            return;
+          } catch {
+          }
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = json;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand("copy");
+            ta.remove();
+            if (ok) {
+              new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236(\u964D\u7EA7) " + json.length + " \u5B57\u7B26");
+              return;
+            }
+          } catch {
+          }
+          new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A" + json, 15e3);
+        }
+      });
+    }
     this.addRibbonIcon("table-2", "\u8F6C\u6362\u4E3A vtable", () => {
       this.runWithEditor((ed) => this.convertAtCursor(ed));
     });

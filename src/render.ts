@@ -36,6 +36,8 @@ import {
         projectSource,
         caretSourceOffset,
         placeCaretAtSourceOffset,
+        resyncCellFromSource,
+        arrowIntoSegTail,
         isWysiwyg,
         type WysiwygCtx,
 } from './wysiwyg';
@@ -1146,6 +1148,11 @@ export function renderBlock(
                         && Math.abs(e.clientY - lastTap.y) < 30
                         && lastTap.r === r && lastTap.c === c) {
                         lastTap = null;
+                        // 2026-10-19 用户报「移动端双击选中不能用了」：此前这里加过
+                        // "activeElement===td 则 return（留给原生选词）"的防御——但该防御
+                        // 误伤所有真双击（第一击必然聚焦 td，第二击时恒 activeElement===td）
+                        // → 1d 双击选中被整体吞掉。D 案（1.2s 后再点同格浮窗消失）走的是
+                        // 单击路径（>350ms 不进本分支），与此 return 无关——删除恢复 1d
                         const dom = window.getSelection();
                         if (dom && !dom.isCollapsed) dom.removeAllRanges();
                         selRects.push(normCell(r, c));
@@ -1528,7 +1535,10 @@ export function renderBlock(
                 addColBar.style.height = `${Math.round(wr.height)}px`;
         };
 
-        // rAF 轮询：位置每帧同步（条隐藏时仅轻检查，无 rect 读取）；宿主销毁/被新渲染替换时自清理
+        // rAF 轮询：显隐每帧按焦点实况校准（加固 2026-10-18：事件快照在移动端异步聚焦/
+        // 焦点恢复延迟落定时会失真——事件时刻 activeElement 还没进表 → 误判隐藏后无人纠正，
+        // 条"有时不出现"。事件驱动调用保留管即时性，轮询管兜底）；
+        // 宿主销毁/被新渲染替换时自清理；条被外部摘除时挂回（同转换按钮 chartTick 保活）
         const edgeTick = () => {
                 window.requestAnimationFrame(edgeTick);
                 if (addRowBar.dataset.vtUid !== (el.dataset.vtEdgeUid ?? '')) {
@@ -1541,7 +1551,11 @@ export function renderBlock(
                         addColBar.remove();
                         return;
                 }
-                if (addRowBar.classList.contains('vt-edge-on') || addColBar.classList.contains('vt-edge-on')) placeEdgeBars();
+                // 自愈：宿主存活而条不在 DOM（曾被脱离期清理/外部移除）→ 挂回
+                if (!addRowBar.isConnected) document.body.appendChild(addRowBar);
+                if (!addColBar.isConnected) document.body.appendChild(addColBar);
+                // 实况校准（内部 on 时含位置同步，无需重复 place）
+                updateEdgeBars();
         };
         window.requestAnimationFrame(edgeTick);
 
@@ -1610,6 +1624,9 @@ export function renderBlock(
         // 会被误判为"离表"→ commit 重建销毁用户正点击的格 → 要点两次才进编辑。
         // 表内 pointerdown 时打时间戳，blur 判定在窗口期内直接豁免，等新格 focus 自然接管
         let lastTablePointerDown = 0;
+        /** 最近一次表内 pointerdown 的目标格（D 案豁免：真机 CM 干预会把 activeElement 挪走，
+         *  同格点击也走 blur 离表判定 → 浮窗被 hide 且编辑态被摘，focus 不重发无法恢复） */
+        let recentPointerTd: HTMLElement | null = null;
         table.addEventListener('pointerdown', () => {
                 lastTablePointerDown = Date.now();
         }, true);
@@ -1720,6 +1737,7 @@ export function renderBlock(
                                         td.dataset.vtDiagZone = pointInZoneA(td, e.clientX, e.clientY) ? 'a' : 'b';
                                 }
                                 if (!td.closest('.cm-editor') || e.button !== 0) return;
+                                recentPointerTd = td; // D 案豁免标记：本格点击（配合 blur 判定）
                                 const resetDown = () => {
                                         window.removeEventListener('pointerup', resetDown);
                                         window.removeEventListener('pointercancel', resetDown);
@@ -1778,7 +1796,14 @@ export function renderBlock(
                                                 applyFocusRestore(shift?.dr ?? 0, shift?.dc ?? 0, shift?.resetCaret ?? false);
                                                 onCommit(s);
                                         },
-                                        flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps);
+                                        flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps,
+                                        // 浮窗文本类操作后按新 grid 源码重投聚焦格（防离焦投影回写旧值覆盖——不保存的根因）
+                                        (rr, cc) => {
+                                                const td2 = cellMap[rr]?.[cc];
+                                                const cd2 = grid[rr]?.[cc];
+                                                if (!td2 || !cd2 || isDiag(cd2) || !isWysiwyg(td2)) return;
+                                                resyncCellFromSource(td2, cd2.t);
+                                        });
                         });
 
                                         // 区编辑收尾：dataset 暂存写回 grid → 重建显示态 → commit 判定
@@ -1818,6 +1843,11 @@ export function renderBlock(
                                         };
 
                         td.addEventListener('blur', (e) => {
+                                // D 案（2026-10-18）：点击本格引发的 blur 整体跳过——真机 CM/内核干预会把
+                                // activeElement 挪走（同格点击也触发 blur 离表判定），旧路径会投影转渲染态、
+                                // hide 浮窗、摘编辑态，且 focus 不重发 → 浮窗"干脆消失不回来"（换格再回才重现）。
+                                // 本格点击无离表语义：跳过全部收尾，内容兜底交给 pendingDirty/layout-change
+                                if (recentPointerTd === td && Date.now() - lastTablePointerDown < 500) return;
                                 const cell = grid[r]?.[c];
                                 if (!cell) return; // 结构操作（删行/列等）重渲染 detach 本格时触发 blur：数据已不在
                                 fillHandle?.hide(); // 焦点离开格子：填充柄随选区/焦点状态由 sync 重新校正
@@ -1945,7 +1975,15 @@ export function renderBlock(
 
                                 if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown'
                                         && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-                                if (e.shiftKey) return; // shift+方向为选区操作，交给浏览器
+                                if (e.shiftKey) {
+                                        // shift+← 的段边界粘性端点：跨段进入时端点落 e-1（逐字符语义，
+                                        // 2026-10-18 C 案「把符号当字符」），其余仍交浏览器
+                                        if (e.key === 'ArrowLeft' && arrowIntoSegTail(true, true)) {
+                                                e.preventDefault();
+                                                return;
+                                        }
+                                        return;
+                                }
 
                                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                                         const left = e.key === 'ArrowLeft';
@@ -1954,6 +1992,12 @@ export function renderBlock(
                                                 && !!sel.focusNode && td.contains(sel.focusNode);
                                         // 仅当光标贴着内容首/尾时才跳格；中间位置交给浏览器正常移动文本光标
                                         if (caretInTd) {
+                                                // ← 从段后缘（空锚点段）跨入前段：端点落 e-1（逐字符语义，
+                                                // 2026-10-18 B 案——原生跨段直落内容尾，跳过语法符）
+                                                if (left && arrowIntoSegTail(true, false)) {
+                                                        e.preventDefault();
+                                                        return;
+                                                }
                                                 const atEdge = left ? caretAtStart(td) : caretAtEnd(td);
                                                 if (!atEdge) return;
                                         }

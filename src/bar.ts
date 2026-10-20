@@ -14,6 +14,13 @@ import {
 import type { SelOps, SelOpKind, FocusShift } from './sel';
 import { t } from './i18n';
 
+/** 整格字号包裹（已包则改值——A± 连点递变；与选区字号的 span 存储形态一致） */
+function wrapFontSize(src: string, px: number): string {
+        const m = src.match(/^<span style="font-size:\s*[\d.]+px"([^>]*)>([\s\S]*)<\/span>$/);
+        if (m) return `<span style="font-size:${px}px"${m[1]}>${m[2]}</span>`;
+        return `<span style="font-size:${px}px">${src}</span>`;
+}
+
 export class Toolbar {
         readonly el: HTMLElement;
         private cell: HTMLElement | null = null;
@@ -21,6 +28,8 @@ export class Toolbar {
         private cellR = 0;
         private cellC = 0;
         private onCommit: ((s: string) => void) | null = null;
+        /** 按新 grid 源码重投聚焦格段 DOM（render.ts 提供；浮窗文本类操作后 DOM 与数据闭环用） */
+        private syncCell: ((r: number, c: number) => void) | null = null;
         private flushCell: (() => void) | null = null;
         private onConvertToMd: (() => void) | null = null;
         private onConvertToHtml: (() => void) | null = null;
@@ -29,11 +38,16 @@ export class Toolbar {
         private focusShift: FocusShift | null = null;
         private animated = false;
         private animatedTimer: number | null = null;
+        /** 窗口缩放跟随（2026-10-18：窗口大小/位置改变后浮窗留在旧视口坐标偏离正中间） */
+        private onWinResize = () => {
+                if (this.el.style.display !== 'none') this.reposition();
+        };
 
         constructor() {
                 this.el = document.body.createDiv({ cls: 'vt-bar' });
                 this.el.style.display = `none`;
                 this.buildRows();
+                window.addEventListener('resize', this.onWinResize);
         }
 
         /* ===== 构建两行 ===== */
@@ -150,6 +164,9 @@ export class Toolbar {
                 };
                 this.focusShift = shifts[kind] ?? null;
                 fn(g, r, c);
+                // 文本类操作只改 grid 不动 td——离焦投影把旧 DOM 写回会覆盖 grid 新值
+                // （加粗/斜体不保存的根因），立即按新源码重投聚焦格，DOM 与数据闭环
+                this.syncCell?.(r, c);
                 commit(serialize(this.data));
                 this.focusShift = null; // commit 闭包已消费；异常路径兜底清空
         }
@@ -197,6 +214,7 @@ export class Toolbar {
                 onConvertToMd: () => void,
                 onConvertToHtml: () => void,
                 selOps: SelOps | null = null,
+                syncCell: (r: number, c: number) => void = () => {},
         ) {
                 this.cell = cell;
                 this.data = data;
@@ -207,6 +225,7 @@ export class Toolbar {
                 this.onConvertToMd = onConvertToMd;
                 this.onConvertToHtml = onConvertToHtml;
                 this.selOps = selOps;
+                this.syncCell = syncCell;
 
                 // 如果 hide() 的延时重置尚未触发，取消它（说明仍在表格内切换）
                 if (this.animatedTimer !== null) {
@@ -329,12 +348,46 @@ export class Toolbar {
                         span.style.fontSize = `${next}px`;
                         try { range.surroundContents(span); } catch { /* 跨节点选区忽略 */ }
                 } else if (this.cell) {
-                        this.cell.style.fontSize = `${next}px`;
+                        // 有内容：进 grid 持久化（整格 span 包裹，与选区字号同存储形态）。
+                        // 原 td.style 直改无持久化载体——projectSource 只投影段，td 内联样式必丢（字号不保存的根因）
+                        const cd = this.data?.rows[this.cellR]?.[this.cellC];
+                        if (cd && (cd.t ?? '').trim() !== '' && this.onCommit) {
+                                this.flushCell?.();
+                                cd.t = wrapFontSize(cd.t, next);
+                                this.syncCell?.(this.cellR, this.cellC);
+                                const commit = this.onCommit;
+                                commit(serialize(this.data));
+                                return;
+                        }
+                        this.cell.style.fontSize = `${next}px`; // 空格无内容载体，维持 DOM 行为
                 }
         }
 
         destroy() {
                 if (this.animatedTimer !== null) window.clearTimeout(this.animatedTimer);
+                window.removeEventListener('resize', this.onWinResize);
                 this.el.remove();
+        }
+
+        /** 临时诊断（vt-diag-bar，定版时随 diagSnapshot 一并删）：浮窗内部状态实锤——
+         *  用户报「A 用后 B 无反应」，mock 全链复现正常 → 真机差异聚焦浮窗存活/事件可达（CM 干预层）。
+         *  cell=null = hide 链竞争（修 hide 时序）；cell=DETACHED = show 未刷新；conn = 链路深处再挖。 */
+        diagState(): Record<string, unknown> {
+                const cs = getComputedStyle(this.el);
+                const rect = this.el.getBoundingClientRect();
+                return {
+                        cell: this.cell ? (this.cell.isConnected ? 'conn' : 'DETACHED') : 'null',
+                        cellRC: `${this.cellR},${this.cellC}`,
+                        selActive: this.selActive(),
+                        rects: this.selOps ? this.selOps.rects.length : -1,
+                        data: this.data ? `${this.data.rows.length}x${this.data.rows[0]?.length ?? 0}` : 'null',
+                        onCommit: this.onCommit ? 'yes' : 'no',
+                        syncCell: this.syncCell ? 'yes' : 'no',
+                        visible: cs.display !== 'none' && cs.opacity !== '0',
+                        display: cs.display,
+                        pointerEvents: cs.pointerEvents,
+                        rect: `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`,
+                        hitTest: (() => { const r = rect; const el2 = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return el2 ? (el2.closest('.vt-bar') ? 'bar' : el2.tagName + '.' + String(el2.className).slice(0, 20)) : 'none'; })(),
+                };
         }
 }

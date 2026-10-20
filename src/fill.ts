@@ -377,6 +377,17 @@ export class FillHandle {
                         this.el.style.display = `none`;
                         return;
                 }
+                // 表格可视区钳制（2026-10-18：列过宽横向滚动时填充柄跑到滚动条外——TA 指定从简：
+                // 锚点格超出 wrap 可视区就直接不显示，滚回来自动恢复）
+                const wrapEl = td.closest('.vt-table-wrap');
+                if (wrapEl) {
+                        const wr = wrapEl.getBoundingClientRect();
+                        if (rect.right > wr.right + 1 || rect.bottom > wr.bottom + 1
+                                || rect.left < wr.left - 1 || rect.top < wr.top - 1) {
+                                this.el.style.display = `none`;
+                                return;
+                        }
+                }
                 const S = HANDLE_SIZE;
                 this.el.style.display = `block`;
                 // 完全在格子内部：垂直间隙 4px（19:51 下移 2px）；水平间隙 2px

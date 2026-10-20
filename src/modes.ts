@@ -223,7 +223,27 @@ export function bindRcResizeHandles(
         overlay.empty();
 
         const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'));
-        const cols = data.rows[0]?.length ?? 0;
+        // 列数用 DOM colSpan 累加（2026-10-18 合并列宽修复）：首行合并后 rows[0] 只剩锚点格，
+        // 旧值 rows[0].length=1 会让非锚点列的把手循环整个跳过 → "合并首行后下面行列宽拖不动"
+        const cols = rows[0] ? Array.from(rows[0].querySelectorAll<HTMLTableCellElement>('td')).reduce((s, td) => s + td.colSpan, 0) : 0;
+
+        // 覆盖列 c 的把手定位格（2026-10-18 二轮）：优先找「vtC===c 且 colSpan===1」的精确格——
+        // 首行合并后，下方未合并行的列边界才是用户看到的"中间拖动符号"位置（旧逻辑钉在
+        // 合并格右缘=表边，中间无符号=拖不了）；整列全被合并吞掉（无独立格）才退回覆盖格
+        const cellCoveringCol = (c: number): HTMLTableCellElement | null => {
+                for (const tr of rows) {
+                        for (const td of Array.from(tr.querySelectorAll<HTMLTableCellElement>('td'))) {
+                                if (parseInt(td.dataset.vtC ?? '-1', 10) === c && td.colSpan === 1) return td;
+                        }
+                }
+                for (const tr of rows) {
+                        for (const td of Array.from(tr.querySelectorAll<HTMLTableCellElement>('td'))) {
+                                const c0 = parseInt(td.dataset.vtC ?? '-1', 10);
+                                if (c >= c0 && c < c0 + td.colSpan) return td;
+                        }
+                }
+                return null;
+        };
 
         // 触屏把手命中厚度：用户实测 22px 太贪——行高 30px 的表里每条行列边界上下各吃 11px，
         // 一指下去大半概率落在把手上（"一点相当于全点在边框上"，"只有 RC 点不动"的根因：
@@ -243,11 +263,10 @@ export function bindRcResizeHandles(
                 const wrapW = wrap.clientWidth;
                 const tableW = table.offsetWidth;
                 const tableH = table.offsetHeight;
-                const firstRowCells = Array.from(rows[0]?.querySelectorAll<HTMLTableCellElement>('td') ?? []);
                 const colPos: { g: HTMLElement; left: number }[] = [];
                 wrap.querySelectorAll<HTMLElement>('.vt-rc-handle-col').forEach(g => {
                         const c = parseInt(g.dataset.vtC ?? '-1', 10);
-                        const targetCell = firstRowCells.find(td => parseInt(td.dataset.vtC ?? '-1', 10) === c);
+                        const targetCell = cellCoveringCol(c);
                         if (!targetCell) return;
                         const rect = targetCell.getBoundingClientRect();
                         const base = Math.min(rect.right - tableRect0.left - hit / 2, tableW - hit);
@@ -271,10 +290,7 @@ export function bindRcResizeHandles(
                 }
         };
         for (let c = 0; c < cols; c++) {
-                const firstRow = rows[0];
-                if (!firstRow) continue;
-                const cells = Array.from(firstRow.querySelectorAll<HTMLTableCellElement>('td'));
-                const targetCell = cells.find(td => parseInt(td.dataset.vtC ?? '-1', 10) === c);
+                const targetCell = cellCoveringCol(c);
                 if (!targetCell) continue;
 
                 const rect = targetCell.getBoundingClientRect();
