@@ -40,22 +40,22 @@ function mdInlineToHtml(s) {
     return `\0${idx}`;
   };
   const escapeAttr = (v) => escapeHtml(v).replace(/"/g, "&quot;");
-  s = s.replace(/`([^`]+)`/g, (_, content) => protect("<code>" + escapeHtml(content) + "</code>"));
+  s = s.replace(/`([^`]+)`/g, (_m, content) => protect("<code>" + escapeHtml(content) + "</code>"));
   s = s.replace(/<br\s*\/?>/gi, (m) => protect(m));
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, url) => {
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text, url) => {
     const href = /^javascript:/i.test(url) ? "#" : escapeAttr(url);
     return protect(`<a href="${href}">${escapeHtml(text)}</a>`);
   });
-  s = s.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (_, content) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
-  s = s.replace(/(?<!\w)___(?!_)([\s\S]+?)(?<!_)___(?!\w)/g, (_, content) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
-  s = s.replace(/\*\*([\s\S]+?)\*\*/g, (_, content) => protect(`<b>${escapeHtml(content)}</b>`));
-  s = s.replace(/(?<!\w)__(?!_)([\s\S]+?)(?<!_)__(?!\w)/g, (_, content) => protect(`<b>${escapeHtml(content)}</b>`));
-  s = s.replace(/\*([\s\S]+?)\*/g, (_, content) => protect(`<i>${escapeHtml(content)}</i>`));
-  s = s.replace(/(?<!\w)_([\s\S]+?)(?<!_)_(?!\w)/g, (_, content) => protect(`<i>${escapeHtml(content)}</i>`));
-  s = s.replace(/==([\s\S]+?)==/g, (_, content) => protect(`<mark>${escapeHtml(content)}</mark>`));
-  s = s.replace(/~~([\s\S]+?)~~/g, (_, content) => protect(`<s>${escapeHtml(content)}</s>`));
+  s = s.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (_m, content) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
+  s = s.replace(/(?<!\w)___(?!_)([\s\S]+?)(?<!_)___(?!\w)/g, (_m, content) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
+  s = s.replace(/\*\*([\s\S]+?)\*\*/g, (_m, content) => protect(`<b>${escapeHtml(content)}</b>`));
+  s = s.replace(/(?<!\w)__(?!_)([\s\S]+?)(?<!_)__(?!\w)/g, (_m, content) => protect(`<b>${escapeHtml(content)}</b>`));
+  s = s.replace(/\*([\s\S]+?)\*/g, (_m, content) => protect(`<i>${escapeHtml(content)}</i>`));
+  s = s.replace(/(?<!\w)_([\s\S]+?)(?<!_)_(?!\w)/g, (_m, content) => protect(`<i>${escapeHtml(content)}</i>`));
+  s = s.replace(/==([\s\S]+?)==/g, (_m, content) => protect(`<mark>${escapeHtml(content)}</mark>`));
+  s = s.replace(/~~([\s\S]+?)~~/g, (_m, content) => protect(`<s>${escapeHtml(content)}</s>`));
   s = escapeHtml(s);
-  return s.replace(/\x00(\d+)\x01/g, (_, idx) => protectedSpans[parseInt(idx)]);
+  return s.replace(/\x00(\d+)\x01/g, (_m, idx) => protectedSpans[parseInt(idx)]);
 }
 function visible(cell2) {
   return cell2.rs > 0 && cell2.cs > 0;
@@ -609,6 +609,17 @@ function toggleTodoMark(html, idx, checked) {
 
 // src/render.ts
 var import_obsidian3 = require("obsidian");
+
+// src/compat.ts
+function compatExecCommand(doc, cmd, value) {
+  return doc.execCommand(cmd, false, value);
+}
+function compatCaretRangeFromPoint(doc, x, y) {
+  return doc.caretRangeFromPoint?.(x, y) ?? null;
+}
+function compatKeyCode(e) {
+  return e.keyCode;
+}
 
 // src/i18n.ts
 var lang = "zh";
@@ -1227,7 +1238,6 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     const scroller = wrap.closest(".cm-scroller");
     const docTop = scroller ? scroller.getBoundingClientRect().top : 0;
     const docBottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
-    const vh = window.innerHeight;
     rows.forEach((tr, r) => {
       const g = rowGrips[r];
       if (!g.classList.contains("vt-drag-on"))
@@ -1316,7 +1326,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     lastMouse = { x: e.clientX, y: e.clientY };
     if (drag)
       return;
-    const td = e.target.closest?.("td,th");
+    const td = e.target?.closest("td,th") ?? null;
     if (td && table.contains(td))
       hoverRC = locateAt(e.clientX, e.clientY);
     apply();
@@ -1335,7 +1345,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
   wrap.addEventListener("pointerdown", (e) => {
     if (drag)
       return;
-    const td = e.target?.closest?.("td,th");
+    const td = e.target?.closest("td,th") ?? null;
     if (!td || !table.contains(td)) {
       if (e.pointerType === "touch" && hoverRC) {
         hoverRC = null;
@@ -1379,7 +1389,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     });
   });
   table.addEventListener("focusin", (e) => {
-    const td = e.target.closest?.("td,th");
+    const td = e.target?.closest("td,th") ?? null;
     if (!td)
       return;
     const r = parseInt(td.dataset.vtR ?? "-1", 10);
@@ -1734,7 +1744,7 @@ function genSeries(v0, n, sign, year = new Date().getFullYear()) {
   return out;
 }
 var mkDiv = (cls, parent) => {
-  const d = document.createElement("div");
+  const d = createDiv();
   d.className = cls;
   parent.appendChild(d);
   return d;
@@ -1753,7 +1763,7 @@ var triPathD = (size) => {
 var HIT_PAD = 4;
 var mkTri = (size) => {
   const e = HIT_PAD;
-  const hit = document.createElement("div");
+  const hit = createDiv();
   hit.className = "vt-fill-tri-hit";
   hit.style.position = `absolute`;
   hit.style.left = `0`;
@@ -1764,7 +1774,7 @@ var mkTri = (size) => {
   const s2 = size + e;
   const t2 = Math.max(0, size - e * 1.414);
   hit.style.clipPath = `polygon(${s2}px 0, ${s2}px ${s2}px, 0 ${s2}px, 0 ${t2}px, ${t2}px 0)`;
-  const draw = document.createElement("div");
+  const draw = createDiv();
   draw.className = "vt-fill-tri-draw";
   draw.style.position = `absolute`;
   draw.style.left = `0`;
@@ -2193,18 +2203,18 @@ function buildDiagDom(td, dg, t2) {
   line.setAttribute("y2", "100%");
   svg.appendChild(line);
   td.appendChild(svg);
-  const zoneA = document.createElement("div");
+  const zoneA = createDiv();
   zoneA.className = "vt-diag-zone vt-diag-a";
   zoneA.contentEditable = "true";
-  const zoneB = document.createElement("div");
+  const zoneB = createDiv();
   zoneB.className = "vt-diag-zone vt-diag-b";
   zoneB.contentEditable = "true";
   td.appendChild(zoneA);
   td.appendChild(zoneB);
-  const probe = document.createElement("div");
+  const probe = createDiv();
   probe.className = "vt-diag-probe";
-  const probeA = document.createElement("span");
-  const probeB = document.createElement("span");
+  const probeA = createSpan();
+  const probeB = createSpan();
   probe.appendChild(probeA);
   probe.appendChild(probeB);
   td.appendChild(probe);
@@ -2512,7 +2522,6 @@ function parseTrustedHtml(html) {
 }
 
 // src/wysiwyg.ts
-var FENCE_OPEN_RE = /^```([^\n`]*)\n?/;
 var HTML_PAIR_TAGS = /* @__PURE__ */ new Set([
   "b",
   "i",
@@ -2550,19 +2559,6 @@ function parseSegments(src) {
     const brM = /<br\s*\/?>/i.exec(rest);
     const lineRest = brM ? rest.slice(0, brM.index) : rest;
     let m;
-    if (m = FENCE_OPEN_RE.exec(rest)) {
-      const lang2 = (m[1] || "").trim();
-      const bodyStart = pos + m[0].length;
-      const closeIdx = src.indexOf("```", bodyStart);
-      if (closeIdx >= 0) {
-        flushText(pos);
-        const end = closeIdx + 3;
-        const raw = src.slice(pos, end);
-        segs.push({ kind: "fence", raw, start: pos, end, prefix: m[0].length, suffix: 3, lang: lang2 });
-        pos = end;
-        continue;
-      }
-    }
     if (m = /^<br\s*\/?>/i.exec(rest)) {
       pushVoid("br", m[0]);
       continue;
@@ -2683,7 +2679,7 @@ function enterWysiwyg(td, src, ctx) {
   const lastIsBr = lastChild != null && lastChild.instanceOf(HTMLBRElement);
   const lastIsRenderSeg = lastChild != null && lastChild.instanceOf(HTMLElement) && lastChild.classList.contains(SEG_CLS) && lastChild.dataset.view === "render";
   if (lastIsBr || lastIsRenderSeg) {
-    const tail = document.createElement("span");
+    const tail = createSpan();
     tail.className = SEG_CLS;
     tail.dataset.kind = "text";
     tail.dataset.view = "src";
@@ -2692,7 +2688,7 @@ function enterWysiwyg(td, src, ctx) {
     tail.dataset.e = String(src.length);
     tail.dataset.prefix = "0";
     tail.dataset.suffix = "0";
-    tail.textContent = "\xA0";
+    tail.textContent = lastIsBr ? "\u200B" : "\xA0";
     td.appendChild(tail);
   }
 }
@@ -2701,14 +2697,12 @@ function exitWysiwyg(td) {
 }
 function buildSegEl(seg, ctx) {
   if (seg.kind === "br") {
-    const br = document.createElement("br");
+    const br = createEl("br");
     br.dataset.vtBr = "1";
     return br;
   }
-  const el = document.createElement("span");
+  const el = createSpan();
   el.className = SEG_CLS;
-  if (seg.kind === "fence")
-    el.style.display = `block`;
   el.dataset.kind = seg.kind;
   el.dataset.src = seg.raw;
   el.dataset.s = String(seg.start);
@@ -2731,14 +2725,14 @@ function attachImgResize(seg) {
   if (!img)
     return;
   seg.classList.add("vt-img-seg");
-  const grip = document.createElement("div");
+  const grip = createDiv();
   grip.className = "vt-img-resize";
   grip.setAttribute("aria-hidden", "true");
-  const svg = document.createElement("null");
+  const svg = createSvg("svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
   svg.setAttribute("aria-hidden", "true");
-  const path = document.createElement("null");
+  const path = createSvg("path");
   path.setAttribute("d", "M17 5 L17 17 L5 17");
   path.setAttribute("stroke", "currentColor");
   path.setAttribute("stroke-width", "2.75");
@@ -2791,13 +2785,11 @@ function renderSegContent(el, seg, ctx) {
       if (ctx.imgResizeEnabled !== false)
         attachImgResize(el);
       break;
-    case "fence": {
-      const body = seg.raw.replace(/^```[^\n]*\n?/, "").replace(/```\s*$/, "");
-      const pre = el.createEl("pre", { cls: "vt-code" });
-      pre.createEl("code", { text: body });
-      break;
-    }
     default: {
+      if (seg.kind === "md" && seg.raw.length >= 2 && seg.raw.startsWith("`") && seg.raw.endsWith("`")) {
+        el.createEl("code", { cls: "vt-inline-code", text: seg.raw.slice(1, -1) });
+        break;
+      }
       el.replaceChildren(...parseTrustedHtml(seg.raw).childNodes);
       ctx.renderPasses(el, ctx);
     }
@@ -3069,6 +3061,21 @@ function rangeOffset(td, node, offset) {
     const contentLen = Math.max(0, raw.length - prefix - segSuffix(host));
     return s + prefix + Math.min(f, contentLen);
   }
+  if (node != null && node.instanceOf(HTMLBRElement) && node.parentElement === td) {
+    const childNodes = Array.from(td.childNodes);
+    const idx = childNodes.indexOf(node);
+    let nextSeg = null;
+    for (let i = idx + 1; i < childNodes.length; i++) {
+      const n = childNodes[i];
+      if (n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS)) {
+        nextSeg = n;
+        break;
+      }
+    }
+    if (offset >= 1)
+      return nextSeg ? parseInt(nextSeg.dataset.s ?? "0", 10) : totalLen(td);
+    return nextSeg ? Math.max(0, parseInt(nextSeg.dataset.s ?? "0", 10) - 4) : Math.max(0, totalLen(td) - 4);
+  }
   if (node === td) {
     const childNodes = Array.from(td.childNodes);
     const next = childNodes[offset];
@@ -3081,11 +3088,41 @@ function rangeOffset(td, node, offset) {
   }
   return null;
 }
+function tailAnchorAfterRender(td) {
+  const last = td.lastChild;
+  if (!(last != null && last.instanceOf(HTMLElement)) || !last.classList.contains(SEG_CLS) || last.dataset.src !== "")
+    return null;
+  const prev = last.previousSibling;
+  if (!(prev != null && prev.instanceOf(HTMLElement)) || !prev.classList.contains(SEG_CLS) || prev.dataset.view !== "render" || prev.dataset.kind === "text")
+    return null;
+  return { anchor: last, block: prev };
+}
+function swallowFakeSpaceAtBlockEnd(td, off) {
+  const t2 = tailAnchorAfterRender(td);
+  if (!t2 || parseInt(t2.anchor.dataset.s ?? "-1", 10) !== off)
+    return;
+  t2.anchor.textContent = "";
+}
+function normalizeTailAnchorCaret(td) {
+  const t2 = tailAnchorAfterRender(td);
+  if (!t2 || t2.anchor.textContent !== "\xA0")
+    return false;
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount)
+    return false;
+  const r = sel.getRangeAt(0);
+  if (r.startContainer.nodeType !== Node.TEXT_NODE || r.startContainer.parentElement !== t2.anchor)
+    return false;
+  t2.anchor.textContent = "";
+  placeCaretAtSourceOffset(td, parseInt(t2.anchor.dataset.s ?? "-1", 10));
+  return true;
+}
 function placeCaretAtSourceOffset(td, off) {
   const segs = segEls(td);
   const sel = window.getSelection();
   if (!sel)
     return;
+  swallowFakeSpaceAtBlockEnd(td, off);
   const range = document.createRange();
   if (!segs.length) {
     range.selectNodeContents(td);
@@ -3256,10 +3293,90 @@ function placeCaretInto(range, td, off) {
 }
 var tdStates = /* @__PURE__ */ new WeakMap();
 var selectionHookInstalled = false;
+var boldKeyCapInstalled = false;
+var undoKeyCapInstalled = false;
+function installBoldKeyCap() {
+  if (boldKeyCapInstalled)
+    return;
+  boldKeyCapInstalled = true;
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey)
+      return;
+    if (e.key.toLowerCase() !== "b")
+      return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0)
+      return;
+    const range = sel.getRangeAt(0);
+    const startEl = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer != null && range.startContainer.instanceOf(Element) ? range.startContainer : null;
+    if (!startEl)
+      return;
+    const td = startEl.closest("td");
+    if (!td || !isWysiwyg(td))
+      return;
+    if (!td.contains(range.endContainer))
+      return;
+    const st = tdStates.get(td);
+    if (!st || st.editing)
+      return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (!range.collapsed) {
+      const rng = selectionSourceRange(td);
+      if (rng) {
+        const src = projectSource(td);
+        programEdit(td, st, rng.a, rng.b, `**${src.slice(rng.a, rng.b)}**`);
+      }
+    }
+  }, true);
+}
+function installUndoKeyCap() {
+  if (undoKeyCapInstalled)
+    return;
+  undoKeyCapInstalled = true;
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey)
+      return;
+    if (e.key.toLowerCase() !== "z")
+      return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0)
+      return;
+    const range = sel.getRangeAt(0);
+    const startEl = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer != null && range.startContainer.instanceOf(Element) ? range.startContainer : null;
+    if (!startEl)
+      return;
+    const td = startEl.closest("td");
+    if (!td || !isWysiwyg(td))
+      return;
+    if (!td.contains(range.endContainer))
+      return;
+    const st = tdStates.get(td);
+    if (!st || st.editing)
+      return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    const snap = st.undoStack.pop();
+    if (!snap)
+      return;
+    st.undoing = true;
+    try {
+      const cur = projectSource(td);
+      programEdit(td, st, 0, cur.length, snap.src);
+      placeSuppressed(td, st, Math.max(0, Math.min(snap.caret, snap.src.length)));
+    } finally {
+      st.undoing = false;
+    }
+  }, true);
+}
 function attachWysiwyg(td, ctx) {
   if (tdStates.has(td))
     return;
-  const st = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null };
+  installBoldKeyCap();
+  installUndoKeyCap();
+  const st = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [] };
   tdStates.set(td, st);
   td.addEventListener("compositionstart", () => {
     st.composing = true;
@@ -3315,10 +3432,36 @@ function attachWysiwyg(td, ctx) {
   td.addEventListener("keydown", (e) => {
     if (!isWysiwyg(td) || st.editing)
       return;
+    if (!st.undoing && (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter")) {
+      const srcU = projectSource(td);
+      const top = st.undoStack[st.undoStack.length - 1];
+      if (!top || top.src !== srcU) {
+        st.undoStack.push({ src: srcU, caret: st.lastCaret });
+        if (st.undoStack.length > 50)
+          st.undoStack.shift();
+      }
+    }
     if (e.key === "Backspace" || e.key === "Delete") {
       const off = caretSourceOffset(td) ?? st.lastCaret;
-      st.delHasText = segHasText(projectSource(td), off);
-      st.delHadBlankOnly = segIsBlankOnly(projectSource(td), off);
+      const srcK = projectSource(td);
+      st.delHasText = segHasText(srcK, off);
+      st.delHadBlankOnly = segIsBlankOnly(srcK, off);
+      if (e.key === "Backspace" && off === 1 && srcK[0] === "`" && srcK.indexOf("`", 1) === -1) {
+        const inner = srcK.slice(1);
+        if (inner[0] !== "!" && inner.length > 1) {
+          let x = 0;
+          const mMd = /^([`*_~=$·]{1,4})(.+)\1$/.exec(inner);
+          if (mMd)
+            x = mMd[1].length;
+          else {
+            const mTag = /^<([a-zA-Z][a-zA-Z0-9]*)>(.+)<\/\1\s*>$/.exec(inner);
+            if (mTag && HTML_PAIR_TAGS.has(mTag[1].toLowerCase()))
+              x = mTag[1].length + 2;
+          }
+          if (x > 0)
+            st.unwrapShift = x + 1;
+        }
+      }
     }
   });
   td.addEventListener("beforeinput", (e) => {
@@ -3329,6 +3472,46 @@ function attachWysiwyg(td, ctx) {
       healStuckComposing(ie);
       if (st.composing)
         return;
+    }
+    if (ie.inputType === "insertParagraph") {
+      const sel0 = window.getSelection();
+      if (sel0 && sel0.rangeCount) {
+        const loc0 = locateStart(td, sel0.getRangeAt(0));
+        if (loc0.el && loc0.el.dataset.view === "render" && loc0.where === "back") {
+          e.preventDefault();
+          programEdit(td, st, parseInt(loc0.el.dataset.e ?? "0", 10), parseInt(loc0.el.dataset.e ?? "0", 10), "<br>");
+          return;
+        }
+        const r0 = sel0.getRangeAt(0);
+        if (r0.collapsed && r0.startContainer.nodeType === Node.TEXT_NODE && r0.startContainer.textContent === "\u200B") {
+          const hostP = r0.startContainer.parentElement;
+          if (hostP != null && hostP.instanceOf(HTMLElement) && td.contains(hostP) && hostP.classList.contains(SEG_CLS) && hostP.dataset.src === "" && hostP === td.lastChild) {
+            const offP = caretSourceOffset(td);
+            if (offP != null) {
+              e.preventDefault();
+              programEdit(td, st, offP, offP, "<br>");
+              return;
+            }
+          }
+        }
+      }
+    }
+    if (ie.inputType === "deleteContentBackward") {
+      const selB = window.getSelection();
+      if (selB && selB.rangeCount) {
+        const rB = selB.getRangeAt(0);
+        if (rB.startContainer.nodeType === Node.TEXT_NODE && rB.collapsed) {
+          const hostB = rB.startContainer.parentElement;
+          if (hostB != null && hostB.instanceOf(HTMLElement) && td.contains(hostB) && hostB.classList.contains(SEG_CLS) && hostB.dataset.src === "" && hostB === td.lastChild && hostB.previousSibling != null && hostB.previousSibling.instanceOf(HTMLBRElement)) {
+            const sB = parseInt(hostB.dataset.s ?? "-1", 10);
+            if (sB >= 4) {
+              e.preventDefault();
+              programEdit(td, st, sB - 4, sB, "");
+              return;
+            }
+          }
+        }
+      }
     }
     if (ie.inputType === "insertText" && ie.data) {
       const offTail = caretSourceOffset(td);
@@ -3596,6 +3779,14 @@ function onSelectionChange(td, st) {
     st.lastCaret = off;
   if (st.editing)
     return;
+  if (range.collapsed && normalizeTailAnchorCaret(td))
+    return;
+  {
+    const t2 = tailAnchorAfterRender(td);
+    if (t2 && t2.anchor.textContent === "" && off != null && off !== parseInt(t2.anchor.dataset.s ?? "-1", 10)) {
+      t2.anchor.textContent = "\xA0";
+    }
+  }
   if (!range.collapsed) {
     st.lastLoc = { el: (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer)?.closest(`.${SEG_CLS}`) ?? null, where: "inner", innerF: 0 };
     revealSegmentsInRange(td, st, range);
@@ -3888,6 +4079,11 @@ function rebuild(td, st, caretOff) {
     enterWysiwyg(td, src, st.ctx);
     placeSuppressed(td, st, Math.max(0, Math.min(caretOff, src.length)));
     settleCaretAfterEdit(td, st, caretOff);
+    if (st.unwrapShift != null) {
+      const sh = st.unwrapShift;
+      st.unwrapShift = void 0;
+      placeSuppressed(td, st, Math.max(0, Math.min(caretOff - sh, src.length)));
+    }
   } finally {
     st.editing = false;
   }
@@ -3895,6 +4091,15 @@ function rebuild(td, st, caretOff) {
 function programEdit(td, st, delFrom, delTo, insert) {
   if (st.editing)
     return;
+  if (!st.undoing) {
+    const curSrc = projectSource(td);
+    const top = st.undoStack[st.undoStack.length - 1];
+    if (!top || top.src !== curSrc) {
+      st.undoStack.push({ src: curSrc, caret: st.lastCaret });
+      if (st.undoStack.length > 50)
+        st.undoStack.shift();
+    }
+  }
   st.editing = true;
   try {
     const src = projectSource(td);
@@ -4492,7 +4697,7 @@ function resolveThemeAccent(el) {
       return `hsl(${parseFloat(h)}, ${s2}, ${l2})`;
     }
   }
-  const probe = document.createElement("span");
+  const probe = createSpan();
   probe.style.color = `var(--interactive-accent, var(--accent-color, transparent))`;
   el.appendChild(probe);
   const computed = getComputedStyle(probe).color;
@@ -5094,7 +5299,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     }
     if (e.isComposing)
       return;
-    const isDel = e.key === "Delete" || e.keyCode === 46;
+    const isDel = e.key === "Delete" || compatKeyCode(e) === 46;
     const isMacDel = e.key === "Backspace" && e.metaKey;
     if (!isDel && !isMacDel)
       return;
@@ -5187,7 +5392,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     const ae = document.activeElement;
     if (!ae || !el.contains(ae))
       return;
-    if (!(e.key === "v" || e.key === "V" || e.keyCode === 86))
+    if (!(e.key === "v" || e.key === "V" || compatKeyCode(e) === 86))
       return;
     if (!(e.ctrlKey || e.metaKey) || !e.altKey)
       return;
@@ -5212,7 +5417,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     lastSelDeleteAt = Date.now();
     selOps.clearContent();
   };
-  const isSelDeleteKey = (e) => e.key === "Delete" || e.key === "Backspace" || e.keyCode === 46 || e.keyCode === 8;
+  const isSelDeleteKey = (e) => e.key === "Delete" || e.key === "Backspace" || compatKeyCode(e) === 46 || compatKeyCode(e) === 8;
   const onSelKeyDown = (e) => {
     if (!el.isConnected) {
       document.removeEventListener("keydown", onSelKeyDown, true);
@@ -5223,7 +5428,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       return;
     if (!selRects.length)
       return;
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || e.keyCode === 67)) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || compatKeyCode(e) === 67)) {
       e.preventDefault();
       e.stopPropagation();
       void navigator.clipboard?.writeText(buildSelMarkdown(selRects));
@@ -5579,6 +5784,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       return moveFocus(dr, dc);
     },
     setMode,
+    toolbar,
     getMode: () => data.mode,
     hasSelection: () => selRects.length > 0,
     alignSel: (mode) => selOps.align(mode),
@@ -6088,7 +6294,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           if (delSel && delSel.rangeCount > 0 && !delSel.isCollapsed) {
             e.preventDefault();
             e.stopPropagation();
-            document.execCommand("delete");
+            compatExecCommand(document, "delete");
             return;
           }
         }
@@ -6163,7 +6369,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           clearSelection();
           return;
         }
-        document.execCommand("insertText", false, text);
+        compatExecCommand(document, "insertText", text);
       });
       td.addEventListener("contextmenu", (e) => {
         if (!td.closest(".cm-editor"))
@@ -6444,7 +6650,7 @@ function keepCaretXInTd(td, x) {
   let node = null;
   let off = 0;
   try {
-    const hit = doc.caretRangeFromPoint ? doc.caretRangeFromPoint(x, y) : null;
+    const hit = compatCaretRangeFromPoint(doc, x, y);
     if (hit) {
       node = hit.startContainer;
       off = hit.startOffset;
@@ -6557,7 +6763,8 @@ function shiftIndex(v, deltas) {
   return out;
 }
 function populateCell(td, raw, grid, sourcePath, resolveImage, onTodoToggle, onOpenLink) {
-  td.replaceChildren(...parseTrustedHtml(raw).childNodes);
+  const protectedRaw = raw.replace(/`([^`\n]+)`/g, (_m, c) => "<code>" + escapeHtml(c) + "</code>");
+  td.replaceChildren(...parseTrustedHtml(protectedRaw).childNodes);
   if (/^=[A-Z]+\(/i.test(raw)) {
     td.textContent = evalFormula(grid, raw);
   }
@@ -6596,7 +6803,7 @@ function splitMath(text) {
   let match;
   let last = 0;
   let matched = false;
-  const frag = document.createDocumentFragment();
+  const frag = createFragment();
   ;
   ;
   while (match = MATH_RE.exec(text)) {
@@ -6694,12 +6901,12 @@ function renderTodos(root, onTodoToggle) {
     const text = textNode.textContent;
     const lines = text.split("\n");
     let hasTodo = false;
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     ;
     ;
     const buildTaskItem = (m) => {
       hasTodo = true;
-      const item = document.createElement("div");
+      const item = createDiv();
       item.className = "vt-task-item";
       const cb = item.createEl("input");
       cb.type = "checkbox";
@@ -6711,7 +6918,7 @@ function renderTodos(root, onTodoToggle) {
       cb.style.width = `1em`;
       cb.style.height = `1em`;
       cb.style.boxSizing = `border-box`;
-      const hit = document.createElement("span");
+      const hit = createSpan();
       hit.className = "vt-cb-hit";
       hit.style.display = `inline-flex`;
       hit.style.padding = `5px`;
@@ -6739,7 +6946,7 @@ function renderTodos(root, onTodoToggle) {
       }
       hit.appendChild(cb);
       item.appendChild(hit);
-      const span = document.createElement("span");
+      const span = createSpan();
       span.textContent = m[2] ?? "";
       item.appendChild(span);
       return item;
@@ -6825,7 +7032,7 @@ function renderImages(root, sourcePath, resolveImage) {
     let match;
     let last = 0;
     let found = false;
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     ;
     ;
     while (match = IMG_RE.exec(text)) {
@@ -6880,7 +7087,7 @@ function renderWikiLinks(root, onOpenLink) {
     WIKILINK_RE.lastIndex = 0;
     if (!WIKILINK_RE.test(text))
       continue;
-    const frag = document.createDocumentFragment();
+    const frag = createFragment();
     ;
     ;
     let last = 0;
@@ -7571,7 +7778,7 @@ var Toolbar = class {
   }
   /* ===== 文本格式化 ===== */
   exec(cmd, value) {
-    document.execCommand(cmd, false, value);
+    compatExecCommand(document, cmd, value);
   }
   stepFont(delta) {
     if (this.selActive()) {
@@ -7588,7 +7795,7 @@ var Toolbar = class {
     const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
     const next = Math.max(8, Math.min(72, cur + delta));
     if (!sel.isCollapsed) {
-      const span = document.createElement("span");
+      const span = createSpan();
       span.style.fontSize = `${next}px`;
       try {
         range.surroundContents(span);
@@ -7942,7 +8149,6 @@ function generateComboChart(grid) {
   if (segments.length === 0)
     return null;
   const KEYWORDS = /* @__PURE__ */ new Set(["\u6807\u9898", "Title", "x\u8303\u56F4", "x range", "x", "y\u8303\u56F4", "y range", "y", "v%", "vbarchart", "vline", "vpie"]);
-  const left = segments[0];
   const parsed = segments.map((s) => ({ type: s.type, range: { min: 0, max: 100 }, data: [] }));
   let title = "";
   let xAxisName = "";
@@ -8019,8 +8225,6 @@ function generateComboChart(grid) {
   const bv = ".bar-value";
   const dv = ".data-value";
   const xl = ".x-label";
-  const ln = ".line-path";
-  const dot = ".data-dot";
   const lightBarColors = ["#111", "#333", "#555", "#777", "#999", "#aaa"];
   const darkBarColors = ["#93C5FD", "#7DD3FC", "#A5B4FC", "#6EE7B7", "#67E8F9", "#C4B5FD"];
   const lightLineColors = ["#1E40AF", "#0E7490", "#6D28D9", "#0F766E", "#9A3412", "#B45309"];
@@ -8433,7 +8637,7 @@ ${first}`, 0);
       };
       this.addCommand({
         id: "vt-diag-start",
-        name: "\u3010\u8BCA\u65AD\u3011\u5F00\u59CB\u8BB0\u5F55\uFF08B/D/\u628A\u624B\uFF09",
+        name: "\u3010\u8BCA\u65AD\u3011\u5F00\u59CB\u8BB0\u5F55\uFF08b/d/\u628A\u624B\uFF09",
         callback: () => {
           diag.__vtDiag = [];
           diag.__vtDiagOn = true;
@@ -8441,11 +8645,11 @@ ${first}`, 0);
           const push = (ev, extra) => {
             if (!diag.__vtDiagOn)
               return;
-            diag.__vtDiag.push({ ev, ...extra ?? {}, snap: snapTd() });
+            diag.__vtDiag?.push({ ev, ...extra ?? {}, snap: snapTd() });
           };
           const kd = (e) => {
             diag.__vtDiag?.push({ ev: "key:" + e.key });
-            setTimeout(() => diag.__vtDiag?.push({ ev: "key-late:" + e.key, pd: e.defaultPrevented }), 0);
+            window.setTimeout(() => diag.__vtDiag?.push({ ev: "key-late:" + e.key, pd: e.defaultPrevented }), 0);
           };
           const bi = (e) => push("beforeinput:" + e.inputType, { pd: e.defaultPrevented });
           const pd = (e) => {
@@ -8523,13 +8727,11 @@ ${first}`, 0);
           } catch {
           }
           try {
-            const ta = document.createElement("textarea");
+            const ta = document.body.createEl("textarea");
             ta.value = json;
-            ta.style.position = "fixed";
-            ta.style.opacity = "0";
-            document.body.appendChild(ta);
+            ta.setCssStyles({ position: "fixed", opacity: "0" });
             ta.select();
-            const ok = document.execCommand("copy");
+            const ok = compatExecCommand(document, "copy");
             ta.remove();
             if (ok) {
               new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236(\u964D\u7EA7) " + json.length + " \u5B57\u7B26");
@@ -8893,7 +9095,7 @@ ${first}`, 0);
       let node = at.node;
       if (node && node.nodeType !== 1)
         node = node.parentElement;
-      const lineEl = node?.closest?.(".cm-line");
+      const lineEl = node?.closest(".cm-line") ?? null;
       if (lineEl) {
         let sib = lineEl;
         for (let i = 0; i < 3 && sib; i++) {
@@ -8914,7 +9116,7 @@ ${first}`, 0);
       if (host && host.nodeType === 1) {
         const kids = Array.from(host.children);
         for (let i = Math.max(0, at.offset - 2); i <= Math.min(kids.length - 1, at.offset + 2); i++) {
-          const embed = kids[i]?.closest?.(".cm-embed-block");
+          const embed = kids[i]?.closest(".cm-embed-block") ?? null;
           const vt = embed?.querySelector(".vtable-container");
           if (vt)
             return vt;
@@ -9159,55 +9361,108 @@ ${first}`, 0);
 var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
+    /** 右键菜单文本框未保存缓冲：update() 重跑 render 回调时保住用户未点保存的输入 */
+    this.menuTaBuf = null;
     this.plugin = plugin;
   }
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    new import_obsidian4.Setting(containerEl).setName(t("vtable \u8BBE\u7F6E", "vtable Settings")).setHeading();
-    addDocLinks(containerEl);
-    new import_obsidian4.Setting(containerEl).setName(t("\u754C\u9762\u8BED\u8A00", "UI language")).setDesc(t("\u8BBE\u7F6E\u9762\u677F\u3001\u6D6E\u7A97\u6309\u94AE\u4E0E\u53F3\u952E\u83DC\u5355\u6587\u672C\u7684\u8BED\u8A00\u3002", "Language of the settings panel, toolbar buttons and context menus.")).addDropdown((d) => d.addOptions({ zh: "\u4E2D\u6587", en: "English" }).setValue(this.plugin.settings.uiLang).onChange(async (value) => {
-      this.plugin.settings.uiLang = value;
-      setUiLang(value);
-      await this.plugin.saveSettings();
+  /** 声明式设置（1.13 官方契约）：简单项 name/desc 在外层、控件嵌套在 control 字段
+   *  （key 直绑 plugin.settings，框架经 get/setControlValue 读写并自动保存）；
+   *  特殊 UI（图表按钮/折叠样式区/菜单自定义）走 render 回调自理（render 不带 type 字段，
+   *  文档链接走 desc 片段——官方链接标准形态）。详见官方迁移指南 Path A */
+  getSettingDefinitions() {
+    const defs = [];
+    defs.push({
+      name: t("\u4F7F\u7528\u6587\u6863", "Documentation"),
+      desc: makeDocLinksFrag()
+    });
+    defs.push({
+      name: t("\u754C\u9762\u8BED\u8A00", "UI language"),
+      desc: t("\u8BBE\u7F6E\u9762\u677F\u3001\u6D6E\u7A97\u6309\u94AE\u4E0E\u53F3\u952E\u83DC\u5355\u6587\u672C\u7684\u8BED\u8A00\u3002", "Language of the settings panel, toolbar buttons and context menus."),
+      control: {
+        type: "dropdown",
+        key: "uiLang",
+        options: { zh: "\u4E2D\u6587", en: "English" }
+      }
+    });
+    defs.push({
+      name: t("\u56FE\u8868\u6A21\u677F", "Chart templates"),
+      desc: t("\u628A\u5BF9\u5E94\u8BED\u8A00\u7684\u56FE\u8868\u6A21\u677F\uFF08\u67F1\u72B6\u56FE/\u997C\u56FE/\u6298\u7EBF\u56FE\uFF09\u6DFB\u52A0\u5230\u6A21\u677F\u6587\u4EF6\u5939\uFF0C\u5199\u5165\u68C0\u6D4B\u5230\u7684\u6A21\u677F\u76EE\u5F55\u3002", "Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder."),
+      render: (s) => {
+        s.addButton((b) => b.setButtonText("+\u4E2D\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
+          this.plugin.addChartTemplates("zh").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
+        }));
+        s.addButton((b) => b.setButtonText("+\u82F1\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
+          this.plugin.addChartTemplates("en").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
+        }));
+      }
+    });
+    defs.push({
+      name: t("\u6D6E\u7A97\u6309\u94AE\u8BF4\u660E", "Floating toolbar legend"),
+      desc: makeLegendFrag(),
+      visible: () => this.plugin.settings.uiLang === "en"
+    });
+    defs.push({
+      name: t("\u7535\u8111\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F", "Desktop floating toolbar"),
+      desc: t("\u5728\u7535\u8111\u7AEF\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F", "Show the floating formatting toolbar while editing cells on desktop"),
+      control: { type: "toggle", key: "enableDesktopToolbar" }
+    });
+    defs.push({
+      name: t("\u79FB\u52A8\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F", "Mobile / tablet floating toolbar"),
+      desc: t("\u5728\u624B\u673A/\u5E73\u677F\u8BBE\u5907\u4E0A\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F", "Show the floating toolbar while editing cells on phones and tablets"),
+      control: { type: "toggle", key: "enableMobileToolbar" }
+    });
+    defs.push({
+      name: t("\u6A21\u5F0F\u5207\u6362\u6309\u94AE", "Mode switcher"),
+      desc: t("\u7F16\u8F91\u8868\u683C\u65F6\u663E\u793A OL / HS / RC \u4E09\u79CD\u6A21\u5F0F\u7684\u5207\u6362\u6309\u94AE", "Show the OL / HS / RC mode switcher while editing"),
+      control: { type: "toggle", key: "enableModeSwitcher" }
+    });
+    defs.push({
+      name: t("\u81EA\u52A8\u586B\u5145\u67C4", "Auto fill handle"),
+      desc: t("\u9009\u4E2D\u5355\u5143\u683C\u65F6\u5728\u53F3\u4E0B\u89D2\u663E\u793A\u586B\u5145\u67C4\uFF0C\u62D6\u62FD\u53EF\u590D\u5236\u6216\u6309\u5E8F\u5217\u586B\u5145\u76F8\u90BB\u5355\u5143\u683C\uFF08\u684C\u9762\u7AEF\u4E13\u5C5E\uFF09\u3002", "Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only)."),
+      control: { type: "toggle", key: "enableFillHandle" }
+    });
+    defs.push({
+      name: t("RC \u6574\u4F53\u7F29\u653E\u628A\u624B", "RC whole-table scaling handle"),
+      desc: t("RC \u6A21\u5F0F\u4E0B\u5728\u8868\u683C\u53F3\u4E0B\u89D2\u663E\u793A\u7F29\u653E\u628A\u624B\uFF0C\u62D6\u62FD\u53EF\u6574\u4F53\u62C9\u4F38\u6240\u6709\u884C\u9AD8\u5217\u5BBD\u3002", "In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging."),
+      control: { type: "toggle", key: "enableRcScale" }
+    });
+    defs.push({
+      name: t("\u56FE\u7247\u7F29\u653E\u67C4", "Image resize handle"),
+      desc: t("\u7F16\u8F91\u65F6\u5728\u5D4C\u5165\u56FE\u7247\u65C1\u663E\u793A L \u5F62\u62D6\u67C4\uFF0C\u62D6\u62FD\u8C03\u6574\u56FE\u7247\u5BBD\u5EA6\uFF08\u5199\u56DE |\u6570\u5B57 \u5C3A\u5BF8\u8BED\u6CD5\uFF09\u3002", "Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax)."),
+      control: { type: "toggle", key: "enableImgResize" }
+    });
+    defs.push({
+      name: t("\u8868\u683C\u6837\u5F0F", "Table style"),
+      render: (s) => {
+        s.settingEl.empty();
+        s.settingEl.addClass("vt-style-section-host");
+        this.buildStyleSection(s.settingEl);
+      }
+    });
+    defs.push({
+      name: t("\u4F7F\u7528\u6587\u6863", "Documentation"),
+      desc: makeDocLinksFrag()
+    });
+    return defs;
+  }
+  /** 声明式控件读写：key 直绑 plugin.settings；变更副作用按 key 分派 */
+  getControlValue(key) {
+    return this.plugin.settings[key];
+  }
+  setControlValue(key, value) {
+    this.plugin.settings[key] = value;
+    void this.plugin.saveSettings();
+    if (key === "uiLang") {
+      setUiLang(this.plugin.settings.uiLang);
       this.plugin.toolbar.rebuild();
-      this.display();
-    }));
-    new import_obsidian4.Setting(containerEl).setName(t("\u56FE\u8868\u6A21\u677F", "Chart templates")).setDesc(t("\u628A\u5BF9\u5E94\u8BED\u8A00\u7684\u56FE\u8868\u6A21\u677F\uFF08\u67F1\u72B6\u56FE/\u997C\u56FE/\u6298\u7EBF\u56FE\uFF09\u6DFB\u52A0\u5230\u6A21\u677F\u6587\u4EF6\u5939\uFF0C\u5199\u5165\u68C0\u6D4B\u5230\u7684\u6A21\u677F\u76EE\u5F55\u3002", "Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.")).addButton((b) => b.setButtonText("+\u4E2D\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
-      this.plugin.addChartTemplates("zh").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
-    })).addButton((b) => b.setButtonText("+\u82F1\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
-      this.plugin.addChartTemplates("en").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
-    }));
-    if (this.plugin.settings.uiLang === "en") {
-      const legend = containerEl.createDiv({ cls: "vt-setting-hint" });
-      legend.textContent = `${t("\u6D6E\u7A97\u6309\u94AE\u8BF4\u660E\uFF1A", "Floating toolbar legend:")}
-${barLegend()}`;
+      this.update();
     }
-    new import_obsidian4.Setting(containerEl).setName(t("\u7535\u8111\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F", "Desktop floating toolbar")).setDesc(t("\u5728\u7535\u8111\u7AEF\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F", "Show the floating formatting toolbar while editing cells on desktop")).addToggle((t2) => t2.setValue(this.plugin.settings.enableDesktopToolbar).onChange(async (value) => {
-      this.plugin.settings.enableDesktopToolbar = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian4.Setting(containerEl).setName(t("\u79FB\u52A8\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F", "Mobile / tablet floating toolbar")).setDesc(t("\u5728\u624B\u673A/\u5E73\u677F\u8BBE\u5907\u4E0A\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F", "Show the floating toolbar while editing cells on phones and tablets")).addToggle((t2) => t2.setValue(this.plugin.settings.enableMobileToolbar).onChange(async (value) => {
-      this.plugin.settings.enableMobileToolbar = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian4.Setting(containerEl).setName(t("\u6A21\u5F0F\u5207\u6362\u6309\u94AE", "Mode switcher")).setDesc(t("\u7F16\u8F91\u8868\u683C\u65F6\u663E\u793A OL / HS / RC \u4E09\u79CD\u6A21\u5F0F\u7684\u5207\u6362\u6309\u94AE", "Show the OL / HS / RC mode switcher while editing")).addToggle((t2) => t2.setValue(this.plugin.settings.enableModeSwitcher).onChange(async (value) => {
-      this.plugin.settings.enableModeSwitcher = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian4.Setting(containerEl).setName(t("\u81EA\u52A8\u586B\u5145\u67C4", "Auto fill handle")).setDesc(t("\u9009\u4E2D\u5355\u5143\u683C\u65F6\u5728\u53F3\u4E0B\u89D2\u663E\u793A\u586B\u5145\u67C4\uFF0C\u62D6\u62FD\u53EF\u590D\u5236\u6216\u6309\u5E8F\u5217\u586B\u5145\u76F8\u90BB\u5355\u5143\u683C\uFF08\u684C\u9762\u7AEF\u4E13\u5C5E\uFF09\u3002", "Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).")).addToggle((t2) => t2.setValue(this.plugin.settings.enableFillHandle).onChange(async (value) => {
-      this.plugin.settings.enableFillHandle = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian4.Setting(containerEl).setName(t("RC \u6574\u4F53\u7F29\u653E\u628A\u624B", "RC whole-table scaling handle")).setDesc(t("RC \u6A21\u5F0F\u4E0B\u5728\u8868\u683C\u53F3\u4E0B\u89D2\u663E\u793A\u7F29\u653E\u628A\u624B\uFF0C\u62D6\u62FD\u53EF\u6574\u4F53\u62C9\u4F38\u6240\u6709\u884C\u9AD8\u5217\u5BBD\u3002", "In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.")).addToggle((t2) => t2.setValue(this.plugin.settings.enableRcScale).onChange(async (value) => {
-      this.plugin.settings.enableRcScale = value;
-      await this.plugin.saveSettings();
-    }));
-    new import_obsidian4.Setting(containerEl).setName(t("\u56FE\u7247\u7F29\u653E\u67C4", "Image resize handle")).setDesc(t("\u7F16\u8F91\u65F6\u5728\u5D4C\u5165\u56FE\u7247\u65C1\u663E\u793A L \u5F62\u62D6\u67C4\uFF0C\u62D6\u62FD\u8C03\u6574\u56FE\u7247\u5BBD\u5EA6\uFF08\u5199\u56DE |\u6570\u5B57 \u5C3A\u5BF8\u8BED\u6CD5\uFF09\u3002", "Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).")).addToggle((t2) => t2.setValue(this.plugin.settings.enableImgResize).onChange(async (value) => {
-      this.plugin.settings.enableImgResize = value;
-      await this.plugin.saveSettings();
-    }));
-    const styleSection = containerEl.createEl("details", { cls: "vt-style-section" });
+  }
+  /** 表格样式折叠区（圆角/表头底色/线风格/隔行变色）。区内下拉切换「自定义颜色」时
+   *  只重绘本区（原为全局 display() 重绘，效果等价：自定义颜色行显隐变化，扰动更小） */
+  buildStyleSection(host) {
+    host.empty();
+    const styleSection = host.createEl("details", { cls: "vt-style-section" });
     styleSection.setAttribute("open", "");
     styleSection.createEl("summary", { text: t("\u8868\u683C\u6837\u5F0F", "Table style") });
     new import_obsidian4.Setting(styleSection).setName(t("\u8868\u683C\u5916\u6846\u5706\u89D2", "Table corner radius")).setDesc(t("\u62D6\u52A8\u8C03\u6574\u8868\u683C\u56DB\u4E2A\u5916\u89D2\u7684\u5706\u89D2\u5927\u5C0F\uFF0C0 \u4E3A\u76F4\u89D2\u3002\u4FEE\u6539\u540E\u5BF9\u6240\u6709\u5DF2\u6253\u5F00\u7684\u8868\u683C\u5373\u65F6\u751F\u6548\uFF08\u5168\u5C40\u8BBE\u7F6E\uFF0C\u4E0D\u80FD\u5BF9\u5355\u4E2A\u8868\u683C\u53D6\u6D88\uFF09\u3002", "Rounded corners of the table outline, 0 = square. Applies to all open tables immediately (global only, cannot be disabled per table).")).addSlider((s) => s.setLimits(0, 20, 1).setValue(this.plugin.settings.tableRadius).onChange(async (value) => {
@@ -9223,11 +9478,11 @@ ${barLegend()}`;
       this.plugin.settings.headerStyle = value;
       await this.plugin.saveSettings();
       refreshAllTableAppearance();
-      this.display();
+      this.buildStyleSection(host);
     }));
     if (this.plugin.settings.headerStyle === "custom") {
       const colorSetting = new import_obsidian4.Setting(styleSection).setName(t("\u81EA\u5B9A\u4E49\u8868\u5934\u989C\u8272", "Custom header color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #4a90d9", "Hex color, e.g. #4a90d9"));
-      const preview = document.createElement("span");
+      const preview = createSpan();
       preview.className = "vt-color-preview";
       preview.style.background = this.plugin.settings.headerColor;
       colorSetting.nameEl.appendChild(preview);
@@ -9262,7 +9517,7 @@ ${barLegend()}`;
       this.plugin.settings.zebraStyle = value;
       await this.plugin.saveSettings();
       refreshAllTableAppearance();
-      this.display();
+      this.buildStyleSection(host);
     })).addToggle((tg) => tg.setTooltip(t("\u542F\u7528\u9694\u884C\u53D8\u8272", "Enable zebra stripes")).setValue(this.plugin.settings.zebraEnabled).onChange(async (value) => {
       this.plugin.settings.zebraEnabled = value;
       await this.plugin.saveSettings();
@@ -9270,7 +9525,7 @@ ${barLegend()}`;
     }));
     if (this.plugin.settings.zebraStyle === "custom") {
       const zcSetting = new import_obsidian4.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272\u81EA\u5B9A\u4E49\u989C\u8272", "Custom zebra color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #e8f0fe\u3002\u989C\u8272\u8FC7\u6DF1\u65F6\u6587\u5B57\u81EA\u52A8\u53CD\u767D\u3002", "Hex color, e.g. #e8f0fe. Dark colors get white text automatically."));
-      const zcPreview = document.createElement("span");
+      const zcPreview = createSpan();
       zcPreview.className = "vt-color-preview";
       zcPreview.style.background = this.plugin.settings.zebraColor;
       zcSetting.nameEl.appendChild(zcPreview);
@@ -9301,13 +9556,17 @@ ${barLegend()}`;
     });
     const ta = taSetting.settingEl.createEl("textarea");
     ta.className = "text-input vt-menu-ta";
-    ta.value = this.plugin.settings.contextMenu;
+    ta.value = this.menuTaBuf ?? this.plugin.settings.contextMenu;
     taSetting.settingEl.insertAdjacentElement("afterend", ta);
     taRef.el = ta;
+    ta.addEventListener("input", () => {
+      this.menuTaBuf = ta.value;
+    });
     new import_obsidian4.Setting(containerEl).setName(t("\u4FDD\u5B58\u83DC\u5355\u914D\u7F6E", "Save menu layout")).setDesc(t("\u70B9\u51FB\u4FDD\u5B58\u540E\u7ACB\u5373\u5BF9\u6240\u6709\u8868\u683C\u751F\u6548\uFF1B\u672A\u4FDD\u5B58\u7684\u4FEE\u6539\u5728\u5173\u95ED\u8BBE\u7F6E\u540E\u4E22\u5F03\u3002", "Applies to all tables immediately; unsaved edits are discarded when settings close.")).addButton((b) => b.setButtonText(t("\u4FDD\u5B58", "Save")).setCta().onClick(async () => {
       if (!taRef.el)
         return;
       this.plugin.settings.contextMenu = taRef.el.value;
+      this.menuTaBuf = null;
       await this.plugin.saveSettings();
       new import_obsidian4.Notice(t("\u53F3\u952E\u83DC\u5355\u914D\u7F6E\u5DF2\u4FDD\u5B58", "Context menu saved"));
     }));
@@ -9372,15 +9631,27 @@ ${barLegend()}`;
       )
     });
     help.createEl("a", { text: "README", href: `${REPO_URL}#right-click-menu` }).setAttribute("target", "_blank");
-    addDocLinks(containerEl);
   }
 };
-function addDocLinks(host) {
-  const row = host.createDiv({ cls: "vt-setting-hint" });
-  row.createSpan({ text: t("\u4F7F\u7528\u6587\u6863\uFF1A", "Documentation: ") });
-  row.createEl("a", { text: t("\u4E2D\u6587\u6587\u6863", "Chinese documentation"), href: `${REPO_URL}/blob/main/README_CN.md` });
-  row.createSpan({ text: " | " });
-  row.createEl("a", { text: t("\u82F1\u6587\u6587\u6863", "English documentation"), href: `${REPO_URL}/blob/main/README.md` });
+function makeDocLinksFrag() {
+  return createFragment((f) => {
+    f.createSpan({ text: t("\u4F7F\u7528\u6587\u6863\uFF1A", "Documentation: ") });
+    f.createEl("a", { text: t("\u4E2D\u6587\u6587\u6863", "Chinese documentation"), href: `${REPO_URL}/blob/main/README_CN.md` }).setAttribute("target", "_blank");
+    f.createSpan({ text: " | " });
+    f.createEl("a", { text: t("\u82F1\u6587\u6587\u6863", "English documentation"), href: `${REPO_URL}/blob/main/README.md` }).setAttribute("target", "_blank");
+  });
+}
+function makeLegendFrag() {
+  return createFragment((f) => {
+    const all = `${t("\u6D6E\u7A97\u6309\u94AE\u8BF4\u660E\uFF1A", "Floating toolbar legend:")}
+${barLegend()}`;
+    const lines = all.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0)
+        f.createEl("br");
+      f.createSpan({ text: lines[i] });
+    }
+  });
 }
 function findHtmlTable(ed) {
   const cur = ed.getCursor().line;

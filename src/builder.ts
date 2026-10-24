@@ -61,35 +61,35 @@ export function mdInlineToHtml(s: string): string {
         const escapeAttr = (v: string): string => escapeHtml(v).replace(/"/g, '&quot;');
 
         // 1) 保护反引号代码段：渲染为 <code>，避免内部 ![[图片]] 等被后续管线解析
-        s = s.replace(/`([^`]+)`/g, (_, content) => protect('<code>' + escapeHtml(content) + '</code>'));
+        s = s.replace(/`([^`]+)`/g, (_m: string, content: string) => protect('<code>' + escapeHtml(content) + '</code>'));
 
         // 1.5) 换行标签 <br> 直通：md 表格导入路径的换行语义（导出时 \n → <br>，
         // 再导入若被 HTML 转义会变成字面文本，往返丢数据）；用户手输 <br> 亦按换行渲染
         s = s.replace(/<br\s*\/?>/gi, (m) => protect(m));
 
         // 2) 链接：[text](url)（须在粗斜体之前，避免 url 中的 _ / * 被误判为格式符）
-        s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text, url) => {
+        s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m: string, text: string, url: string) => {
                 const href = /^javascript:/i.test(url) ? '#' : escapeAttr(url);
                 return protect(`<a href="${href}">${escapeHtml(text)}</a>`);
         });
 
         // 3) 粗斜体：***x***（无边界限制） / ___x___（要求前后为单词边界，避免误伤 snake_case）
-        s = s.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (_, content) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
-        s = s.replace(/(?<!\w)___(?!_)([\s\S]+?)(?<!_)___(?!\w)/g, (_, content) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
+        s = s.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (_m: string, content: string) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
+        s = s.replace(/(?<!\w)___(?!_)([\s\S]+?)(?<!_)___(?!\w)/g, (_m: string, content: string) => protect(`<b><i>${escapeHtml(content)}</i></b>`));
 
         // 4) 粗体：**x** / __x__（同上，下划线版本要求单词边界）
-        s = s.replace(/\*\*([\s\S]+?)\*\*/g, (_, content) => protect(`<b>${escapeHtml(content)}</b>`));
-        s = s.replace(/(?<!\w)__(?!_)([\s\S]+?)(?<!_)__(?!\w)/g, (_, content) => protect(`<b>${escapeHtml(content)}</b>`));
+        s = s.replace(/\*\*([\s\S]+?)\*\*/g, (_m: string, content: string) => protect(`<b>${escapeHtml(content)}</b>`));
+        s = s.replace(/(?<!\w)__(?!_)([\s\S]+?)(?<!_)__(?!\w)/g, (_m: string, content: string) => protect(`<b>${escapeHtml(content)}</b>`));
 
         // 5) 斜体：*x* / _x_（下划线版本要求单词边界，避免匹配 snake_case 标识符）
-        s = s.replace(/\*([\s\S]+?)\*/g, (_, content) => protect(`<i>${escapeHtml(content)}</i>`));
-        s = s.replace(/(?<!\w)_([\s\S]+?)(?<!_)_(?!\w)/g, (_, content) => protect(`<i>${escapeHtml(content)}</i>`));
+        s = s.replace(/\*([\s\S]+?)\*/g, (_m: string, content: string) => protect(`<i>${escapeHtml(content)}</i>`));
+        s = s.replace(/(?<!\w)_([\s\S]+?)(?<!_)_(?!\w)/g, (_m: string, content: string) => protect(`<i>${escapeHtml(content)}</i>`));
 
         // 6) 高亮：==x==
-        s = s.replace(/==([\s\S]+?)==/g, (_, content) => protect(`<mark>${escapeHtml(content)}</mark>`));
+        s = s.replace(/==([\s\S]+?)==/g, (_m: string, content: string) => protect(`<mark>${escapeHtml(content)}</mark>`));
 
         // 7) 删除线：~~x~~
-        s = s.replace(/~~([\s\S]+?)~~/g, (_, content) => protect(`<s>${escapeHtml(content)}</s>`));
+        s = s.replace(/~~([\s\S]+?)~~/g, (_m: string, content: string) => protect(`<s>${escapeHtml(content)}</s>`));
 
         // 8) 转义剩余纯文本
         s = escapeHtml(s);
@@ -97,7 +97,7 @@ export function mdInlineToHtml(s: string): string {
         // 9) 恢复保护的内容
         // \x00/\x01 是 mdInlineToHtml 保护段的哨兵字节，正文不可能出现，必须原样匹配
         // eslint-disable-next-line no-control-regex -- 哨兵字节匹配为序列化保护机制所必需
-        return s.replace(/\x00(\d+)\x01/g, (_, idx) => protectedSpans[parseInt(idx)]);
+        return s.replace(/\x00(\d+)\x01/g, (_m: string, idx: string) => protectedSpans[parseInt(idx)]);
 }
 
 export type Grid = Cell[][];

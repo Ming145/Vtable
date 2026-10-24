@@ -120,8 +120,15 @@ Tables live inside a ` ```vtable ` code block and serialize to JSON, so everythi
 | `Ctrl/Cmd+C` | Copy the active selection as a Markdown table |
 | `Ctrl/Cmd+V` | Paste a Markdown table into the grid (top-left = focused cell) |
 | `Ctrl/Cmd+Alt+V` | Paste a Markdown table and extend rows/columns as needed |
+| `Ctrl/Cmd+Alt+B` | Wrap the selected text in bold (`**...**`) — in-cell editing only |
+| `Ctrl/Cmd+Alt+Z` | Undo the last in-cell edit |
 
 All commands can be bound to custom hotkeys in Obsidian settings, including create, conversions, chart generation, styling, diagonal split, and mode switching.
+
+### Inline code behavior
+
+- Inline code (backticks) renders its content **literally**: HTML inside backticks (e.g. tags) displays as plain text instead of being rendered, both while editing and after the cursor leaves the cell
+- Triple-backtick fenced code blocks inside cells are not supported; fence source is shown and edited as plain text
 
 ### Floating toolbar
 

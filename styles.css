@@ -75,6 +75,11 @@
         scrollbar-width: none;
         -ms-overflow-style: none;
 }
+/* Chromium 老版（<121）不支持 scrollbar-width，webkit 伪元素等价兜底 */
+.vt-table-wrap.vt-hs-scroll::-webkit-scrollbar,
+.vt-table-wrap.vt-rc-scroll::-webkit-scrollbar {
+        display: none;
+}
 
 .vt-table-wrap.vt-hs-scroll::-webkit-scrollbar,
 .vt-table-wrap.vt-rc-scroll::-webkit-scrollbar {
@@ -1101,11 +1106,13 @@ table.vt td.vt-diag {
 .vtable-container a.internal-link {
         color: var(--link-color, var(--text-accent, #7c3aed));
         text-decoration: underline;
+        -webkit-text-decoration-color: transparent;
         text-decoration-color: transparent;
         cursor: pointer;
 }
 
 .vtable-container a.internal-link:hover {
+        -webkit-text-decoration-color: currentColor;
         text-decoration-color: currentColor;
 }
 
@@ -1240,6 +1247,11 @@ table.vt td.vt-diag {
 /* 拉动符号：右下角 L 形折角（圆头细线、拐角圆润）——浅灰（与表格边缘同色），
    不叠加透明度（浅灰本身已淡）。命中区=比符号大一点的圆形（28px），完全透明
    不可见（无磨砂无底色），只负责扩大触达范围。线条用内嵌 SVG currentColor 继承 */
+/* 声明式设置：样式折叠区宿主行（框架预建 setting-item 行清空为纯容器，抵消 flex 布局） */
+.vt-style-section-host {
+	display: block;
+}
+
 .vt-img-seg .vt-img-resize {
         position: absolute;
         right: -4px;

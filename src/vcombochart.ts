@@ -54,7 +54,6 @@ export function generateComboChart(grid: Grid): string | null {
         if (segments.length === 0) return null;
 
         const KEYWORDS = new Set(['标题', 'Title', 'x范围', 'x range', 'x', 'y范围', 'y range', 'y', 'v%', 'vbarchart', 'vline', 'vpie']);
-        const left = segments[0]; // 最左段：标题/轴名来源
 
         // ===== 逐段逐行扫描解析 =====
         interface Seg {
@@ -147,8 +146,6 @@ export function generateComboChart(grid: Grid): string | null {
         const bv = '.bar-value';
         const dv = '.data-value';
         const xl = '.x-label';
-        const ln = '.line-path';
-        const dot = '.data-dot';
 
         const lightBarColors = ['#111', '#333', '#555', '#777', '#999', '#aaa'];
         // 配色定调（用户 2026-10-17）：深色或深色的淡化色，不用鲜艳色

@@ -4,8 +4,8 @@
  *
  * 模型（经用户确认的需求）：
  *  - 单元格源码解析为有序「段」序列：对称包裹语法 = 块；残缺/跨行 → 普通文本
- *  - 编辑态 DOM：td 下按源码顺序排列 span.vt-seg（块级 fence 用 block）
- *      · 渲染段（md/fence/void）：显示渲染效果，data-src 存源码原文
+ *  - 编辑态 DOM：td 下按源码顺序排列 span.vt-seg
+ *      · 渲染段（md/void）：显示渲染效果，data-src 存源码原文
  *      · 文本段（text）：永远显示源码（textContent，与源码恒等）
  *  - 光标（任何方式移动，含点击/键盘）进入渲染段 → 整段切源码；离开 → 重新渲染
  *  - 残缺块永远按普通文本处理（不强制渲染回去）
@@ -15,7 +15,9 @@
  *      它只是两行之间的行分隔线，块配对绝不越过它；本模块不管理换行，
  *      只负责认出 <br> 并放行为真标签（用户永远看不到 <br> 字面，同旧版本）。
  *      换行的一切管理（normalize/序列化/Enter 默认行为）归旧版本管线，原样不动
- *  - mermaid 不归本模块（归旧版本管线）：```mermaid 按普通 fence 代码块显示
+ *  - mermaid 不归本模块（归旧版本管线）
+ *  - 三反引号跨行代码块（fence）已取消支持（2026-10-24 用户指令）：行内代码 `x`
+ *      保持支持；``` 围栏源码一律按普通文本显示
  *
  * 关键不变量：
  *  - 源码态段 DOM = 纯 text node（+ 浏览器异常插入的 <br>，投影时还原）
@@ -41,7 +43,7 @@ export interface WysiwygCtx {
         onMdGridPaste?: (r0: number, c0: number, rows: string[][]) => void;
 }
 
-export type SegKind = 'text' | 'md' | 'fence' | 'br' | 'void-img' | 'void-entity';
+export type SegKind = 'text' | 'md' | 'br' | 'void-img' | 'void-entity';
 
 export interface Seg {
         kind: SegKind;
@@ -51,14 +53,11 @@ export interface Seg {
         /** md 段：渲染文本 → 源码偏移补偿（源码偏移 ≈ start + prefix + 渲染字符偏移） */
         prefix: number;
         suffix: number;
-        lang?: string;
 }
 
 /* ================================================================
  * 一、解析器
  * ================================================================ */
-
-const FENCE_OPEN_RE = /^```([^\n`]*)\n?/;
 
 /** 允许所见即所得渲染的 HTML 对称标签（inline 格式类；<br>/<img> 走 void 规则） */
 const HTML_PAIR_TAGS = new Set([
@@ -85,29 +84,12 @@ export function parseSegments(src: string): Seg[] {
         while (pos < src.length) {
                 const rest = src.slice(pos);
                 // 行内语法的作用域边界：下一个 <br> 之前（换行是行分隔——两行的 ` 不配对、
-                // ** 不跨行；fence 是唯一跨行块，用全文 rest）
+                // ** 不跨行；三反引号围栏已取消段支持，按普通文本走）
                 const brM = /<br\s*\/?>/i.exec(rest);
                 const lineRest = brM ? rest.slice(0, brM.index) : rest;
                 let m: RegExpExecArray | null;
 
-                // 1) 代码围栏 ```（唯一允许跨行的块）
-                if ((m = FENCE_OPEN_RE.exec(rest))) {
-                        const lang = (m[1] || '').trim();
-                        const bodyStart = pos + m[0].length;
-                        const closeIdx = src.indexOf('```', bodyStart);
-                        if (closeIdx >= 0) {
-                                flushText(pos);
-                                const end = closeIdx + 3;
-                                const raw = src.slice(pos, end);
-                                // prefix = 开围栏整行（```lang\n），suffix = 尾部 ```
-                                // ——渲染文本 = 围栏内容，光标映射按此精确补偿（否则点代码块内部会跳进围栏字符里）
-                                segs.push({ kind: 'fence', raw, start: pos, end, prefix: m[0].length, suffix: 3, lang });
-                                pos = end;
-                                continue;
-                        }
-                }
-
-                // 2) 行分隔线：<br> 不算块、不入段系统（与 wysiwyg 分立，用户钉死）——
+                // 1) 行分隔线：<br> 不算块、不入段系统（与 wysiwyg 分立，用户钉死）——
                 // 认出它、放行为真 br 元素，本模块不管理换行；行内语法（` 配对、** 配对
                 // 等）绝不跨行（块不能跨行，跨行就不是块）
                 if ((m = /^<br\s*\/?>/i.exec(rest))) { pushVoid('br', m[0]); continue; }
@@ -207,7 +189,7 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
         const lastIsRenderSeg = lastChild != null && lastChild.instanceOf(HTMLElement)
                 && lastChild.classList.contains(SEG_CLS) && lastChild.dataset.view === 'render';
         if (lastIsBr || lastIsRenderSeg) {
-                const tail = document.createElement('span');
+                const tail = createSpan();
                 tail.className = SEG_CLS;
                 tail.dataset.kind = 'text';
                 tail.dataset.view = 'src';
@@ -216,10 +198,16 @@ export function enterWysiwyg(td: HTMLElement, src: string, ctx: WysiwygCtx): voi
                 tail.dataset.e = String(src.length);
                 tail.dataset.prefix = '0';
                 tail.dataset.suffix = '0';
-                // 占位 nbsp：空 span 无法承载 caret（Chromium 规范化回前段——"光标进不去空行"
-                // 的真根因），nbsp 给锚点段一个实体文本位；配合 beforeinput 锚点边界拦截
-                //（输入/删除走源码域）消除占位符副作用，投影时过滤不进源码域
-                tail.textContent = '\u00A0';
+                // 占位字符：空 span 无法承载 caret（Chromium 规范化回前段——"光标进不去空行"
+                // 的真根因），占位符给锚点段一个实体文本位；配合 beforeinput 锚点边界拦截
+                //（输入/删除走源码域）消除占位符副作用，投影时过滤不进源码域（\u200B 同滤）
+                // 两种占位符分场景（2026-10-23 21:45 用户报"空行末尾也有假空格"）：
+                //  · 末行以块结尾（前邻=渲染段）→ \u00A0：v4/v5 已验证的形态（守卫摘除链依赖）
+                //  · 末尾空行（前邻=br）→ \u200B 零宽：nbsp 在空行上是"光标前的空格"观感
+                //    （点击落 nbsp 后缘，光标与行首隔一空格位）；零宽后光标怎么落都贴行首，
+                //    行盒仍由字符度量撑起（空行不塌陷、点击着陆位保留），投影层对锚点段
+                //    [\u200B\u00A0] 双过滤，源码零影响
+                tail.textContent = lastIsBr ? '\u200B' : '\u00A0';
                 td.appendChild(tail);
         }
 }
@@ -234,16 +222,15 @@ function buildSegEl(seg: Seg, ctx: WysiwygCtx): HTMLElement {
         // data-vt-br 标记"重放的换行 br"：与浏览器运行时自插的占位 br 区分开
         //（Chromium 删空段后会在空段前插占位 br 保光标，投影时按此标记剔除占位）
         if (seg.kind === 'br') {
-                const br = document.createElement('br') as unknown as HTMLElement;
+                const br = createEl('br');
                 br.dataset.vtBr = '1';
                 return br;
         }
-        // 全部用 span：块级 fence 用 display:block。
+        // 全部用 span。
         // 不用 div —— Chromium 在"块级元素后缘"打字会把字符插进 div 内部（beforeinput 都不触发），
         // 渲染段投影走 data-src → 字符静默丢失；inline span 后缘输入落在 td 直下，数据安全
-        const el = document.createElement('span');
+        const el = createSpan();
         el.className = SEG_CLS;
-        if (seg.kind === 'fence') el.style.display = `block`;
         el.dataset.kind = seg.kind;
         el.dataset.src = seg.raw;
         el.dataset.s = String(seg.start);
@@ -271,16 +258,16 @@ function attachImgResize(seg: HTMLElement): void {
         const img = seg.querySelector('img');
         if (!img) return;
         seg.classList.add('vt-img-seg');
-        const grip = document.createElement('div');
+        const grip = createDiv();
         grip.className = 'vt-img-resize';
         grip.setAttribute('aria-hidden', 'true');
         // L 形折角（用户 2026-10-07 定稿形状，21:50 调细）：竖臂在上、横臂在左，圆头细线圆拐角；
         // 浅灰（表格边缘同色）走 CSS currentColor，命中区为更大的圆形（见 styles.css）
-        const svg = document.createElement('null');
+        const svg = createSvg('svg');
         svg.setAttribute('viewBox', '0 0 24 24');
         svg.setAttribute('fill', 'none');
         svg.setAttribute('aria-hidden', 'true');
-        const path = document.createElement('null');
+        const path = createSvg('path');
         path.setAttribute('d', 'M17 5 L17 17 L5 17');
         path.setAttribute('stroke', 'currentColor');
         path.setAttribute('stroke-width', '2.75');
@@ -333,13 +320,15 @@ function renderSegContent(el: HTMLElement, seg: Seg, ctx: WysiwygCtx): void {
                         ctx.renderPasses(el, ctx);
                         if (ctx.imgResizeEnabled !== false) attachImgResize(el);
                         break;
-                case 'fence': {
-                        const body = seg.raw.replace(/^```[^\n]*\n?/, '').replace(/```\s*$/, '');
-                        const pre = el.createEl('pre', { cls: 'vt-code' });
-                        pre.createEl('code', { text: body });
-                        break;
-                }
                 default: {
+                        // 行内代码段（反引号包裹）不走 HTML 直通：parseTrustedHtml 会把代码内的
+                        // <div> 等标签解析成真元素（2026-10-24 10:29 用户实锤"` 包不住 html 代码
+                        // 块，会被渲染"）。代码内容是纯字面文本，直接 code>textContent 渲染——
+                        // renderPasses 对 code 内文本节点自动跳过（closest('code')）
+                        if (seg.kind === 'md' && seg.raw.length >= 2 && seg.raw.startsWith('`') && seg.raw.endsWith('`')) {
+                                el.createEl('code', { cls: 'vt-inline-code', text: seg.raw.slice(1, -1) });
+                                break;
+                        }
                         // md / text：HTML 直通 + 行内渲染 pass（与 populateCell 行为一致）。
                         // 行内段不含 <br>（换行在解析阶段已按行分隔放行为真 br 元素）
                         el.replaceChildren(...parseTrustedHtml(seg.raw).childNodes);
@@ -626,6 +615,20 @@ function rangeOffset(td: HTMLElement, node: Node, offset: number): number | null
                 const contentLen = Math.max(0, raw.length - prefix - segSuffix(host));
                 return s + prefix + Math.min(f, contentLen);
         }
+        // 选区端点落在格直下换行 br 上（2026-10-24 用户真机实锤，pw scen-cb S2）：跨行拖选
+        // 时 Chromium 常把边界设为 br 元素本身——此前直接 return null → selectionSourceRange
+        // 失败 → Ctrl+B 不加粗（仅拦截）。br 在投影中占 4 字符，边界由下一分段的 s 反推
+        if ((node != null && node.instanceOf(HTMLBRElement)) && node.parentElement === td) {
+                const childNodes = Array.from(td.childNodes);
+                const idx = childNodes.indexOf(node);
+                let nextSeg: HTMLElement | null = null;
+                for (let i = idx + 1; i < childNodes.length; i++) {
+                        const n = childNodes[i];
+                        if ((n != null && n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS)) { nextSeg = n; break; }
+                }
+                if (offset >= 1) return nextSeg ? parseInt(nextSeg.dataset.s ?? '0', 10) : totalLen(td);
+                return nextSeg ? Math.max(0, parseInt(nextSeg.dataset.s ?? '0', 10) - 4) : Math.max(0, totalLen(td) - 4);
+        }
         if (node === td) {
                 const childNodes = Array.from(td.childNodes);
                 const next = childNodes[offset];
@@ -638,10 +641,55 @@ function rangeOffset(td: HTMLElement, node: Node, offset: number): number | null
 }
 
 /** 源码偏移 → 折叠光标 */
+/** 末行以块结尾的结构判定：td 末尾是空锚点段（空 data-src 文本段）且其前邻是渲染段
+ *  （块）→ 返回 [锚点, 块]。结构判定（兄弟节点链），不读光标前后文本——锚点占位 nbsp
+ *  在锚点段【内部】，块是锚点的 previousSibling，永远不被空格遮挡（用户坑3）。
+ *  末尾 <br>（空行）的锚点不算：空行的 nbsp 是该行唯一可落光标位，永不摘。
+ *  中间行以块结尾时其块后根本没有锚点段（锚点只在 td 末尾构造）→ 结构上不可能误伤（用户坑1） */
+function tailAnchorAfterRender(td: HTMLElement): { anchor: HTMLElement; block: HTMLElement } | null {
+        const last = td.lastChild;
+        if (!((last != null && last.instanceOf(HTMLElement))) || !last.classList.contains(SEG_CLS) || last.dataset.src !== '') return null;
+        const prev = last.previousSibling;
+        if (!((prev != null && prev.instanceOf(HTMLElement))) || !prev.classList.contains(SEG_CLS)
+                || prev.dataset.view !== 'render' || prev.dataset.kind === 'text') return null;
+        return { anchor: last, block: prev };
+}
+
+/** 行尾块假空格吞噬·第一防线（程序性落位）：光标落在"以块结尾"的末行行尾（源码末尾）
+ *  → 摘掉锚点占位 nbsp（等效按一次 Backspace，用户令 2026-10-23，明示不查根因）。
+ *  假空格=末尾锚点段的 nbsp 占位：投影过滤、永不入源码，但视觉可见。
+ *  走真实 Backspace 链路无效——重建时锚点原样复活 nbsp → 不派事件直接摘除（投影本就
+ *  过滤它，源码零变化；空锚点 span 留在 DOM 无副作用，下次重建按需再生）。
+ *  光标照常停块后缘（渲染段 setStartAfter 的 td 游离位——该位打字/Enter/删除均走
+ *  10-08/09 接管路径，安全）。 */
+function swallowFakeSpaceAtBlockEnd(td: HTMLElement, off: number): void {
+        const t = tailAnchorAfterRender(td);
+        if (!t || parseInt(t.anchor.dataset.s ?? '-1', 10) !== off) return; // 只在落位=源码末尾时摘
+        t.anchor.textContent = '';
+}
+
+/** 行尾块假空格吞噬·第二防线（原生落位，2026-10-23 用户坑2：删后再点会复活）：
+ *  任何重建都会按需重建锚点 nbsp，之后【原生】落位（点击块后空白/End 键）把光标放进
+ *  nbsp（=光标到假空格之后），不经过 placeCaretAtSourceOffset → 第一防线够不着。
+ *  光标宿主确为锚点内纯 nbsp 文本时：摘空格 + 光标归位块后缘（与进格落位同一位）。
+ *  锚点内有 IME 组字等非纯 nbsp 内容时不动（组字路径自有处理）。 */
+function normalizeTailAnchorCaret(td: HTMLElement): boolean {
+        const t = tailAnchorAfterRender(td);
+        if (!t || t.anchor.textContent !== '\u00A0') return false;
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return false;
+        const r = sel.getRangeAt(0);
+        if (r.startContainer.nodeType !== Node.TEXT_NODE || r.startContainer.parentElement !== t.anchor) return false;
+        t.anchor.textContent = '';
+        placeCaretAtSourceOffset(td, parseInt(t.anchor.dataset.s ?? '-1', 10));
+        return true;
+}
+
 export function placeCaretAtSourceOffset(td: HTMLElement, off: number): void {
         const segs = segEls(td);
         const sel = window.getSelection();
         if (!sel) return;
+        swallowFakeSpaceAtBlockEnd(td, off); // 行尾块假空格吞噬（用户令 2026-10-23）
         const range = document.createRange();
 
         if (!segs.length) {
@@ -812,6 +860,13 @@ interface TdState {
         editing: boolean;  // 重入保护：rebuild/programEdit 同步流程中防连锁事件再入
         lastSrcSeg: HTMLElement | null; // 上次光标所在的源码态段（离开时渲染）
         lastCaret: number; // 最近一次已知光标源码偏移
+        undoStack: { src: string; caret: number }[]; // Ctrl+Alt+Z 撤销快照（rebuild 改前源码+光标）
+        undoing?: boolean; // undo 恢复自身的 rebuild 不压栈（防污染栈序变相 redo）
+        /** 双删外层代码包裹（2026-10-24 TA 例证+13:16 重述）：源码形态=【` + 文字块】且
+         *  后无 `（`紧贴块开头）——此形态删 ` 后块恢复渲染，真机光标前进 x+1（x=块单侧
+         *  包裹字符数：$=1、**=2、<b>=3；· 同算；图片不触发）。与"先删尾"序列无关
+         *  （删尾只是形成该形态的常见手段）。unwrapShift=左移量 x+1（删 ` 的 keydown 定格） */
+        unwrapShift?: number;
         /** 上次光标监测结果：抢救误插字符时用它判定"用户本意插入点"
          *  （贴渲染段后缘打字 → 字符应在块外 e；不能按误插位置 innerF 算） */
         lastLoc: { el: HTMLElement; where: 'inner' | 'front' | 'back'; innerF: number } | null;
@@ -830,11 +885,88 @@ interface TdState {
 
 const tdStates = new WeakMap<HTMLElement, TdState>();
 let selectionHookInstalled = false;
+let boldKeyCapInstalled = false;
+let undoKeyCapInstalled = false;
+
+/** Ctrl/Cmd+Alt+B 文档捕获层加粗（2026-10-24 10:29 用户裁定）：加粗快捷键从 Ctrl+B 改为
+ *  Ctrl/Cmd+Alt+B——Ctrl+B 与宿主编辑器快捷键冲突（真机 v8 捕获层拦截仍挡不住宿主链，
+ *  加粗落在编辑器旧选区），彻底换键避开冲突；Ctrl/Cmd+B（无 Alt）完全放行不拦。document
+ *  capture 是 DOM 事件最早阶段；选区不在任何活动格 → 不拦。模块级单例 + tdStates
+ *  WeakMap，格消亡自动 GC */
+function installBoldKeyCap(): void {
+        if (boldKeyCapInstalled) return;
+        boldKeyCapInstalled = true;
+        document.addEventListener('keydown', (e) => {
+                if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
+                if (e.key.toLowerCase() !== 'b') return;
+                const sel = window.getSelection();
+                if (!sel || sel.rangeCount === 0) return;
+                const range = sel.getRangeAt(0);
+                const startEl = range.startContainer.nodeType === Node.TEXT_NODE
+                        ? range.startContainer.parentElement
+                        : ((range.startContainer != null && range.startContainer.instanceOf(Element)) ? range.startContainer : null);
+                if (!startEl) return;
+                const td = startEl.closest('td');
+                if (!td || !isWysiwyg(td)) return;
+                if (!td.contains(range.endContainer)) return; // 选区跨出本格 → 不拦
+                const st = tdStates.get(td);
+                if (!st || st.editing) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                if (!range.collapsed) {
+                        const rng = selectionSourceRange(td);
+                        if (rng) {
+                                const src = projectSource(td);
+                                programEdit(td, st, rng.a, rng.b, `**${src.slice(rng.a, rng.b)}**`);
+                        }
+                }
+        }, true);
+}
+
+/** Ctrl/Cmd+Alt+Z 撤销（2026-10-24 10:29 用户需求"撤回一步"）：文档捕获层拦截+弹栈恢复。
+ *  栈=rebuild 前的 (源码, 光标) 快照（每键一步，原生打字/删除/Enter/programEdit 全路径覆盖）。
+ *  栈空仍拦截静默——不放行宿主撤销（格子内快捷键语义独立，防误撤编辑器文档） */
+function installUndoKeyCap(): void {
+        if (undoKeyCapInstalled) return;
+        undoKeyCapInstalled = true;
+        document.addEventListener('keydown', (e) => {
+                if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
+                if (e.key.toLowerCase() !== 'z') return;
+                const sel = window.getSelection();
+                if (!sel || sel.rangeCount === 0) return;
+                const range = sel.getRangeAt(0);
+                const startEl = range.startContainer.nodeType === Node.TEXT_NODE
+                        ? range.startContainer.parentElement
+                        : ((range.startContainer != null && range.startContainer.instanceOf(Element)) ? range.startContainer : null);
+                if (!startEl) return;
+                const td = startEl.closest('td');
+                if (!td || !isWysiwyg(td)) return;
+                if (!td.contains(range.endContainer)) return;
+                const st = tdStates.get(td);
+                if (!st || st.editing) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                const snap = st.undoStack.pop();
+                if (!snap) return;
+                st.undoing = true;
+                try {
+                        const cur = projectSource(td);
+                        programEdit(td, st, 0, cur.length, snap.src);
+                        placeSuppressed(td, st, Math.max(0, Math.min(snap.caret, snap.src.length)));
+                } finally {
+                        st.undoing = false;
+                }
+        }, true);
+}
 
 /** td 创建时绑定（幂等）；事件在 vtWysiwyg=1 时才生效 */
 export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
         if (tdStates.has(td)) return;
-        const st: TdState = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null };
+        installBoldKeyCap();
+        installUndoKeyCap();
+        const st: TdState = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [] };
         tdStates.set(td, st);
 
         td.addEventListener('compositionstart', () => {
@@ -891,11 +1023,45 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
         // 已执行删除，读不到"删前"状态）——记录光标所在行是否有字，供假行折叠置位判定
         td.addEventListener('keydown', (e) => {
                 if (!isWysiwyg(td) || st.editing) return;
+                // 撤销快照（2026-10-24 Ctrl+Alt+Z）：keydown 是一切编辑的"改前"时点，每键压一次
+                // ——rebuild 会把连打合帧（三键一次 rebuild，压到终态）、programEdit 路径不经
+                // rebuild，两者都不能当压栈点；keydown 天然逐键。undo 自身键被捕获层拦截到不了
+                // 这里；undo 自身恢复（undoing 置位）跳过；无变化去重；上限 50
+                if (!st.undoing && (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter')) {
+                        const srcU = projectSource(td);
+                        const top = st.undoStack[st.undoStack.length - 1];
+                        if (!top || top.src !== srcU) {
+                                st.undoStack.push({ src: srcU, caret: st.lastCaret });
+                                if (st.undoStack.length > 50) st.undoStack.shift();
+                        }
+                }
+                // Ctrl/Cmd+B 加粗已迁至 installBoldKeyCap 的文档捕获层（2026-10-24）：
+                // td 冒泡层拦不住宿主快捷键分发（编辑器 toggleBold 抢先落在编辑器旧选区）
                 if (e.key === 'Backspace' || e.key === 'Delete') {
                         const off = caretSourceOffset(td) ?? st.lastCaret;
-                        st.delHasText = segHasText(projectSource(td), off);
+                        const srcK = projectSource(td);
+                        st.delHasText = segHasText(srcK, off);
                         // 空格行（行内有空白字符但无正文，真空行不算）：删光空格同样触发内核补尾占位出假行
-                        st.delHadBlankOnly = segIsBlankOnly(projectSource(td), off);
+                        st.delHadBlankOnly = segIsBlankOnly(srcK, off);
+                        // 前进 x+1 逆向修复（2026-10-24 TA 13:16 重述）：源码形态=【` + 文字块】
+                        // 且后无 `（` 紧贴块开头）——删这个 ` 后块恢复渲染、光标前进 x+1。识别：
+                        // 光标贴 ` 后（off=1）+ 源码除开头外无第二个 `（"后无 `"，完整代码 `X`
+                        // 有尾不触发——其删头后块未恢复渲染，本无前进）+ 内层是对称包裹文字块
+                        // （md：`*_~=$·；HTML 对称标签 x=开标签长度）且非图片。定格左移 x+1，
+                        // 由该次删除的 rebuild 执行
+                        if (e.key === 'Backspace' && off === 1 && srcK[0] === '`' && srcK.indexOf('`', 1) === -1) {
+                                const inner = srcK.slice(1);
+                                if (inner[0] !== '!' && inner.length > 1) {
+                                        let x = 0;
+                                        const mMd = /^([`*_~=$·]{1,4})(.+)\1$/.exec(inner);
+                                        if (mMd) x = mMd[1].length;
+                                        else {
+                                                const mTag = /^<([a-zA-Z][a-zA-Z0-9]*)>(.+)<\/\1\s*>$/.exec(inner);
+                                                if (mTag && HTML_PAIR_TAGS.has(mTag[1].toLowerCase())) x = mTag[1].length + 2; // 开标签 <tag> 全长
+                                        }
+                                        if (x > 0) st.unwrapShift = x + 1;
+                                }
+                        }
                 }
         });
 
@@ -905,6 +1071,76 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                 if (st.composing) {
                         healStuckComposing(ie);
                         if (st.composing) return;
+                }
+                // 双删外层代码包裹·清理（2026-10-24）：unwrapShift 是 armed 态（删 ` 的
+                // keydown 已定格，等这次删除的 rebuild 执行）——本分支不清；
+                // 序列形态判定全部在 keydown 每键现算，无残留状态需清
+                // 渲染段后缘游离位 Enter 前置接管（2026-10-23 21:18 用户真机实锤，pw 复现）：
+                // 假空格守卫摘掉锚点 nbsp 后，进格光标从"锚点 nbsp 内"变为"段后游离位"——
+                // 块级段后缘游离位上的 Enter，Chromium 默认行为怪异：块前连补
+                // 占位 br + 选区塞进块内文本（pw 实测：[br][br][段被切源码、源码中段被插
+                // '<br>' 字面（数据污染）]）。必须在默认行为之前拦：preventDefault + 代插真
+                // <br>（与 10-08 接管同语义，只是提前到 beforeinput）。inline 段（md）此位
+                // Enter 默认行为虽正常，统一接管保证行为一致。仅限"后缘"（v4 摘 nbsp 造成的
+                // 新形态）；前缘游离位形态历史版本一直在、无报障，不动
+                if (ie.inputType === 'insertParagraph') {
+                        const sel0 = window.getSelection();
+                        if (sel0 && sel0.rangeCount) {
+                                const loc0 = locateStart(td, sel0.getRangeAt(0));
+                                if (loc0.el && loc0.el.dataset.view === 'render' && loc0.where === 'back') {
+                                        e.preventDefault();
+                                        programEdit(td, st, parseInt(loc0.el.dataset.e ?? '0', 10), parseInt(loc0.el.dataset.e ?? '0', 10), '<br>');
+                                        return;
+                                }
+                                // 末尾锚点占位上的 Enter 前置接管（2026-10-24 10:29 用户真机实锤，pw
+                                // scen-enter2 复现）：换行后"点一下末尾"，光标停在锚点零宽占位上——
+                                // Chromium 默认 Enter 在占位处一次产两个 br（pw 实测投影 abc<br><br>
+                                // → abc<br><br><br><br>，净多两行），input 收编全收。接管代插一个真
+                                // <br>（+1 行，与键盘直接 Enter 的收编结果归一），光标=新行行首。
+                                // 限定零宽占位（\u200B=空行形态）：块尾 nbsp 着陆位（v4 维护态）的
+                                // Enter 既有链正常，不拦（run15 ③ 回归锚）
+                                const r0 = sel0.getRangeAt(0);
+                                if (r0.collapsed && r0.startContainer.nodeType === Node.TEXT_NODE
+                                        && r0.startContainer.textContent === '\u200B') {
+                                        const hostP = r0.startContainer.parentElement;
+                                        if (hostP != null && hostP.instanceOf(HTMLElement) && td.contains(hostP)
+                                                && hostP.classList.contains(SEG_CLS) && hostP.dataset.src === '' && hostP === td.lastChild) {
+                                                const offP = caretSourceOffset(td);
+                                                if (offP != null) {
+                                                        e.preventDefault();
+                                                        programEdit(td, st, offP, offP, '<br>');
+                                                        return;
+                                                }
+                                        }
+                                }
+                        }
+                }
+                // 空行锚点占位上的 Backspace 前置拦截（2026-10-23 21:56 用户真机实锤，pw 复现）：
+                // 零宽占位是真实文本字符，Chromium 默认删除先删掉它 → 锚点段变空 → 内核补占位
+                // br 保光标（删空段插占位 br，10-02 实锤行为）→ 格直下 br 被投影记录为真换行
+                // （pw 实测：投影 '**bold**<br>' → '**bold**<br><br>'，净效果=凭空多一行，第二
+                // 次 Backspace 才删掉）。拦在默认行为之前：preventDefault 保住占位符本体，
+                // 改走源码域删末尾 <br>（空行消失，语义与"锚点前缘游离位 Backspace"一致）。
+                // 限定空行形态（前邻=br）：块尾锚点（前邻=渲染段）的光标落位已被
+                // normalizeTailAnchorCaret 归位消化，且其后缘 Backspace 走 10-09 块缘语义，不拦
+                if (ie.inputType === 'deleteContentBackward') {
+                        const selB = window.getSelection();
+                        if (selB && selB.rangeCount) {
+                                const rB = selB.getRangeAt(0);
+                                if (rB.startContainer.nodeType === Node.TEXT_NODE && rB.collapsed) {
+                                        const hostB = rB.startContainer.parentElement;
+                                        if (hostB != null && hostB.instanceOf(HTMLElement) && td.contains(hostB)
+                                                && hostB.classList.contains(SEG_CLS) && hostB.dataset.src === '' && hostB === td.lastChild
+                                                && hostB.previousSibling != null && hostB.previousSibling.instanceOf(HTMLBRElement)) {
+                                                const sB = parseInt(hostB.dataset.s ?? '-1', 10);
+                                                if (sB >= 4) {
+                                                        e.preventDefault();
+                                                        programEdit(td, st, sB - 4, sB, '');
+                                                        return;
+                                                }
+                                        }
+                                }
+                        }
                 }
                 if (ie.inputType === 'insertText' && ie.data) {
                         // 安卓 IME 变体：软键盘 Enter 可能以 insertText '\n' 走（不经 insertParagraph），
@@ -1236,6 +1472,22 @@ function onSelectionChange(td: HTMLElement, st: TdState): void {
         // 同步流程中本函数不得再入（placeSuppressed 的 suppress 只覆盖异步窗口）
         if (st.editing) return;
 
+        // 假空格第二防线（原生落位）：光标被点击/End 键放进尾锚点 nbsp → 摘空格+归位块后缘，
+        // 提前返回（off/lastCaret 已更新；归位引发的下一轮 selectionchange 按新位置正常处理）
+        if (range.collapsed && normalizeTailAnchorCaret(td)) return;
+
+        // 着陆位维护（10-09 修复保全）：光标不在末行块尾时补回锚点 nbsp——空 span 没有
+        // 可点击着陆位，块后空白区的原生点击会投影进块内（"**课程** 格点击块后空白，光标
+        // 落块内而非块外"，10-09 实锤，锚点 nbsp 正是当时的修复）。补回=光标不在末尾时的
+        // 既有形态（假空格只在光标落位末尾时摘除——用户令的字面范围）；投影本就过滤
+        // nbsp，补回零源码影响。末尾 <br>（空行）锚点无"前邻渲染块"结构，本就不进此分支
+        {
+                const t = tailAnchorAfterRender(td);
+                if (t && t.anchor.textContent === '' && off != null && off !== parseInt(t.anchor.dataset.s ?? '-1', 10)) {
+                        t.anchor.textContent = '\u00A0';
+                }
+        }
+
         if (!range.collapsed) {
                 st.lastLoc = { el: (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer as HTMLElement)?.closest(`.${SEG_CLS}`) as HTMLElement ?? null, where: 'inner', innerF: 0 };
                 // 选区：覆盖到的渲染段切源码（复制前可见源码），保持选区
@@ -1478,7 +1730,7 @@ function collapseEnterTail(t: string): string {
  *  块内留存：事件时刻快照偏移（caretAt）落在渲染段范围内（"在块内删/改的"）→ 强制该段
  *  切源码、光标映射进段内——否则 placeCaret 对渲染段只能落段旁（front/back），表现为
  *  "在块内删改任何东西→光标跳出块到块后"。void 段贴边即进的旧规则只救 void，
- *  救不了 fence 等有内部的块 */
+ *  救不了有内部的块 */
 function settleCaretAfterEdit(td: HTMLElement, st: TdState, caretAt: number | null): void {
         const sel = window.getSelection();
         if (!sel || !sel.rangeCount) return;
@@ -1581,6 +1833,15 @@ function rebuild(td: HTMLElement, st: TdState, caretOff: number): void {
                 // queuedCaret（上次块内编辑的快照）判定，会把光标拉回块内并切源码——表现为
                 // "块内按过一次删除后，光标永远无法点到块外（点一下弹回）"（2026-10-14 用户真机实锤）
                 settleCaretAfterEdit(td, st, caretOff);
+                // 双删外层代码包裹·左移执行（2026-10-24 TA 例证）：删头`的 armed 已定格
+                // unwrapShift=x+1（x=内层块单侧包裹数）→ 本次 rebuild（删头删除引发的）落盘
+                // 后光标左移 x+1。pw 实测 caretOff=前进位（$ABC$→2、**bold**→3，与 TA 例证
+                // 数值一致），左移 x+1 后归 0=删头原位
+                if (st.unwrapShift != null) {
+                        const sh = st.unwrapShift;
+                        st.unwrapShift = undefined;
+                        placeSuppressed(td, st, Math.max(0, Math.min(caretOff - sh, src.length)));
+                }
         } finally {
                 st.editing = false;
         }
@@ -1589,6 +1850,17 @@ function rebuild(td: HTMLElement, st: TdState, caretOff: number): void {
 /** 程序化编辑：投影 → 改源码 → 重建 → 光标落插入/删除点 */
 function programEdit(td: HTMLElement, st: TdState, delFrom: number | null, delTo: number | null, insert: string): void {
         if (st.editing) return;
+        // 撤销快照（2026-10-24 Ctrl+Alt+Z）：programEdit 独立编辑路径（加粗/接管链/源码域），
+        // 无对应 keydown（快捷键在捕获层被拦）——必须自压栈；每次调用=一步，天然不合帧；
+        // undo 自身（undoing）跳过；与 keydown 压栈靠 src 去重
+        if (!st.undoing) {
+                const curSrc = projectSource(td);
+                const top = st.undoStack[st.undoStack.length - 1];
+                if (!top || top.src !== curSrc) {
+                        st.undoStack.push({ src: curSrc, caret: st.lastCaret });
+                        if (st.undoStack.length > 50) st.undoStack.shift();
+                }
+        }
         st.editing = true;
         try {
                 const src = projectSource(td);

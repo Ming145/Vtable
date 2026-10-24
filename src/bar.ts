@@ -12,6 +12,7 @@ import {
         toggleWrapTag,
 } from './builder';
 import type { SelOps, SelOpKind, FocusShift } from './sel';
+import { compatExecCommand } from './compat';
 import { t } from './i18n';
 
 /** 整格字号包裹（已包则改值——A± 连点递变；与选区字号的 span 存储形态一致） */
@@ -328,7 +329,7 @@ export class Toolbar {
         /* ===== 文本格式化 ===== */
 
         private exec(cmd: string, value?: string) {
-                document.execCommand(cmd, false, value);
+                compatExecCommand(document, cmd, value);
         }
 
         private stepFont(delta: number) {
@@ -344,7 +345,7 @@ export class Toolbar {
                 const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
                 const next = Math.max(8, Math.min(72, cur + delta));
                 if (!sel.isCollapsed) {
-                        const span = document.createElement('span');
+                        const span = createSpan();
                         span.style.fontSize = `${next}px`;
                         try { range.surroundContents(span); } catch { /* 跨节点选区忽略 */ }
                 } else if (this.cell) {

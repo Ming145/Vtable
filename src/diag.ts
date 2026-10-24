@@ -72,10 +72,10 @@ export function buildDiagDom(td: HTMLTableCellElement, dg: string, t: string): D
         svg.appendChild(line);
         td.appendChild(svg);
 
-        const zoneA = document.createElement('div');
+        const zoneA = createDiv();
         zoneA.className = 'vt-diag-zone vt-diag-a';
         zoneA.contentEditable = 'true';
-        const zoneB = document.createElement('div');
+        const zoneB = createDiv();
         zoneB.className = 'vt-diag-zone vt-diag-b';
         zoneB.contentEditable = 'true';
         td.appendChild(zoneA);
@@ -83,10 +83,10 @@ export function buildDiagDom(td: HTMLTableCellElement, dg: string, t: string): D
 
         // 占位：两行（区1、区2）普通流元素，visibility:hidden——
         // 参与表格布局：撑列宽（单行 nowrap 最宽者）与行高（两行）
-        const probe = document.createElement('div');
+        const probe = createDiv();
         probe.className = 'vt-diag-probe';
-        const probeA = document.createElement('span');
-        const probeB = document.createElement('span');
+        const probeA = createSpan();
+        const probeB = createSpan();
         probe.appendChild(probeA);
         probe.appendChild(probeB);
         td.appendChild(probe);
@@ -201,7 +201,7 @@ export function bindDiagTd(td: HTMLTableCellElement, handlers: DiagHandlers): vo
  *  zone 常驻可编辑：只负责 focus+caret 落位，状态登记在 onZoneFocus 回调里 */
 export function enterDiagZone(td: HTMLTableCellElement, target?: HTMLElement): void {
         const wantB = target ? target.classList.contains('vt-diag-b') : (td.dataset.vtDiagZone ?? 'b') === 'b';
-        const zone = (wantB ? td.querySelector('.vt-diag-b') : td.querySelector('.vt-diag-a'));
+        const zone = (wantB ? td.querySelector<HTMLElement>('.vt-diag-b') : td.querySelector<HTMLElement>('.vt-diag-a'));
         if (!zone) return;
         td.dataset.vtDiagZone = wantB ? 'b' : 'a';
         if (document.activeElement !== zone) {

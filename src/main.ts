@@ -1,16 +1,17 @@
 import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath } from 'obsidian';
+import type { SettingDefinitionItem } from 'obsidian';
 import type { App } from 'obsidian';
 import type { EditorView } from '@codemirror/view';
-import type { Text } from '@codemirror/state';
+import type { Extension, Text } from '@codemirror/state';
 import {
         blankSource, mdTableToSource, htmlTableToSource,
         parseSource, gridToMdTable, gridToHtmlTable, Grid,
 } from './builder';
 import { renderBlock, getActiveTableController, requestInitialFocus, noteScrollAnchor, refreshAllTableAppearance, DEFAULT_CONTEXT_MENU } from './render';
 import { setUiLang, t, REPO_URL, barLegend } from './i18n';
-import type { UiLang } from './i18n';
 import { VT_MENU_ACTIONS } from './render';
 import { Toolbar } from './bar';
+import { compatExecCommand } from './compat';
 import { gridToChart, detectChartType } from './charts';
 
 const LANG = 'vtable';
@@ -72,8 +73,8 @@ const DEFAULT_SETTINGS: VtSettings = {
 
 /** 旧版默认菜单配置（历史存档对照用；现行升级策略=按"缺对齐组"插入，见 onload） */
 export default class VtPlugin extends Plugin {
-        private toolbar!: Toolbar;
-        private settings!: VtSettings;
+        toolbar!: Toolbar;
+        settings!: VtSettings;
 
         // 图表模板按需添加（设置面板按钮调用；启动时不再自动写入）
         // 第二列全部留空，让用户自己填；文件已存在则跳过不覆盖
@@ -344,11 +345,11 @@ export default class VtPlugin extends Plugin {
                         const diag = window as unknown as { __vtDiag?: unknown[]; __vtDiagOn?: boolean; __vtDiagStop?: () => void };
                         const snapTd = () => {
                                 const td = (document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'TD')
-                                        ? document.activeElement : document.querySelector('td');
+                                        ? document.activeElement : document.querySelector<HTMLElement>('td');
                                 const sel = window.getSelection();
                                 return {
                                         td: td ? { r: td.dataset.vtR, c: td.dataset.vtC, view: td.dataset.vtView, editing: td.className.includes('vt-editing') } : null,
-                                        segs: td ? [...td.querySelectorAll('.vt-seg')].map(s => ({
+                                        segs: td ? [...td.querySelectorAll<HTMLElement>('.vt-seg')].map(s => ({
                                                 v: s.dataset.view, k: s.dataset.kind, src: (s.dataset.src ?? '').slice(0, 24),
                                                 s: s.dataset.s, e: s.dataset.e, p: s.dataset.prefix, suf: s.dataset.suffix,
                                         })) : [],
@@ -356,25 +357,25 @@ export default class VtPlugin extends Plugin {
                                                 col: sel.isCollapsed,
                                                 node: sel.focusNode ? (sel.focusNode.nodeType === 3 ? 'T@' + sel.focusOffset : (sel.focusNode as Element).nodeName + '@' + sel.focusOffset) : null,
                                         } : null,
-                                        bar: (() => { const b = document.querySelector('.vt-bar') as HTMLElement | null; return b ? { d: b.style.display, l: b.style.left, t: b.style.top } : null; })(),
+                                        bar: (() => { const b = document.querySelector<HTMLElement>('.vt-bar'); return b ? { d: b.style.display, l: b.style.left, t: b.style.top } : null; })(),
                                         ae: document.activeElement ? document.activeElement.tagName + '.' + (document.activeElement.className || '').toString().slice(0, 18) : null,
                                 };
                         };
                         this.addCommand({
                                 id: 'vt-diag-start',
-                                name: '【诊断】开始记录（B/D/把手）',
+                                name: '【诊断】开始记录（b/d/把手）',
                                 callback: () => {
                                         diag.__vtDiag = [];
                                         diag.__vtDiagOn = true;
                                         diag.__vtDiagStop?.();
                                         const push = (ev: string, extra?: unknown) => {
                                                 if (!diag.__vtDiagOn) return;
-                                                diag.__vtDiag.push({ ev, ...(extra as object ?? {}), snap: snapTd() });
+                                                diag.__vtDiag?.push({ ev, ...(extra ?? {}), snap: snapTd() });
                                         };
                                         const kd = (e: KeyboardEvent) => {
                                                 // 同步先记一条（setTimeout 在异常时序下会丢——上轮诊断 keydown 全缺的教训）
                                                 diag.__vtDiag?.push({ ev: 'key:' + e.key });
-                                                setTimeout(() => diag.__vtDiag?.push({ ev: 'key-late:' + e.key, pd: e.defaultPrevented }), 0);
+                                                window.setTimeout(() => diag.__vtDiag?.push({ ev: 'key-late:' + e.key, pd: e.defaultPrevented }), 0);
                                         };
                                         const bi = (e: InputEvent) => push('beforeinput:' + e.inputType, { pd: e.defaultPrevented });
                                         const pd = (e: PointerEvent) => {
@@ -418,11 +419,11 @@ export default class VtPlugin extends Plugin {
                                 id: 'vt-diag-dump',
                                 name: '【诊断】导出记录到剪贴板',
                                 callback: async () => {
-                                        const tbl = document.querySelector('table.vt') as HTMLTableElement | null;
+                                        const tbl = document.querySelector<HTMLTableElement>('table.vt');
                                         const rc = {
                                                 mode: tbl ? tbl.dataset.vtMode : null,
                                                 overlay: !!document.querySelector('.vt-rc-overlay'),
-                                                colHandles: [...document.querySelectorAll('.vt-rc-handle-col')].map(g => ({ c: g.dataset.vtC, left: g.style.left, w: g.style.width, disp: getComputedStyle(g).display })),
+                                                colHandles: [...document.querySelectorAll<HTMLElement>('.vt-rc-handle-col')].map(g => ({ c: g.dataset.vtC, left: g.style.left, w: g.style.width, disp: getComputedStyle(g).display })),
                                                 firstRowColSpans: tbl ? [...(tbl.rows[0]?.cells ?? [])].map(c => c.colSpan) : [],
                                         };
                                         const json = JSON.stringify({ rc, events: diag.__vtDiag ?? [] });
@@ -442,13 +443,11 @@ export default class VtPlugin extends Plugin {
                                         // → Notice 直显（最后保底，截图即可）——用户实测「粘贴不到」
                                         try { await navigator.clipboard.writeText(json); new Notice('Vtable 诊断：已复制 ' + json.length + ' 字符'); return; } catch { /* 落到降级 */ }
                                         try {
-                                                const ta = document.createElement('textarea');
+                                                const ta = document.body.createEl('textarea');
                                                 ta.value = json;
-                                                ta.style.position = 'fixed';
-                                                ta.style.opacity = '0';
-                                                document.body.appendChild(ta);
+                                                ta.setCssStyles({ position: 'fixed', opacity: '0' });
                                                 ta.select();
-                                                const ok = document.execCommand('copy');
+                                                const ok = compatExecCommand(document, 'copy');
                                                 ta.remove();
                                                 if (ok) { new Notice('Vtable 诊断：已复制(降级) ' + json.length + ' 字符'); return; }
                                         } catch { /* 落到直显 */ }
@@ -799,17 +798,17 @@ export default class VtPlugin extends Plugin {
                         // @ts-ignore —— @codemirror/* 运行时由 Obsidian 提供，devDependencies 未装类型包；
                         // 保留 require 动态获取：失败时走下方 document 捕获降级路径，静态导入会砍掉兜底
                         // eslint-disable-next-line @typescript-eslint/no-require-imports -- 动态获取保留失败降级设计
-                        const cmView = require('@codemirror/view');
+                        const cmView = require('@codemirror/view') as { keymap?: { of: (...ext: unknown[]) => unknown } } | undefined;
                         // @ts-ignore
                         // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上
-                        const cmState = require('@codemirror/state');
+                        const cmState = require('@codemirror/state') as { Prec?: { highest: (ext: unknown) => unknown } } | undefined;
                         const keymap = cmView?.keymap;
                         const Prec = cmState?.Prec;
                         if (keymap?.of && Prec?.highest) {
                                 this.registerEditorExtension(Prec.highest(keymap.of([
                                         { key: 'ArrowDown', run: (view: EditorView) => tryEnter('ArrowDown', view) },
                                         { key: 'ArrowUp', run: (view: EditorView) => tryEnter('ArrowUp', view) },
-                                ])));
+                                ])) as Extension);
                                 registered = true;
                         }
                 } catch { /* CM6 模块不可用则走降级 */ }
@@ -840,7 +839,7 @@ export default class VtPlugin extends Plugin {
                         const at = view.domAtPos(view.state.selection.main.head);
                         let node: Node | null = at.node;
                         if (node && node.nodeType !== 1) node = node.parentElement;
-                        const lineEl = (node as HTMLElement)?.closest?.('.cm-line') as HTMLElement | null;
+                        const lineEl = (node as HTMLElement | null)?.closest<HTMLElement>('.cm-line') ?? null;
                         if (lineEl) {
                                 let sib: Element | null = lineEl;
                                 for (let i = 0; i < 3 && sib; i++) {
@@ -861,7 +860,7 @@ export default class VtPlugin extends Plugin {
                         if (host && host.nodeType === 1) {
                                 const kids = Array.from(host.children);
                                 for (let i = Math.max(0, at.offset - 2); i <= Math.min(kids.length - 1, at.offset + 2); i++) {
-                                        const embed = kids[i]?.closest?.('.cm-embed-block') as HTMLElement | null;
+                                        const embed = kids[i]?.closest<HTMLElement>('.cm-embed-block') ?? null;
                                         const vt = embed?.querySelector<HTMLElement>('.vtable-container');
                                         if (vt) return vt;
                                 }
@@ -1036,7 +1035,7 @@ export default class VtPlugin extends Plugin {
                 }
 
                 // bug4：多表重渲染期间滚动高度塌陷会把视图钳到文档顶部——记录重写前的滚动状态
-                const scroller = el.closest('.cm-scroller') as HTMLElement | null;
+                const scroller = el.closest<HTMLElement>('.cm-scroller');
                 const before = scroller
                         ? { top: scroller.scrollTop, height: scroller.scrollHeight }
                         : null;
@@ -1131,119 +1130,137 @@ export default class VtPlugin extends Plugin {
 
 class VtSettingTab extends PluginSettingTab {
         private plugin: VtPlugin;
+        /** 右键菜单文本框未保存缓冲：update() 重跑 render 回调时保住用户未点保存的输入 */
+        private menuTaBuf: string | null = null;
 
         constructor(app: App, plugin: VtPlugin) {
                 super(app, plugin);
                 this.plugin = plugin;
         }
 
-        display(): void {
-                const { containerEl } = this;
-                containerEl.empty();
-                new Setting(containerEl).setName(t('vtable 设置', 'vtable Settings')).setHeading();
+        /** 声明式设置（1.13 官方契约）：简单项 name/desc 在外层、控件嵌套在 control 字段
+         *  （key 直绑 plugin.settings，框架经 get/setControlValue 读写并自动保存）；
+         *  特殊 UI（图表按钮/折叠样式区/菜单自定义）走 render 回调自理（render 不带 type 字段，
+         *  文档链接走 desc 片段——官方链接标准形态）。详见官方迁移指南 Path A */
+        getSettingDefinitions(): SettingDefinitionItem[] {
+        const defs: SettingDefinitionItem[] = [];
 
-                // 面板开头/结尾的双语文档链接（GitHub README 中文版 + 英文版）
-                addDocLinks(containerEl);
+        // 面板开头的双语文档链接（GitHub README 中文版 + 英文版）
+        defs.push({
+                name: t('使用文档', 'Documentation'),
+                desc: makeDocLinksFrag(),
+        });
 
-                // ===== 界面语言（默认中文）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
-                new Setting(containerEl)
-                        .setName(t('界面语言', 'UI language'))
-                        .setDesc(t('设置面板、浮窗按钮与右键菜单文本的语言。', 'Language of the settings panel, toolbar buttons and context menus.'))
-                        .addDropdown(d => d
-                                .addOptions({ zh: '中文', en: 'English' })
-                                .setValue(this.plugin.settings.uiLang)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.uiLang = value as UiLang;
-                                        setUiLang(value as UiLang);
-                                        await this.plugin.saveSettings();
-                                        this.plugin.toolbar.rebuild();
-                                        this.display();
-                                }));
+        // ===== 界面语言（默认中文）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
+        defs.push({
+                name: t('界面语言', 'UI language'),
+                desc: t('设置面板、浮窗按钮与右键菜单文本的语言。', 'Language of the settings panel, toolbar buttons and context menus.'),
+                control: {
+                        type: 'dropdown',
+                        key: 'uiLang',
+                        options: { zh: '中文', en: 'English' },
+                },
+        });
 
-                // 图表模板按需添加：两个语言按钮固定显示（文案不随界面语言切换）
-                new Setting(containerEl)
-                        .setName(t('图表模板', 'Chart templates'))
-                        .setDesc(t('把对应语言的图表模板（柱状图/饼图/折线图）添加到模板文件夹，写入检测到的模板目录。', 'Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.'))
-                        .addButton(b => b
-                                .setButtonText('+中文图表模板')
-                                .onClick(() => {
-                                        this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
-                                }))
-                        .addButton(b => b
-                                .setButtonText('+英文图表模板')
-                                .onClick(() => {
-                                        this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
-                                }));
+        // 图表模板按需添加：两个语言按钮固定显示（文案不随界面语言切换）
+        defs.push({
+                name: t('图表模板', 'Chart templates'),
+                desc: t('把对应语言的图表模板（柱状图/饼图/折线图）添加到模板文件夹，写入检测到的模板目录。', 'Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.'),
+                render: (s) => {
+                        s.addButton(b => b
+                        	.setButtonText('+中文图表模板')
+                        	.onClick(() => {
+                        		this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                        	}));
+                        s.addButton(b => b
+                        	.setButtonText('+英文图表模板')
+                        	.onClick(() => {
+                        		this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                        	}));
+                },
+        });
 
-                // 英文模式：浮窗按钮为 ≤2 字符缩写，给出对照说明行
-                if (this.plugin.settings.uiLang === 'en') {
-                        const legend = containerEl.createDiv({ cls: 'vt-setting-hint' });
-                        legend.textContent = `${t('浮窗按钮说明：', 'Floating toolbar legend:')}\n${barLegend()}`;
+        // 英文模式：浮窗按钮为 ≤2 字符缩写，给出对照说明行（语言切换后 update() 重估显隐）
+        defs.push({
+                name: t('浮窗按钮说明', 'Floating toolbar legend'),
+                desc: makeLegendFrag(),
+                visible: () => this.plugin.settings.uiLang === 'en',
+        });
+
+        // ===== 功能开关（简单 toggle 直绑 settings） =====
+        defs.push({
+                name: t('电脑端浮窗工具栏', 'Desktop floating toolbar'),
+                desc: t('在电脑端编辑单元格时显示悬浮格式化工具栏', 'Show the floating formatting toolbar while editing cells on desktop'),
+                control: { type: 'toggle', key: 'enableDesktopToolbar' },
+        });
+        defs.push({
+                name: t('移动端浮窗工具栏', 'Mobile / tablet floating toolbar'),
+                desc: t('在手机/平板设备上编辑单元格时显示悬浮格式化工具栏', 'Show the floating toolbar while editing cells on phones and tablets'),
+                control: { type: 'toggle', key: 'enableMobileToolbar' },
+        });
+        defs.push({
+                name: t('模式切换按钮', 'Mode switcher'),
+                desc: t('编辑表格时显示 OL / HS / RC 三种模式的切换按钮', 'Show the OL / HS / RC mode switcher while editing'),
+                control: { type: 'toggle', key: 'enableModeSwitcher' },
+        });
+        // 把手类交互开关：新渲染的表格生效（填充柄额外在同步点即时隐藏）
+        defs.push({
+                name: t('自动填充柄', 'Auto fill handle'),
+                desc: t('选中单元格时在右下角显示填充柄，拖拽可复制或按序列填充相邻单元格（桌面端专属）。', 'Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).'),
+                control: { type: 'toggle', key: 'enableFillHandle' },
+        });
+        defs.push({
+                name: t('RC 整体缩放把手', 'RC whole-table scaling handle'),
+                desc: t('RC 模式下在表格右下角显示缩放把手，拖拽可整体拉伸所有行高列宽。', 'In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.'),
+                control: { type: 'toggle', key: 'enableRcScale' },
+        });
+        defs.push({
+                name: t('图片缩放柄', 'Image resize handle'),
+                desc: t('编辑时在嵌入图片旁显示 L 形拖柄，拖拽调整图片宽度（写回 |数字 尺寸语法）。', 'Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).'),
+                control: { type: 'toggle', key: 'enableImgResize' },
+        });
+
+        // ===== 表格样式板块（details 折叠保真）+ 右键菜单自定义（纳入折叠，与 2.0.9 同构） =====
+        // 框架预建行清空为纯容器（render 回调对行有完全控制权，官方文档 render 语义），整块自理渲染
+        defs.push({
+                name: t('表格样式', 'Table style'),
+                render: (s) => {
+                        s.settingEl.empty();
+                        s.settingEl.addClass('vt-style-section-host');
+                        this.buildStyleSection(s.settingEl);
+                },
+        });
+
+        // 面板结尾的双语文档链接（与开头同一套）
+        defs.push({
+                name: t('使用文档', 'Documentation'),
+                desc: makeDocLinksFrag(),
+        });
+
+        return defs;
+        }
+
+        /** 声明式控件读写：key 直绑 plugin.settings；变更副作用按 key 分派 */
+        getControlValue(key: string): unknown {
+                return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+        }
+
+        setControlValue(key: string, value: unknown): void | Promise<void> {
+                (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+                void this.plugin.saveSettings();
+                // 副作用：界面语言整体切换（浮窗按钮/右键菜单重建 + update() 重估英文 legend 显隐）
+                if (key === 'uiLang') {
+                        setUiLang(this.plugin.settings.uiLang);
+                        this.plugin.toolbar.rebuild();
+                        this.update();
                 }
+        }
 
-                new Setting(containerEl)
-                        .setName(t('电脑端浮窗工具栏', 'Desktop floating toolbar'))
-                        .setDesc(t('在电脑端编辑单元格时显示悬浮格式化工具栏', 'Show the floating formatting toolbar while editing cells on desktop'))
-                        .addToggle(t => t
-                                .setValue(this.plugin.settings.enableDesktopToolbar)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.enableDesktopToolbar = value;
-                                        await this.plugin.saveSettings();
-                                }));
-
-                new Setting(containerEl)
-                        .setName(t('移动端浮窗工具栏', 'Mobile / tablet floating toolbar'))
-                        .setDesc(t('在手机/平板设备上编辑单元格时显示悬浮格式化工具栏', 'Show the floating toolbar while editing cells on phones and tablets'))
-                        .addToggle(t => t
-                                .setValue(this.plugin.settings.enableMobileToolbar)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.enableMobileToolbar = value;
-                                        await this.plugin.saveSettings();
-                                }));
-
-                new Setting(containerEl)
-                        .setName(t('模式切换按钮', 'Mode switcher'))
-                        .setDesc(t('编辑表格时显示 OL / HS / RC 三种模式的切换按钮', 'Show the OL / HS / RC mode switcher while editing'))
-                        .addToggle(t => t
-                                .setValue(this.plugin.settings.enableModeSwitcher)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.enableModeSwitcher = value;
-                                        await this.plugin.saveSettings();
-                                }));
-
-                // ===== 把手类交互开关：新渲染的表格生效（填充柄额外在同步点即时隐藏） =====
-                new Setting(containerEl)
-                        .setName(t('自动填充柄', 'Auto fill handle'))
-                        .setDesc(t('选中单元格时在右下角显示填充柄，拖拽可复制或按序列填充相邻单元格（桌面端专属）。', 'Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).'))
-                        .addToggle(t => t
-                                .setValue(this.plugin.settings.enableFillHandle)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.enableFillHandle = value;
-                                        await this.plugin.saveSettings();
-                                }));
-
-                new Setting(containerEl)
-                        .setName(t('RC 整体缩放把手', 'RC whole-table scaling handle'))
-                        .setDesc(t('RC 模式下在表格右下角显示缩放把手，拖拽可整体拉伸所有行高列宽。', 'In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.'))
-                        .addToggle(t => t
-                                .setValue(this.plugin.settings.enableRcScale)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.enableRcScale = value;
-                                        await this.plugin.saveSettings();
-                                }));
-
-                new Setting(containerEl)
-                        .setName(t('图片缩放柄', 'Image resize handle'))
-                        .setDesc(t('编辑时在嵌入图片旁显示 L 形拖柄，拖拽调整图片宽度（写回 |数字 尺寸语法）。', 'Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).'))
-                        .addToggle(t => t
-                                .setValue(this.plugin.settings.enableImgResize)
-                                .onChange(async (value) => {
-                                        this.plugin.settings.enableImgResize = value;
-                                        await this.plugin.saveSettings();
-                                }));
-
-                // ===== 表格样式板块（可折叠：圆角/表头底色/线风格/隔行变色）。默认展开，可点击收起 =====
-                const styleSection = containerEl.createEl('details', { cls: 'vt-style-section' });
+        /** 表格样式折叠区（圆角/表头底色/线风格/隔行变色）。区内下拉切换「自定义颜色」时
+         *  只重绘本区（原为全局 display() 重绘，效果等价：自定义颜色行显隐变化，扰动更小） */
+        private buildStyleSection(host: HTMLElement) {
+                host.empty();
+                const styleSection = host.createEl('details', { cls: 'vt-style-section' });
                 styleSection.setAttribute('open', '');
                 styleSection.createEl('summary', { text: t('表格样式', 'Table style') });
 
@@ -1275,14 +1292,14 @@ class VtSettingTab extends PluginSettingTab {
                                         this.plugin.settings.headerStyle = value as VtSettings['headerStyle'];
                                         await this.plugin.saveSettings();
                                         refreshAllTableAppearance();
-                                        this.display(); // 刷新面板以显示/隐藏自定义颜色输入
+                                        this.buildStyleSection(host); // 区内重绘：显示/隐藏自定义颜色输入
                                 }));
 
                 if (this.plugin.settings.headerStyle === 'custom') {
                         const colorSetting = new Setting(styleSection)
                                 .setName(t('自定义表头颜色', 'Custom header color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #4a90d9', 'Hex color, e.g. #4a90d9'));
-                        const preview = document.createElement('span');
+                        const preview = createSpan();
                         preview.className = 'vt-color-preview';
                         preview.style.background = this.plugin.settings.headerColor;
                         colorSetting.nameEl.appendChild(preview);
@@ -1341,7 +1358,7 @@ class VtSettingTab extends PluginSettingTab {
                                         this.plugin.settings.zebraStyle = value as VtSettings['zebraStyle'];
                                         await this.plugin.saveSettings();
                                         refreshAllTableAppearance();
-                                        this.display();
+                                        this.buildStyleSection(host); // 区内重绘：显示/隐藏自定义颜色输入
                                 }))
                         .addToggle(tg => tg
                                 .setTooltip(t('启用隔行变色', 'Enable zebra stripes'))
@@ -1356,7 +1373,7 @@ class VtSettingTab extends PluginSettingTab {
                         const zcSetting = new Setting(styleSection)
                                 .setName(t('隔行变色自定义颜色', 'Custom zebra color'))
                                 .setDesc(t('填写十六进制颜色编码，如 #e8f0fe。颜色过深时文字自动反白。', 'Hex color, e.g. #e8f0fe. Dark colors get white text automatically.'));
-                        const zcPreview = document.createElement('span');
+                        const zcPreview = createSpan();
                         zcPreview.className = 'vt-color-preview';
                         zcPreview.style.background = this.plugin.settings.zebraColor;
                         zcSetting.nameEl.appendChild(zcPreview);
@@ -1394,6 +1411,7 @@ class VtSettingTab extends PluginSettingTab {
 
                 // 文本框：编辑不即时保存，点保存才生效。
                 // 布局：说明行只占一行，textarea 独占全宽（放 Setting control 里会被左侧说明挤成半栏）
+                // menuTaBuf：声明式框架 update() 会重建面板（如切语言），未保存输入经缓冲恢复
                 const taRef: { el: HTMLTextAreaElement | null } = { el: null };
                 const taSetting = new Setting(containerEl)
                         .setName(t('菜单结构（文本方式）', 'Menu layout (text)'))
@@ -1406,9 +1424,10 @@ class VtSettingTab extends PluginSettingTab {
                         });
                 const ta = taSetting.settingEl.createEl('textarea');
                 ta.className = 'text-input vt-menu-ta';
-                ta.value = this.plugin.settings.contextMenu;
+                ta.value = this.menuTaBuf ?? this.plugin.settings.contextMenu;
                 taSetting.settingEl.insertAdjacentElement('afterend', ta);
                 taRef.el = ta;
+                ta.addEventListener('input', () => { this.menuTaBuf = ta.value; });
                 new Setting(containerEl)
                         .setName(t('保存菜单配置', 'Save menu layout'))
                         .setDesc(t('点击保存后立即对所有表格生效；未保存的修改在关闭设置后丢弃。', 'Applies to all tables immediately; unsaved edits are discarded when settings close.'))
@@ -1418,6 +1437,7 @@ class VtSettingTab extends PluginSettingTab {
                                 .onClick(async () => {
                                         if (!taRef.el) return;
                                         this.plugin.settings.contextMenu = taRef.el.value;
+                                        this.menuTaBuf = null;
                                         await this.plugin.saveSettings();
                                         new Notice(t('右键菜单配置已保存', 'Context menu saved'));
                                 }));
@@ -1486,19 +1506,29 @@ class VtSettingTab extends PluginSettingTab {
                         ),
                 });
                 help.createEl('a', { text: 'README', href: `${REPO_URL}#right-click-menu` }).setAttribute('target', '_blank');
-
-                // 面板结尾的双语文档链接（与开头同一套）
-                addDocLinks(containerEl);
         }
 }
 
-/** 设置面板开头/结尾的双语文档链接（GitHub README 中文版 + 英文版） */
-function addDocLinks(host: HTMLElement) {
-        const row = host.createDiv({ cls: 'vt-setting-hint' });
-        row.createSpan({ text: t('使用文档：', 'Documentation: ') });
-        row.createEl('a', { text: t('中文文档', 'Chinese documentation'), href: `${REPO_URL}/blob/main/README_CN.md` });
-        row.createSpan({ text: ' | ' });
-        row.createEl('a', { text: t('英文文档', 'English documentation'), href: `${REPO_URL}/blob/main/README.md` });
+/** 设置面板开头/结尾的双语文档链接（GitHub README 中文版 + 英文版）——desc 片段形态 */
+function makeDocLinksFrag(): DocumentFragment {
+        return createFragment((f) => {
+                f.createSpan({ text: t('使用文档：', 'Documentation: ') });
+                f.createEl('a', { text: t('中文文档', 'Chinese documentation'), href: `${REPO_URL}/blob/main/README_CN.md` }).setAttribute('target', '_blank');
+                f.createSpan({ text: ' | ' });
+                f.createEl('a', { text: t('英文文档', 'English documentation'), href: `${REPO_URL}/blob/main/README.md` }).setAttribute('target', '_blank');
+        });
+}
+
+/** 英文模式浮窗按钮对照说明（≤2 字符缩写 → 全名；多行文本经 <br> 保行） */
+function makeLegendFrag(): DocumentFragment {
+        return createFragment((f) => {
+                const all = `${t('浮窗按钮说明：', 'Floating toolbar legend:')}\n${barLegend()}`;
+                const lines = all.split('\n');
+                for (let i = 0; i < lines.length; i++) {
+                        if (i > 0) f.createEl('br');
+                        f.createSpan({ text: lines[i] });
+                }
+        });
 }
 
 /** 从光标所在行出发，判断是否处于原始 HTML 表格内，若是则返回 <table>...</table> 的完整行范围 */

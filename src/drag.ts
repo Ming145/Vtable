@@ -147,7 +147,6 @@ export function bindRowColDrag(
                 const scroller = wrap.closest<HTMLElement>('.cm-scroller');
                 const docTop = scroller ? scroller.getBoundingClientRect().top : 0;
                 const docBottom = scroller ? scroller.getBoundingClientRect().bottom : window.innerHeight;
-                const vh = window.innerHeight;
                 rows.forEach((tr, r) => {
                         const g = rowGrips[r];
                         if (!g.classList.contains('vt-drag-on')) return;
@@ -218,7 +217,7 @@ export function bindRowColDrag(
                         return { r: Math.max(0, r), c: Math.max(0, c) };
                 };
                 const probe = document.elementFromPoint(x, y);
-                const hit = (probe != null && probe.instanceOf(HTMLElement)) ? (probe.closest('td,th') as HTMLElement | null) : null;
+                const hit = (probe != null && probe.instanceOf(HTMLElement)) ? probe.closest<HTMLElement>('td,th') : null;
                 if (hit && table.contains(hit)) return resolve(hit);
                 // 兜底：浮层/把手遮挡等导致 hit-test 落空时回退全量遍历
                 let fallback: HTMLElement | null = null;
@@ -237,7 +236,7 @@ export function bindRowColDrag(
         const onMove = (e: PointerEvent) => {
                 lastMouse = { x: e.clientX, y: e.clientY };
                 if (drag) return;
-                const td = (e.target as HTMLElement).closest?.('td,th') as HTMLElement | null;
+                const td = (e.target as HTMLElement | null)?.closest<HTMLElement>('td,th') ?? null;
                 if (td && table.contains(td)) hoverRC = locateAt(e.clientX, e.clientY);
                 apply();
         };
@@ -258,7 +257,7 @@ export function bindRowColDrag(
         // 把手显示在旧行列（"快速切换单元格把手错位"）。pointerdown 触摸必发，target 直接给行列
         wrap.addEventListener('pointerdown', (e) => {
                 if (drag) return;
-                const td = (e.target as HTMLElement)?.closest?.('td,th') as HTMLElement | null;
+                const td = (e.target as HTMLElement | null)?.closest<HTMLElement>('td,th') ?? null;
                 if (!td || !table.contains(td)) {
                         // tap 表格外（段落空白/其他块）：触屏模型里 hoverRC 长驻，显式清掉让把手归位
                         if (e.pointerType === 'touch' && hoverRC) {
@@ -300,7 +299,7 @@ export function bindRowColDrag(
         });
         // 焦点变化 → 触屏兜底显隐
         table.addEventListener('focusin', (e) => {
-                const td = (e.target as HTMLElement).closest?.('td,th') as HTMLElement | null;
+                const td = (e.target as HTMLElement | null)?.closest<HTMLElement>('td,th') ?? null;
                 if (!td) return;
                 const r = parseInt(td.dataset.vtR ?? '-1', 10);
                 const c = parseInt(td.dataset.vtC ?? '-1', 10);

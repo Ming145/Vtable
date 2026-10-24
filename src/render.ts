@@ -4,6 +4,7 @@
  */
 
 import { Menu, Notice, loadMathJax, renderMath, finishRenderMath, Platform, setIcon } from 'obsidian';
+import { compatCaretRangeFromPoint, compatKeyCode, compatExecCommand } from './compat';
 import { t } from './i18n';
 import {
         parseSource, serialize, visible, Grid, VtData, VtMode, normalizeCellNewlines,
@@ -77,6 +78,8 @@ export interface TableController {
         clearSelContent: () => void;
         /** 打开选区底色取色弹窗 */
         pickColor: () => void;
+        /** 浮窗实例（诊断命令 vt-diag-bar 走此引用读内部状态） */
+        toolbar: Toolbar;
         /** 提交未落盘的编辑（切视图/布局变化时宿主调用）：
          *  Obsidian 切阅读视图可能只隐藏编辑容器而不摘 DOM → td 不触发 blur，
          *  未失焦的编辑内容停留在此表格实例的内存 grid 里，需要外部钩子提交 */
@@ -184,7 +187,7 @@ function resolveThemeAccent(el: HTMLElement): string | null {
                 }
         }
         // 探针：浏览器解析嵌套 var() 后的最终色（恒为 rgb()/rgba()，能识别全部主题写法）
-        const probe = document.createElement('span');
+        const probe = createSpan();
         probe.style.color = `var(--interactive-accent, var(--accent-color, transparent))`;
         el.appendChild(probe);
         const computed = getComputedStyle(probe).color;
@@ -276,8 +279,8 @@ let pendingScrollAnchor: {
 /** writeBack 前调用：记录当前滚动锚点 */
 export function noteScrollAnchor(el: HTMLElement) {
         // 实时预览滚在 .cm-scroller；阅读模式滚在预览视图
-        const scroller = (el.closest('.cm-scroller')
-                ?? el.closest('.markdown-preview-view, .markdown-reading-view'));
+        const scroller = (el.closest<HTMLElement>('.cm-scroller')
+                ?? el.closest<HTMLElement>('.markdown-preview-view, .markdown-reading-view'));
         if (!scroller) return;
         pendingScrollAnchor = {
                 host: el,
@@ -533,7 +536,7 @@ export function renderBlock(
         const flushDiagZone = () => {
                 const z = document.activeElement instanceof HTMLElement ? document.activeElement : null;
                 if (!z || !((z != null && z.instanceOf(Element))) || !z.classList.contains('vt-diag-zone') || !table.contains(z)) return;
-                const td = z.closest('td') as HTMLTableCellElement | null;
+                const td = z.closest<HTMLTableCellElement>('td');
                 if (!td) return;
                 const p = tdCoords(td);
                 const cell = grid[p.r]?.[p.c];
@@ -931,7 +934,7 @@ export function renderBlock(
                 // Mac 系键盘（iPad 妙控键盘同理）没有独立 Delete 键：删除键发的是 Backspace。
                 // 有选区时 Cmd+Backspace = 结构删除选区（与 Ctrl+Delete 同语义）；
                 // Windows 的 Ctrl+Backspace（删词习惯）不在此接管，保留浏览器默认
-                const isDel = e.key === 'Delete' || e.keyCode === 46;
+                const isDel = e.key === 'Delete' || compatKeyCode(e) === 46;
                 const isMacDel = e.key === 'Backspace' && e.metaKey;
                 if (!isDel && !isMacDel) return;
                 if (!(e.ctrlKey || e.metaKey)) return;
@@ -1013,7 +1016,7 @@ export function renderBlock(
                 if (e.isComposing) return;
                 const ae = document.activeElement as HTMLElement | null;
                 if (!ae || !el.contains(ae)) return;
-                if (!(e.key === 'v' || e.key === 'V' || e.keyCode === 86)) return;
+                if (!(e.key === 'v' || e.key === 'V' || compatKeyCode(e) === 86)) return;
                 if (!(e.ctrlKey || e.metaKey) || !e.altKey) return;
                 e.preventDefault();
                 e.stopPropagation();
@@ -1033,7 +1036,7 @@ export function renderBlock(
                 selOps.clearContent();
         };
         const isSelDeleteKey = (e: KeyboardEvent) =>
-                e.key === 'Delete' || e.key === 'Backspace' || e.keyCode === 46 || e.keyCode === 8;
+                e.key === 'Delete' || e.key === 'Backspace' || compatKeyCode(e) === 46 || compatKeyCode(e) === 8;
         const onSelKeyDown = (e: KeyboardEvent) => {
                 if (!el.isConnected) {
                         document.removeEventListener('keydown', onSelKeyDown, true);
@@ -1044,7 +1047,7 @@ export function renderBlock(
                 if (!selRects.length) return;
                 // 选框态 Cmd/Ctrl+C：复制选区为 markdown 表格（跨表/跨文档可粘回）
                 if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey
-                        && (e.key === 'c' || e.key === 'C' || e.keyCode === 67)) {
+                        && (e.key === 'c' || e.key === 'C' || compatKeyCode(e) === 67)) {
                         e.preventDefault();
                         e.stopPropagation();
                         void navigator.clipboard?.writeText(buildSelMarkdown(selRects));
@@ -1395,6 +1398,7 @@ export function renderBlock(
                         return moveFocus(dr, dc);
                 },
                 setMode,
+                toolbar,
                 getMode: () => data.mode,
                 hasSelection: () => selRects.length > 0,
                 alignSel: (mode) => selOps.align(mode),
@@ -1959,7 +1963,7 @@ export function renderBlock(
                                         if (delSel && delSel.rangeCount > 0 && !delSel.isCollapsed) {
                                                 e.preventDefault();
                                                 e.stopPropagation();
-                                                document.execCommand('delete');
+                                                compatExecCommand(document, 'delete');
                                                 return;
                                         }
                                 }
@@ -2044,7 +2048,7 @@ export function renderBlock(
                                         clearSelection();
                                         return;
                                 }
-                                document.execCommand('insertText', false, text);
+                                compatExecCommand(document, 'insertText', text);
                         });
 
                         td.addEventListener('contextmenu', (e) => {
@@ -2365,7 +2369,7 @@ function keepCaretXInTd(td: HTMLElement, x: number): void {
         let node: Node | null = null;
         let off = 0;
         try {
-                const hit = doc.caretRangeFromPoint ? doc.caretRangeFromPoint(x, y) : null;
+                const hit = compatCaretRangeFromPoint(doc, x, y);
                 if (hit) {
                         node = hit.startContainer;
                         off = hit.startOffset;
@@ -2493,7 +2497,13 @@ function populateCell(
         onTodoToggle?: (idx: number, checked: boolean) => void,
         onOpenLink?: (linkText: string) => void,
 ) {
-        td.replaceChildren(...parseTrustedHtml(raw).childNodes);
+        // 行内代码先行保护（2026-10-24 用户实锤"` 包不住 html 代码块，光标离开格子就还原"）：
+        // parseTrustedHtml(raw) 直通解析会把代码内的 <div> 等变成真元素，反引号被元素边界
+        // 打散成两个孤立文本节点 → 后续 renderInlineCode 找不到成对 ` 不再处理 → 永久渲染。
+        // 先把 `x` 转成 <code>转义内容</code>（与 mdInlineToHtml 的 protect 同款 escapeHtml），
+        // 后续 renderInlineCode 对 code 内文本自动跳过（closest('code')），行为一致
+        const protectedRaw = raw.replace(/`([^`\n]+)`/g, (_m: string, c: string) => '<code>' + escapeHtml(c) + '</code>');
+        td.replaceChildren(...parseTrustedHtml(protectedRaw).childNodes);
         if (/^=[A-Z]+\(/i.test(raw)) {
                 td.textContent = evalFormula(grid, raw);
         }
@@ -2533,7 +2543,7 @@ function splitMath(text: string): DocumentFragment | null {
         let match: RegExpExecArray | null;
         let last = 0;
         let matched = false;
-        const frag = document.createDocumentFragment();;;
+        const frag = createFragment();;;
 
         while ((match = MATH_RE.exec(text))) {
                 if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2624,11 +2634,11 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                 const text = textNode.textContent;
                 const lines = text.split('\n');
                 let hasTodo = false;
-                const frag = document.createDocumentFragment();;;
+                const frag = createFragment();;;
 
                 const buildTaskItem = (m: RegExpMatchArray) => {
                         hasTodo = true;
-                        const item = document.createElement('div');
+                        const item = createDiv();
                         item.className = 'vt-task-item';
                         const cb = item.createEl('input');
                         cb.type = 'checkbox';
@@ -2649,7 +2659,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         cb.style.height = `1em`;
                         cb.style.boxSizing = `border-box`;
                         // iPad 触控：1em 视觉盒太小难点中——外包均匀 5px 热区（负 margin 抵消，视觉位置不变）
-                        const hit = document.createElement('span');
+                        const hit = createSpan();
                         hit.className = 'vt-cb-hit';
                         hit.style.display = `inline-flex`;
                         hit.style.padding = `5px`;
@@ -2679,7 +2689,7 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                         }
                         hit.appendChild(cb);
                         item.appendChild(hit);
-                        const span = document.createElement('span');
+                        const span = createSpan();
                         span.textContent = m[2] ?? '';
                         item.appendChild(span);
                         return item;
@@ -2731,11 +2741,11 @@ function renderTodos(root: HTMLElement, onTodoToggle?: (idx: number, checked: bo
                 const isItem = (n: Node | null): n is HTMLElement =>
                         !!n && n.nodeName === 'DIV' && (n as HTMLElement).classList.contains('vt-task-item');
                 if (isItem(tail)) {
-                        let s: Node | null = tail.nextSibling;
+                        let s: ChildNode | null = tail.nextSibling;
                         while (s && s.nodeName === 'BR') { const nx = s.nextSibling; s.remove(); s = nx; }
                 }
                 if (isItem(head)) {
-                        let s: Node | null = head.previousSibling;
+                        let s: ChildNode | null = head.previousSibling;
                         while (s && s.nodeName === 'BR') { const pv = s.previousSibling; s.remove(); s = pv; }
                 }
         }
@@ -2760,7 +2770,7 @@ function renderImages(root: HTMLElement, sourcePath: string, resolveImage: (link
                 let match: RegExpExecArray | null;
                 let last = 0;
                 let found = false;
-                const frag = document.createDocumentFragment();;;
+                const frag = createFragment();;;
 
                 while ((match = IMG_RE.exec(text))) {
                         if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
@@ -2817,7 +2827,7 @@ function renderWikiLinks(root: HTMLElement, onOpenLink?: (linkText: string) => v
                 const text = textNode.textContent;
                 WIKILINK_RE.lastIndex = 0;
                 if (!WIKILINK_RE.test(text)) continue;
-                const frag = document.createDocumentFragment();;;
+                const frag = createFragment();;;
                 let last = 0;
                 WIKILINK_RE.lastIndex = 0;
                 let m: RegExpExecArray | null;
@@ -3125,7 +3135,7 @@ function buildCellMenu(settings: VtSettings, ctx: MenuCtx, obsidianCommand: (cmd
                         if (acts.some(a => a.needsSel) && !(ctx.sel && ctx.sel.rects.length)) continue;
                         menu.addItem((i) => {
                                 i.setTitle('');
-                                const wrap = i.titleEl.createSpan({ cls: 'vt-menu-icons' });
+                                const wrap = (i as unknown as { titleEl: HTMLElement }).titleEl.createSpan({ cls: 'vt-menu-icons' });
                                 acts.forEach((act, idx) => {
                                         if (idx > 0) wrap.createSpan({ cls: 'vt-menu-icon-sep' });
                                         const btn = wrap.createSpan({
