@@ -1307,3 +1307,10 @@ table.vt td.vt-diag {
 .vt-chart-btn.vt-chart-hidden {
         display: none;
 }
+
+/* 诊断命令剪贴板降级 textarea：屏外隐藏（2026-10-24 官方审核 no-static-styles-assignment：
+   静态样式字面量必须走 CSS 类，setCssStyles 仅限动态值） */
+.vt-diag-copy-ta {
+        position: fixed;
+        opacity: 0;
+}

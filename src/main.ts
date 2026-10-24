@@ -445,7 +445,7 @@ export default class VtPlugin extends Plugin {
                                         try {
                                                 const ta = document.body.createEl('textarea');
                                                 ta.value = json;
-                                                ta.setCssStyles({ position: 'fixed', opacity: '0' });
+                                                ta.addClass('vt-diag-copy-ta');
                                                 ta.select();
                                                 const ok = compatExecCommand(document, 'copy');
                                                 ta.remove();
@@ -1168,15 +1168,15 @@ class VtSettingTab extends PluginSettingTab {
                 desc: t('把对应语言的图表模板（柱状图/饼图/折线图）添加到模板文件夹，写入检测到的模板目录。', 'Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.'),
                 render: (s) => {
                         s.addButton(b => b
-                        	.setButtonText('+中文图表模板')
-                        	.onClick(() => {
-                        		this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
-                        	}));
+                                .setButtonText('+中文图表模板')
+                                .onClick(() => {
+                                        this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                                }));
                         s.addButton(b => b
-                        	.setButtonText('+英文图表模板')
-                        	.onClick(() => {
-                        		this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
-                        	}));
+                                .setButtonText('+英文图表模板')
+                                .onClick(() => {
+                                        this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                                }));
                 },
         });
 

@@ -8729,7 +8729,7 @@ ${first}`, 0);
           try {
             const ta = document.body.createEl("textarea");
             ta.value = json;
-            ta.setCssStyles({ position: "fixed", opacity: "0" });
+            ta.addClass("vt-diag-copy-ta");
             ta.select();
             const ok = compatExecCommand(document, "copy");
             ta.remove();
