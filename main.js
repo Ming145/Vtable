@@ -620,6 +620,9 @@ function compatCaretRangeFromPoint(doc, x, y) {
 function compatKeyCode(e) {
   return e.keyCode;
 }
+function compatRequire(id) {
+  return require(id);
+}
 
 // src/i18n.ts
 var lang = "zh";
@@ -7820,31 +7823,6 @@ var Toolbar = class {
     window.removeEventListener("resize", this.onWinResize);
     this.el.remove();
   }
-  /** 临时诊断（vt-diag-bar，定版时随 diagSnapshot 一并删）：浮窗内部状态实锤——
-   *  用户报「A 用后 B 无反应」，mock 全链复现正常 → 真机差异聚焦浮窗存活/事件可达（CM 干预层）。
-   *  cell=null = hide 链竞争（修 hide 时序）；cell=DETACHED = show 未刷新；conn = 链路深处再挖。 */
-  diagState() {
-    const cs = getComputedStyle(this.el);
-    const rect = this.el.getBoundingClientRect();
-    return {
-      cell: this.cell ? this.cell.isConnected ? "conn" : "DETACHED" : "null",
-      cellRC: `${this.cellR},${this.cellC}`,
-      selActive: this.selActive(),
-      rects: this.selOps ? this.selOps.rects.length : -1,
-      data: this.data ? `${this.data.rows.length}x${this.data.rows[0]?.length ?? 0}` : "null",
-      onCommit: this.onCommit ? "yes" : "no",
-      syncCell: this.syncCell ? "yes" : "no",
-      visible: cs.display !== "none" && cs.opacity !== "0",
-      display: cs.display,
-      pointerEvents: cs.pointerEvents,
-      rect: `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`,
-      hitTest: (() => {
-        const r = rect;
-        const el2 = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-        return el2 ? el2.closest(".vt-bar") ? "bar" : el2.tagName + "." + String(el2.className).slice(0, 20) : "none";
-      })()
-    };
-  }
 };
 
 // src/chart-labels.ts
@@ -8608,141 +8586,6 @@ ${first}`, 0);
     this.registerHeaderBgCommand();
     this.registerSelectionFormatCommands();
     this.registerArrowIntoTable();
-    {
-      const diag = window;
-      const snapTd = () => {
-        const td = document.activeElement instanceof HTMLElement && document.activeElement.tagName === "TD" ? document.activeElement : document.querySelector("td");
-        const sel = window.getSelection();
-        return {
-          td: td ? { r: td.dataset.vtR, c: td.dataset.vtC, view: td.dataset.vtView, editing: td.className.includes("vt-editing") } : null,
-          segs: td ? [...td.querySelectorAll(".vt-seg")].map((s) => ({
-            v: s.dataset.view,
-            k: s.dataset.kind,
-            src: (s.dataset.src ?? "").slice(0, 24),
-            s: s.dataset.s,
-            e: s.dataset.e,
-            p: s.dataset.prefix,
-            suf: s.dataset.suffix
-          })) : [],
-          sel: sel && sel.rangeCount ? {
-            col: sel.isCollapsed,
-            node: sel.focusNode ? sel.focusNode.nodeType === 3 ? "T@" + sel.focusOffset : sel.focusNode.nodeName + "@" + sel.focusOffset : null
-          } : null,
-          bar: (() => {
-            const b = document.querySelector(".vt-bar");
-            return b ? { d: b.style.display, l: b.style.left, t: b.style.top } : null;
-          })(),
-          ae: document.activeElement ? document.activeElement.tagName + "." + (document.activeElement.className || "").toString().slice(0, 18) : null
-        };
-      };
-      this.addCommand({
-        id: "vt-diag-start",
-        name: "\u3010\u8BCA\u65AD\u3011\u5F00\u59CB\u8BB0\u5F55\uFF08b/d/\u628A\u624B\uFF09",
-        callback: () => {
-          diag.__vtDiag = [];
-          diag.__vtDiagOn = true;
-          diag.__vtDiagStop?.();
-          const push = (ev, extra) => {
-            if (!diag.__vtDiagOn)
-              return;
-            diag.__vtDiag?.push({ ev, ...extra ?? {}, snap: snapTd() });
-          };
-          const kd = (e) => {
-            diag.__vtDiag?.push({ ev: "key:" + e.key });
-            window.setTimeout(() => diag.__vtDiag?.push({ ev: "key-late:" + e.key, pd: e.defaultPrevented }), 0);
-          };
-          const bi = (e) => push("beforeinput:" + e.inputType, { pd: e.defaultPrevented });
-          const pd = (e) => {
-            const t2 = e.target instanceof Element ? e.target.closest("td") : null;
-            push("pointerdown", { cell: t2 ? t2.dataset.vtR + "," + t2.dataset.vtC : "off-table" });
-          };
-          const bl = (e) => push("blur", {
-            from: e.target instanceof Element ? e.target.tagName + "." + String(e.target.className).slice(0, 14) : "?",
-            to: e.relatedTarget instanceof Element ? e.relatedTarget.tagName + "." + String(e.relatedTarget.className).slice(0, 14) : "null"
-          });
-          const fi = (e) => push("focusin", {
-            to: e.target instanceof Element ? e.target.tagName + "." + String(e.target.className).slice(0, 14) : "?"
-          });
-          const sc = () => {
-            const sel = window.getSelection();
-            if (sel && sel.rangeCount) {
-              const r = sel.getRangeAt(0);
-              const nd = r.startContainer;
-              diag.__vtDiag?.push({ ev: "sel", pos: nd.nodeType === 3 ? "T@" + r.startOffset : nd.nodeName + "@" + r.startOffset, col: sel.isCollapsed });
-            }
-          };
-          document.addEventListener("keydown", kd, true);
-          document.addEventListener("beforeinput", bi, true);
-          document.addEventListener("pointerdown", pd, true);
-          document.addEventListener("blur", bl, true);
-          document.addEventListener("focusin", fi, true);
-          document.addEventListener("selectionchange", sc, true);
-          diag.__vtDiagStop = () => {
-            document.removeEventListener("keydown", kd, true);
-            document.removeEventListener("beforeinput", bi, true);
-            document.removeEventListener("pointerdown", pd, true);
-            document.removeEventListener("blur", bl, true);
-            document.removeEventListener("focusin", fi, true);
-            document.removeEventListener("selectionchange", sc, true);
-            diag.__vtDiagOn = false;
-          };
-          new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u5F00\u59CB\u8BB0\u5F55");
-        }
-      });
-      this.addCommand({
-        id: "vt-diag-dump",
-        name: "\u3010\u8BCA\u65AD\u3011\u5BFC\u51FA\u8BB0\u5F55\u5230\u526A\u8D34\u677F",
-        callback: async () => {
-          const tbl = document.querySelector("table.vt");
-          const rc = {
-            mode: tbl ? tbl.dataset.vtMode : null,
-            overlay: !!document.querySelector(".vt-rc-overlay"),
-            colHandles: [...document.querySelectorAll(".vt-rc-handle-col")].map((g) => ({ c: g.dataset.vtC, left: g.style.left, w: g.style.width, disp: getComputedStyle(g).display })),
-            firstRowColSpans: tbl ? [...tbl.rows[0]?.cells ?? []].map((c) => c.colSpan) : []
-          };
-          const json = JSON.stringify({ rc, events: diag.__vtDiag ?? [] });
-          try {
-            await navigator.clipboard.writeText(json);
-            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236 " + json.length + " \u5B57\u7B26\u5230\u526A\u8D34\u677F");
-          } catch {
-            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u590D\u5236\u5931\u8D25\uFF08\u957F\u5EA6 " + json.length + "\uFF09");
-          }
-        }
-      });
-      this.addCommand({
-        id: "vt-diag-bar",
-        name: "\u3010\u8BCA\u65AD\u3011\u6D6E\u7A97\u72B6\u6001\u5FEB\u7167",
-        callback: async () => {
-          const ctrl = getActiveTableController();
-          if (!ctrl) {
-            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u65E0\u6D3B\u8DC3\u8868\u683C");
-            return;
-          }
-          const st = ctrl.toolbar.diagState();
-          const json = JSON.stringify(st);
-          try {
-            await navigator.clipboard.writeText(json);
-            new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236 " + json.length + " \u5B57\u7B26");
-            return;
-          } catch {
-          }
-          try {
-            const ta = document.body.createEl("textarea");
-            ta.value = json;
-            ta.addClass("vt-diag-copy-ta");
-            ta.select();
-            const ok = compatExecCommand(document, "copy");
-            ta.remove();
-            if (ok) {
-              new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A\u5DF2\u590D\u5236(\u964D\u7EA7) " + json.length + " \u5B57\u7B26");
-              return;
-            }
-          } catch {
-          }
-          new import_obsidian4.Notice("Vtable \u8BCA\u65AD\uFF1A" + json, 15e3);
-        }
-      });
-    }
     this.addRibbonIcon("table-2", "\u8F6C\u6362\u4E3A vtable", () => {
       this.runWithEditor((ed) => this.convertAtCursor(ed));
     });
@@ -9054,8 +8897,8 @@ ${first}`, 0);
     };
     let registered = false;
     try {
-      const cmView = require("@codemirror/view");
-      const cmState = require("@codemirror/state");
+      const cmView = compatRequire("@codemirror/view");
+      const cmState = compatRequire("@codemirror/state");
       const keymap = cmView?.keymap;
       const Prec = cmState?.Prec;
       if (keymap?.of && Prec?.highest) {
