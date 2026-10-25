@@ -369,26 +369,4 @@ export class Toolbar {
                 window.removeEventListener('resize', this.onWinResize);
                 this.el.remove();
         }
-
-        /** 临时诊断（vt-diag-bar，定版时随 diagSnapshot 一并删）：浮窗内部状态实锤——
-         *  用户报「A 用后 B 无反应」，mock 全链复现正常 → 真机差异聚焦浮窗存活/事件可达（CM 干预层）。
-         *  cell=null = hide 链竞争（修 hide 时序）；cell=DETACHED = show 未刷新；conn = 链路深处再挖。 */
-        diagState(): Record<string, unknown> {
-                const cs = getComputedStyle(this.el);
-                const rect = this.el.getBoundingClientRect();
-                return {
-                        cell: this.cell ? (this.cell.isConnected ? 'conn' : 'DETACHED') : 'null',
-                        cellRC: `${this.cellR},${this.cellC}`,
-                        selActive: this.selActive(),
-                        rects: this.selOps ? this.selOps.rects.length : -1,
-                        data: this.data ? `${this.data.rows.length}x${this.data.rows[0]?.length ?? 0}` : 'null',
-                        onCommit: this.onCommit ? 'yes' : 'no',
-                        syncCell: this.syncCell ? 'yes' : 'no',
-                        visible: cs.display !== 'none' && cs.opacity !== '0',
-                        display: cs.display,
-                        pointerEvents: cs.pointerEvents,
-                        rect: `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)}`,
-                        hitTest: (() => { const r = rect; const el2 = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return el2 ? (el2.closest('.vt-bar') ? 'bar' : el2.tagName + '.' + String(el2.className).slice(0, 20)) : 'none'; })(),
-                };
-        }
 }

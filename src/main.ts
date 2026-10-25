@@ -11,7 +11,7 @@ import { renderBlock, getActiveTableController, requestInitialFocus, noteScrollA
 import { setUiLang, t, REPO_URL, barLegend } from './i18n';
 import { VT_MENU_ACTIONS } from './render';
 import { Toolbar } from './bar';
-import { compatExecCommand } from './compat';
+import { compatRequire } from './compat';
 import { gridToChart, detectChartType } from './charts';
 
 const LANG = 'vtable';
@@ -339,123 +339,6 @@ export default class VtPlugin extends Plugin {
                 this.registerHeaderBgCommand();
                         this.registerSelectionFormatCommands();
                 this.registerArrowIntoTable();
-
-                // ===== 临时诊断（2026-10-18 B/D/合并案，真机实锤采集，验证后整段删除） =====
-                {
-                        const diag = window as unknown as { __vtDiag?: unknown[]; __vtDiagOn?: boolean; __vtDiagStop?: () => void };
-                        const snapTd = () => {
-                                const td = (document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'TD')
-                                        ? document.activeElement : document.querySelector<HTMLElement>('td');
-                                const sel = window.getSelection();
-                                return {
-                                        td: td ? { r: td.dataset.vtR, c: td.dataset.vtC, view: td.dataset.vtView, editing: td.className.includes('vt-editing') } : null,
-                                        segs: td ? [...td.querySelectorAll<HTMLElement>('.vt-seg')].map(s => ({
-                                                v: s.dataset.view, k: s.dataset.kind, src: (s.dataset.src ?? '').slice(0, 24),
-                                                s: s.dataset.s, e: s.dataset.e, p: s.dataset.prefix, suf: s.dataset.suffix,
-                                        })) : [],
-                                        sel: sel && sel.rangeCount ? {
-                                                col: sel.isCollapsed,
-                                                node: sel.focusNode ? (sel.focusNode.nodeType === 3 ? 'T@' + sel.focusOffset : (sel.focusNode as Element).nodeName + '@' + sel.focusOffset) : null,
-                                        } : null,
-                                        bar: (() => { const b = document.querySelector<HTMLElement>('.vt-bar'); return b ? { d: b.style.display, l: b.style.left, t: b.style.top } : null; })(),
-                                        ae: document.activeElement ? document.activeElement.tagName + '.' + (document.activeElement.className || '').toString().slice(0, 18) : null,
-                                };
-                        };
-                        this.addCommand({
-                                id: 'vt-diag-start',
-                                name: '【诊断】开始记录（b/d/把手）',
-                                callback: () => {
-                                        diag.__vtDiag = [];
-                                        diag.__vtDiagOn = true;
-                                        diag.__vtDiagStop?.();
-                                        const push = (ev: string, extra?: unknown) => {
-                                                if (!diag.__vtDiagOn) return;
-                                                diag.__vtDiag?.push({ ev, ...(extra ?? {}), snap: snapTd() });
-                                        };
-                                        const kd = (e: KeyboardEvent) => {
-                                                // 同步先记一条（setTimeout 在异常时序下会丢——上轮诊断 keydown 全缺的教训）
-                                                diag.__vtDiag?.push({ ev: 'key:' + e.key });
-                                                window.setTimeout(() => diag.__vtDiag?.push({ ev: 'key-late:' + e.key, pd: e.defaultPrevented }), 0);
-                                        };
-                                        const bi = (e: InputEvent) => push('beforeinput:' + e.inputType, { pd: e.defaultPrevented });
-                                        const pd = (e: PointerEvent) => {
-                                                const t = e.target instanceof Element ? e.target.closest('td') : null;
-                                                push('pointerdown', { cell: t ? (t.dataset.vtR + ',' + t.dataset.vtC) : 'off-table' });
-                                        };
-                                        const bl = (e: FocusEvent) => push('blur', {
-                                                from: e.target instanceof Element ? (e.target as HTMLElement).tagName + '.' + String((e.target as HTMLElement).className).slice(0, 14) : '?',
-                                                to: e.relatedTarget instanceof Element ? (e.relatedTarget as HTMLElement).tagName + '.' + String((e.relatedTarget as HTMLElement).className).slice(0, 14) : 'null',
-                                        });
-                                        const fi = (e: FocusEvent) => push('focusin', {
-                                                to: e.target instanceof Element ? (e.target as HTMLElement).tagName + '.' + String((e.target as HTMLElement).className).slice(0, 14) : '?',
-                                        });
-                                        const sc = () => {
-                                                const sel = window.getSelection();
-                                                if (sel && sel.rangeCount) {
-                                                        const r = sel.getRangeAt(0);
-                                                        const nd = r.startContainer;
-                                                        diag.__vtDiag?.push({ ev: 'sel', pos: nd.nodeType === 3 ? 'T@' + r.startOffset : nd.nodeName + '@' + r.startOffset, col: sel.isCollapsed });
-                                                }
-                                        };
-                                        document.addEventListener('keydown', kd, true);
-                                        document.addEventListener('beforeinput', bi, true);
-                                        document.addEventListener('pointerdown', pd, true);
-                                        document.addEventListener('blur', bl, true);
-                                        document.addEventListener('focusin', fi, true);
-                                        document.addEventListener('selectionchange', sc, true);
-                                        diag.__vtDiagStop = () => {
-                                                document.removeEventListener('keydown', kd, true);
-                                                document.removeEventListener('beforeinput', bi, true);
-                                                document.removeEventListener('pointerdown', pd, true);
-                                                document.removeEventListener('blur', bl, true);
-                                                document.removeEventListener('focusin', fi, true);
-                                                document.removeEventListener('selectionchange', sc, true);
-                                                diag.__vtDiagOn = false;
-                                        };
-                                        new Notice('Vtable 诊断：已开始记录');
-                                },
-                        });
-                        this.addCommand({
-                                id: 'vt-diag-dump',
-                                name: '【诊断】导出记录到剪贴板',
-                                callback: async () => {
-                                        const tbl = document.querySelector<HTMLTableElement>('table.vt');
-                                        const rc = {
-                                                mode: tbl ? tbl.dataset.vtMode : null,
-                                                overlay: !!document.querySelector('.vt-rc-overlay'),
-                                                colHandles: [...document.querySelectorAll<HTMLElement>('.vt-rc-handle-col')].map(g => ({ c: g.dataset.vtC, left: g.style.left, w: g.style.width, disp: getComputedStyle(g).display })),
-                                                firstRowColSpans: tbl ? [...(tbl.rows[0]?.cells ?? [])].map(c => c.colSpan) : [],
-                                        };
-                                        const json = JSON.stringify({ rc, events: diag.__vtDiag ?? [] });
-                                        try { await navigator.clipboard.writeText(json); new Notice('Vtable 诊断：已复制 ' + json.length + ' 字符到剪贴板'); }
-                                        catch { new Notice('Vtable 诊断：复制失败（长度 ' + json.length + '）'); }
-                                },
-                        });
-                        this.addCommand({
-                                id: 'vt-diag-bar',
-                                name: '【诊断】浮窗状态快照',
-                                callback: async () => {
-                                        const ctrl = getActiveTableController();
-                                        if (!ctrl) { new Notice('Vtable 诊断：无活跃表格'); return; }
-                                        const st = ctrl.toolbar.diagState();
-                                        const json = JSON.stringify(st);
-                                        // 三级降级：clipboard API（Electron 常态）→ execCommand（旧路径）
-                                        // → Notice 直显（最后保底，截图即可）——用户实测「粘贴不到」
-                                        try { await navigator.clipboard.writeText(json); new Notice('Vtable 诊断：已复制 ' + json.length + ' 字符'); return; } catch { /* 落到降级 */ }
-                                        try {
-                                                const ta = document.body.createEl('textarea');
-                                                ta.value = json;
-                                                ta.addClass('vt-diag-copy-ta');
-                                                ta.select();
-                                                const ok = compatExecCommand(document, 'copy');
-                                                ta.remove();
-                                                if (ok) { new Notice('Vtable 诊断：已复制(降级) ' + json.length + ' 字符'); return; }
-                                        } catch { /* 落到直显 */ }
-                                        new Notice('Vtable 诊断：' + json, 15000);
-                                },
-                        });
-                }
-                // ===== 临时诊断结束 =====
 
                 this.addRibbonIcon('table-2', '转换为 vtable', () => {
                         this.runWithEditor(ed => this.convertAtCursor(ed));
@@ -795,13 +678,10 @@ export default class VtPlugin extends Plugin {
 
                 let registered = false;
                 try {
-                        // @ts-ignore —— @codemirror/* 运行时由 Obsidian 提供，devDependencies 未装类型包；
-                        // 保留 require 动态获取：失败时走下方 document 捕获降级路径，静态导入会砍掉兜底
-                        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 动态获取保留失败降级设计
-                        const cmView = require('@codemirror/view') as { keymap?: { of: (...ext: unknown[]) => unknown } } | undefined;
-                        // @ts-ignore
-                        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 同上
-                        const cmState = require('@codemirror/state') as { Prec?: { highest: (ext: unknown) => unknown } } | undefined;
+                        // @codemirror/* 运行时由 Obsidian 提供，devDependencies 未装类型包；
+                        // 动态获取保留失败降级设计（静态导入会砍掉兜底）
+                        const cmView = compatRequire('@codemirror/view') as { keymap?: { of: (...ext: unknown[]) => unknown } } | undefined;
+                        const cmState = compatRequire('@codemirror/state') as { Prec?: { highest: (ext: unknown) => unknown } } | undefined;
                         const keymap = cmView?.keymap;
                         const Prec = cmState?.Prec;
                         if (keymap?.of && Prec?.highest) {

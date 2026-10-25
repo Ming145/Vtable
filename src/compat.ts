@@ -21,3 +21,12 @@ export function compatCaretRangeFromPoint(doc: Document, x: number, y: number): 
 export function compatKeyCode(e: KeyboardEvent): number {
         return (e as { keyCode: number }).keyCode;
 }
+
+/** Node require 的最小类型声明：@codemirror/* 运行时由 Obsidian 提供，
+ *  devDependencies 未装类型包（静态导入会砍掉 require 失败降级设计）。
+ *  返回 unknown 由调用侧断言收窄——消除官方审核 no-unsafe-call
+ *  （@types/node 的 require 为 any，调用 any 即 unsafe）。 */
+export function compatRequire(id: string): unknown {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- 动态获取保留失败降级设计
+        return require(id);
+}

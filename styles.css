@@ -43,7 +43,7 @@
 /* DOM 首末格保护：主题/宿主常对 td:first-child/:last-child 清边框，而合并占位会让
    行内唯一可见格同时是 DOM first 和 last（如右列纵向合并时左列末行的格）——
    它的内部边框（合并格旁的竖线段）会被误清。prot 类按逻辑位置只保护"不贴缘"的格，
-   !important 压过主题任意权重（渲染时打标，与 edge 让位类互斥） */
+   压过主题任意权重（渲染时打标，与 edge 让位类互斥） */
 .vt-table-wrap td.vt-prot-left {
         border-left: 1px solid var(--table-border-color, #bbb) !important;
 }
@@ -109,13 +109,13 @@ table.vt-mode-ol td {
 
 /* HS 模式：横向延伸 + 底部可拖拽滚动条 */
 table.vt-mode-hs {
-        width: max-content !important;
+        width: max-content;
         min-width: 100%;
 }
 
 table.vt-mode-hs td {
-        white-space: nowrap !important;
-        word-break: normal !important;
+        white-space: nowrap;
+        word-break: normal;
 }
 
 .vt-hs-bar {
@@ -157,10 +157,10 @@ table.vt-mode-hs td {
 table.vt.vt-mode-rc {
         table-layout: fixed;
         /* 按列宽自然伸展：可宽于容器（wrap 横向滚动），也可窄于容器。
-           !important 必须：Obsidian 默认样式会压制非 !important 的 max-content，
+           必须：Obsidian 默认样式会压制非 的 max-content，
            表格被钉死在容器 100% 宽 → 拖窄一列邻列被布局层摊宽、corner 缩放全部失效
            （HS 模式同款历史问题，此处置复） */
-        width: max-content !important;
+        width: max-content;
         max-width: none;
 }
 
@@ -264,7 +264,7 @@ table.vt-mode-rc td {
 }
 
 .vt-drag-grip.vt-drag-off {
-        display: none !important;
+        display: none;
 }
 
 /* 精确 3 点点阵：多重 radial-gradient 逐点定位（百分比 + calc，任意行高下居中均分） */
@@ -438,8 +438,8 @@ table.vt-mode-rc td {
 /* Obsidian/主题用伪元素画原生勾，appearance:none 干不掉——显式清除，避免新旧双勾 */
 .vt-task-item input[type="checkbox"]::before,
 .vt-task-item input[type="checkbox"]::after {
-        content: none !important;
-        display: none !important;
+        content: none;
+        display: none;
 }
 
 /* flex:1 只给文字 span：选择器曾命中所有后代 span，连带 09-20 加入的
@@ -559,7 +559,7 @@ table.vt td.vt-diag {
 /* ===== 表格线风格（三线表/无格线/全横线）=====
  * 风格类挂 wrap（.vt-table-wrap.vt-tbl-*）：格线与 wrap 外框一起管。
  * 仅显示态应用（applyTableStyle 挂/摘类）：编辑单元格时类被摘除、保持原状。
- * 让位/保护类（edge/prot）的 !important 与首末行让位规则都在此被更高特异性覆盖 */
+ * 让位/保护类（edge/prot）的 与首末行让位规则都在此被更高特异性覆盖 */
 
 /* —— 三线表：外框与竖线全无，顶线粗 / 表头下线细 / 底线粗 —— */
 .vt-table-wrap.vt-tbl-three {
@@ -616,7 +616,7 @@ table.vt td.vt-diag {
         border-bottom: 1px solid var(--table-border-color, #bbb) !important;
 }
 
-/* 三种风格下合并格保护竖线（prot !important）一律让位：风格线面优先 */
+/* 三种风格下合并格保护竖线（prot）一律让位：风格线面优先 */
 .vt-table-wrap.vt-tbl-three td.vt-prot-left,
 .vt-table-wrap.vt-tbl-three td.vt-prot-right,
 .vt-table-wrap.vt-tbl-noline td.vt-prot-left,
@@ -823,19 +823,19 @@ table.vt td.vt-diag {
 /* iPad 专用：浮窗按钮长宽比与桌面完全一致（max-width 48 上限回归，禁 UA 内在尺寸放大）。
    仅用 .is-tablet 精确命中，不误伤手机（.is-mobile 保持上面的宽松规则） */
 .is-tablet .vt-bar-btn {
-        -webkit-appearance: none !important;
-        appearance: none !important;
-        min-width: 28px !important;
-        max-width: 48px !important;
-        width: auto !important;
-        height: 28px !important;
-        padding: 0 5px !important;
-        flex: 0 1 auto !important;
-        font-size: 13px !important;
-        line-height: 1 !important;
-        white-space: nowrap !important;
-        box-sizing: border-box !important;
-        -webkit-text-size-adjust: 100% !important;
+        -webkit-appearance: none;
+        appearance: none;
+        min-width: 28px;
+        max-width: 48px;
+        width: auto;
+        height: 28px;
+        padding: 0 5px;
+        flex: 0 1 auto;
+        font-size: 13px;
+        line-height: 1;
+        white-space: nowrap;
+        box-sizing: border-box;
+        -webkit-text-size-adjust: 100%;
 }
 
 @media (pointer: coarse) {
@@ -881,40 +881,40 @@ table.vt td.vt-diag {
 }
 
 .theme-dark .chart-container svg .grid-line {
-        stroke: rgba(255, 255, 255, 0.08) !important;
+        stroke: rgba(255, 255, 255, 0.08);
 }
 
 .theme-dark .chart-container svg .axis-line {
-        stroke: #6b7280 !important;
+        stroke: #6b7280;
 }
 
 .theme-dark .chart-container svg .axis-label {
-        fill: #9ca3af !important;
+        fill: #9ca3af;
 }
 
 .theme-dark .chart-container svg .bar-value,
 .theme-dark .chart-container svg .data-value {
-        fill: #f9fafb !important;
+        fill: #f9fafb;
 }
 
 .theme-dark .chart-container svg .x-label {
-        fill: #d1d5db !important;
+        fill: #d1d5db;
 }
 
 .theme-dark .chart-container svg [class^="bar-"] {
-        fill: #60a5fa !important;
+        fill: #60a5fa;
 }
 
 .theme-dark .chart-container svg .line-path {
-        stroke: #60a5fa !important;
-        fill: none !important;
-        stroke-width: 2.5 !important;
-        stroke-linejoin: round !important;
-        stroke-linecap: round !important;
+        stroke: #60a5fa;
+        fill: none;
+        stroke-width: 2.5;
+        stroke-linejoin: round;
+        stroke-linecap: round;
 }
 
 .theme-dark .chart-container svg .data-dot {
-        fill: #60a5fa !important;
+        fill: #60a5fa;
 }
 
 
@@ -990,6 +990,7 @@ table.vt td.vt-diag {
    用 .vt-embedded（渲染时由 JS 加到 .cm-embed-block 上）替代 :has(table.vt)——
    官方审查提示 :has 触发大范围选择器失效，有性能开销 */
 .markdown-source-view.mod-cm6 .cm-embed-block.vt-embedded {
+        /* !important 必需：覆盖 Obsidian 内置 .cm-embed-block 边框（核心样式豁免场景） */
         border-color: transparent !important;
         outline-color: transparent !important;
         box-shadow: none !important;
@@ -997,6 +998,7 @@ table.vt td.vt-diag {
 
 /* 右上角的「编辑这个区块」</> 按钮 */
 .markdown-source-view.mod-cm6 .cm-embed-block.vt-embedded .edit-block-button {
+        /* !important 必需：覆盖内置按钮显示规则（核心样式豁免场景） */
         display: none !important;
 }
 
@@ -1106,14 +1108,11 @@ table.vt td.vt-diag {
 .vtable-container a.internal-link {
         color: var(--link-color, var(--text-accent, #7c3aed));
         text-decoration: underline;
-        -webkit-text-decoration-color: transparent;
-        text-decoration-color: transparent;
         cursor: pointer;
 }
 
 .vtable-container a.internal-link:hover {
-        -webkit-text-decoration-color: currentColor;
-        text-decoration-color: currentColor;
+        color: var(--link-color-hover, var(--text-accent-hover, var(--text-accent, #7c3aed)));
 }
 
 /* 菜单结构 textarea：独占一行全宽，说明行不再挤压（用户反馈：默认左栏太宽） */
@@ -1147,7 +1146,7 @@ table.vt td.vt-diag {
 .vt-table-wrap td br::after,
 .vt-table-wrap th br::before,
 .vt-table-wrap th br::after {
-        content: none !important;
+        content: none;
 }
 
 /* ==================== 自动填充（桌面端专属） ==================== */
@@ -1308,9 +1307,3 @@ table.vt td.vt-diag {
         display: none;
 }
 
-/* 诊断命令剪贴板降级 textarea：屏外隐藏（2026-10-24 官方审核 no-static-styles-assignment：
-   静态样式字面量必须走 CSS 类，setCssStyles 仅限动态值） */
-.vt-diag-copy-ta {
-        position: fixed;
-        opacity: 0;
-}
