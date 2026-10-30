@@ -255,6 +255,13 @@ let pendingFocusRestore: {
 /** 提交后恢复选区（批量操作后 re-render 时使用）；host 保证只作用于原表格 */
 let pendingSelectionRestore: { rects: SelRect[]; host: HTMLElement } | null = null;
 
+/** 被动重渲染焦点回退登记（2026-10-30 场景8）：td focus 时登记；被 CM/内核挪走焦点后
+ *  重渲染（reviveRC 记不到）时回退恢复。真离表（blur 正常收尾/表外 pointerdown）清除/拦截 */
+let lastTableFocus: { host: HTMLElement; r: number; c: number; at: number } | null = null;
+/** 最近一次点表外时刻（onOutsidePointer 登记）：表外点击若引发光标离开代码块的 widget 重建，
+ *  回退登记不得把焦点抢回来 */
+let lastOutsidePointerAt = 0;
+
 /** 最近一次触摸滚动的时刻：iOS WKWebView 已知死锁——程序性写 scrollTop 撞上触摸
  *  惯性滚动会令触摸滚动永久失效（"页面划不动、重启才恢复"）。restore 写入前必须确认
  *  触摸已静默足够久，绝不与惯性滚动竞争 */
@@ -404,6 +411,24 @@ export function renderBlock(
 ) {
         // 本轮构建开始时刻：创建请求消费校验用它区分"请求前已存在的表格"与"请求后新构建的表格"
         const renderStart = Date.now();
+        // 被动重渲染焦点恢复（2026-10-30）：CM 装饰重建等场景 postProcessor 重跑时，此前焦点在
+        // 本表内 → el.empty() 后 td 脱离、focus 落 body、浮窗被 hideIfStale 收走且无人恢复 →
+        // "点两次单元格浮窗消失"。此处记录焦点格坐标，渲染完成后放回同格（浮窗/编辑态随
+        // focus 事件自然恢复）。仅认同一宿主 el 内的焦点——切视图/预览时宿主整体替换
+        //（新 el 不含旧焦点），自然跳过；程序性恢复（pendingFocusRestore）在渲染尾部优先消费。
+        let reviveRC: { r: number; c: number } | null = null;
+        {
+                const ae0 = document.activeElement;
+                if (ae0 instanceof HTMLElement && el.contains(ae0)) {
+                        const td0 = ae0.closest('td');
+                        if (td0) {
+                                // tdCoords 定义在本函数更后方（TDZ），此处内联同逻辑解析 dataset 坐标
+                                const r0 = parseInt((td0 as HTMLElement).dataset.vtR ?? '-1', 10);
+                                const c0 = parseInt((td0 as HTMLElement).dataset.vtC ?? '-1', 10);
+                                if (r0 >= 0 && c0 >= 0) reviveRC = { r: r0, c: c0 };
+                        }
+                }
+        }
         preserveVisualSnapshot(el);
         el.empty();
         el.classList.add('vtable-container');
@@ -913,6 +938,8 @@ export function renderBlock(
                 const t = e.target as Element | null;
                 if (!t || el.contains(t)
                         || t.closest?.('.vt-bar, .vt-drag-grip, .vt-ghost, .menu, .modal, .modal-container, .suggestion-container')) return;
+                // 登记表外点击时刻（配套模块级 revive 回退链）：表外点击引发的 widget 重建不得抢回焦点
+                lastOutsidePointerAt = Date.now();
                 clearSelection();
                 toolbar.hide();
         };
@@ -1774,6 +1801,10 @@ export function renderBlock(
                                 focusedR = r;
                                 focusedC = c;
                                 activeController = controller;
+                                // 模块级焦点登记（配套函数尾部 revive 回退链）：焦点被 CM/内核挪到
+                                // 编辑器容器后若发生被动重渲染（场景8），reviveRC 记不到（焦点已不在
+                                // el 内），回退用此登记恢复同格
+                                lastTableFocus = { host: el, r, c, at: Date.now() };
                                 // 斜分格：不进 wysiwyg 段系统。状态登记在 zone 的 onZoneFocus 里，
                                 // 此处只负责把焦点路由到目标 zone（点空白处/键盘导航进入）
                                 if (isDiag(cellData)) {
@@ -1852,6 +1883,9 @@ export function renderBlock(
                                 // hide 浮窗、摘编辑态，且 focus 不重发 → 浮窗"干脆消失不回来"（换格再回才重现）。
                                 // 本格点击无离表语义：跳过全部收尾，内容兜底交给 pendingDirty/layout-change
                                 if (recentPointerTd === td && Date.now() - lastTablePointerDown < 500) return;
+                                // 真离表收尾（CM 挪移走 500ms 豁免分支的 return 不会到这里）：
+                                // 清模块级焦点登记，防 Tab/点表外离表后的重渲染把焦点抢回表格
+                                if (lastTableFocus?.host === el) lastTableFocus = null;
                                 const cell = grid[r]?.[c];
                                 if (!cell) return; // 结构操作（删行/列等）重渲染 detach 本格时触发 blur：数据已不在
                                 fillHandle?.hide(); // 焦点离开格子：填充柄随选区/焦点状态由 sync 重新校正
@@ -2237,6 +2271,25 @@ export function renderBlock(
                                 }
                         };
                         window.requestAnimationFrame(tryInitialFocus);
+                }
+        }
+
+        // 被动重渲染焦点恢复（配套函数开头 reviveRC 记录）：程序性恢复（上方 pending）优先
+        // 且互斥（消费后为 null / 未消费说明有更精确目标）；格被删（结构变化重渲染）时静默放弃，
+        // 焦点落 body 由原有 blur 收尾链兜底。focusCell → focus 事件 → showEditingUi + toolbar.show，
+        // 浮窗与编辑态自然恢复。
+        // 回退链（场景8）：焦点先被 CM/内核挪到编辑器容器、重渲染随后发生 → reviveRC 记不到，
+        // 用模块级 lastTableFocus（td focus 时登记，真离表已清）恢复同格；表外点击 2s 内不抢
+        //（点表外引发的光标离开代码块 widget 重建属用户真离表，不得抢回焦点）
+        if (!pendingFocusRestore) {
+                const rc = reviveRC
+                        ?? (lastTableFocus && lastTableFocus.host === el
+                                && Date.now() - lastTableFocus.at < 2000
+                                && Date.now() - lastOutsidePointerAt > 2000
+                                ? { r: lastTableFocus.r, c: lastTableFocus.c } : null);
+                if (rc) {
+                        const tdRv = cellMap[rc.r]?.[rc.c];
+                        if (tdRv?.isConnected) focusCell(rc.r, rc.c);
                 }
         }
 

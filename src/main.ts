@@ -229,13 +229,14 @@ export default class VtPlugin extends Plugin {
                 this.registerDomEvent(document, 'visibilitychange', () => {
                         if (document.visibilityState === 'hidden') this.toolbar.hide();
                 });
-                this.registerDomEvent(document, 'focusin', (e: FocusEvent) => {
-                        const t = e.target;
-                        if (this.toolbar.el.style.display !== 'none'
-                                && t instanceof Element
-                                && !t.closest('table.vt, .vt-bar, .vt-mode-bar')) {
-                                this.toolbar.hide();
-                        }
+                // 2026-10-30 误杀修复：原判定"焦点落在表外即 hide"——但点击表格时 CM/内核会把
+                // activeElement 瞬时挪到编辑器容器（D 案同源干预，每次点击必发、与间隔无关），
+                // focusin(cm-content) 冒泡即触发 hide → 点两次单元格浮窗必消失且不恢复（focus 不重发）。
+                // 收窄为本职判定：仅当浮窗引用格已脱离 DOM（重渲染/切视图后 blur 不派发的幽灵浮窗）才 hide。
+                // 真离表（点表外）由 render 侧 onOutsidePointer 在 pointerdown capture 层兜底；
+                // Tab 离表由 td blur 收尾链处理；窗口失焦由上方 window blur 处理——职责不重叠。
+                this.registerDomEvent(document, 'focusin', () => {
+                        this.toolbar.hideIfStale();
                 });
 
                 this.registerMarkdownCodeBlockProcessor(LANG, (source, el, ctx) => {

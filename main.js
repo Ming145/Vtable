@@ -1657,6 +1657,29 @@ var CYCLES = [
     }
   }
 ];
+var EN_MONTHS = [
+  { full: "January", abbr: "Jan" },
+  { full: "February", abbr: "Feb" },
+  { full: "March", abbr: "Mar" },
+  { full: "April", abbr: "Apr" },
+  { full: "May", abbr: "May" },
+  { full: "June", abbr: "Jun" },
+  { full: "July", abbr: "Jul" },
+  { full: "August", abbr: "Aug" },
+  { full: "September", abbr: "Sep" },
+  { full: "October", abbr: "Oct" },
+  { full: "November", abbr: "Nov" },
+  { full: "December", abbr: "Dec" }
+];
+var EN_MONTH_LOOKUP = (() => {
+  const map = {};
+  EN_MONTHS.forEach((e, i) => {
+    map[e.full.toLowerCase()] = { m: i + 1, abbr: false };
+    map[e.abbr.toLowerCase()] = { m: i + 1, abbr: true };
+  });
+  map["sept"] = { m: 9, abbr: true };
+  return map;
+})();
 var fmtNum = (v, dec, pad) => {
   let s = dec > 0 ? v.toFixed(dec) : String(v);
   if (pad > 0) {
@@ -1691,6 +1714,19 @@ function parseStart(v0, year = new Date().getFullYear()) {
       }
     }
   }
+  const mdy = v0.match(/^(\d{1,4})年(\d{1,2})月(\d{1,2})日$/);
+  if (mdy) {
+    const y = parseInt(mdy[1], 10);
+    const mo = parseInt(mdy[2], 10);
+    const day = parseInt(mdy[3], 10);
+    if (y >= 1 && mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, y)) {
+      let idx = 0;
+      for (let m2 = 1; m2 < mo; m2++)
+        idx += monthDays(m2, y);
+      idx += day - 1;
+      return { kind: "date", idx, year: y, yearLen: isLeap(y) ? 366 : 365, withYear: true };
+    }
+  }
   const md = v0.match(/^(\d{1,2})月(\d{1,2})日$/);
   if (md) {
     const mo = parseInt(md[1], 10);
@@ -1700,7 +1736,99 @@ function parseStart(v0, year = new Date().getFullYear()) {
       for (let m2 = 1; m2 < mo; m2++)
         idx += monthDays(m2, year);
       idx += day - 1;
-      return { kind: "date", idx, year, yearLen: isLeap(year) ? 366 : 365 };
+      return { kind: "date", idx, year, yearLen: isLeap(year) ? 366 : 365, withYear: false };
+    }
+  }
+  const myd = v0.match(/^(\d{4})([-/.])(\d{1,2})\2(\d{1,2})$/);
+  if (myd) {
+    const y = parseInt(myd[1], 10);
+    const mo = parseInt(myd[3], 10);
+    const day = parseInt(myd[4], 10);
+    if (mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, y)) {
+      let idx = 0;
+      for (let m2 = 1; m2 < mo; m2++)
+        idx += monthDays(m2, y);
+      idx += day - 1;
+      return {
+        kind: "date",
+        idx,
+        year: y,
+        yearLen: isLeap(y) ? 366 : 365,
+        withYear: true,
+        // ISO 风格默认补零：两部分都两位（含自然两位如 12/31）→ 补零；
+        // 任一部分一位（如 2027/2/28）→ 跟随不补零
+        out: { t: "ymd", sep: myd[2], pad: myd[3].length === 2 && myd[4].length === 2 }
+      };
+    }
+  }
+  const mmd = v0.match(/^(\d{1,2})([-/.])(\d{1,2})$/);
+  if (mmd) {
+    let mo = parseInt(mmd[1], 10);
+    let day = parseInt(mmd[3], 10);
+    let dayFirst = false;
+    if (mo > 12 && day <= 12) {
+      [mo, day] = [day, mo];
+      dayFirst = true;
+    }
+    if (mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, year)) {
+      let idx = 0;
+      for (let m2 = 1; m2 < mo; m2++)
+        idx += monthDays(m2, year);
+      idx += day - 1;
+      return {
+        kind: "date",
+        idx,
+        year,
+        yearLen: isLeap(year) ? 366 : 365,
+        withYear: false,
+        out: { t: "md", sep: mmd[2], dayFirst, pad: mmd[1].length === 2 && mmd[1][0] === "0" || mmd[3].length === 2 && mmd[3][0] === "0" }
+      };
+    }
+  }
+  {
+    const wmd = v0.match(/^([A-Za-z]+)\.? (\d{1,2})(, | )?(\d{4})?$/);
+    const wdm = v0.match(/^(\d{1,2}) ([A-Za-z]+)\.?(, | )?(\d{4})?$/);
+    if (wmd) {
+      const hit = EN_MONTH_LOOKUP[wmd[1].toLowerCase()];
+      if (hit) {
+        const mo = hit.m, day = parseInt(wmd[2], 10), y = wmd[4] ? parseInt(wmd[4], 10) : null;
+        if (day >= 1 && day <= monthDays(mo, y ?? year)) {
+          let idx = 0;
+          const yv = y ?? year;
+          for (let m2 = 1; m2 < mo; m2++)
+            idx += monthDays(m2, yv);
+          idx += day - 1;
+          return {
+            kind: "date",
+            idx,
+            year: yv,
+            yearLen: isLeap(yv) ? 366 : 365,
+            withYear: y !== null,
+            out: { t: "word", dm: false, abbr: hit.abbr, comma: wmd[3] === ", " }
+          };
+        }
+      }
+    }
+    if (wdm) {
+      const hit = EN_MONTH_LOOKUP[wdm[2].toLowerCase()];
+      if (hit) {
+        const mo = hit.m, day = parseInt(wdm[1], 10), y = wdm[4] ? parseInt(wdm[4], 10) : null;
+        if (day >= 1 && day <= monthDays(mo, y ?? year)) {
+          let idx = 0;
+          const yv = y ?? year;
+          for (let m2 = 1; m2 < mo; m2++)
+            idx += monthDays(m2, yv);
+          idx += day - 1;
+          return {
+            kind: "date",
+            idx,
+            year: yv,
+            yearLen: isLeap(yv) ? 366 : 365,
+            withYear: y !== null,
+            out: { t: "word", dm: true, abbr: hit.abbr, comma: wdm[3] === ", " }
+          };
+        }
+      }
     }
   }
   const m = v0.match(/^[+-]?\d+(\.\d+)?$/);
@@ -1718,13 +1846,31 @@ function parseStart(v0, year = new Date().getFullYear()) {
   }
   return { kind: "copy" };
 }
-var fmtDate = (doy, year) => {
+var doyToMD = (doy, year) => {
   let m = 1;
   while (doy >= monthDays(m, year)) {
     doy -= monthDays(m, year);
     m++;
   }
-  return `${m}\u6708${doy + 1}\u65E5`;
+  return [m, doy + 1];
+};
+var renderDate = (y, mo, d, withYear, out) => {
+  if (!out)
+    return withYear ? `${y}\u5E74${mo}\u6708${d}\u65E5` : `${mo}\u6708${d}\u65E5`;
+  if (out.t === "ymd") {
+    const ms = out.pad ? String(mo).padStart(2, "0") : String(mo);
+    const ds = out.pad ? String(d).padStart(2, "0") : String(d);
+    return `${y}${out.sep}${ms}${out.sep}${ds}`;
+  }
+  if (out.t === "md") {
+    const ms = out.pad ? String(mo).padStart(2, "0") : String(mo);
+    const ds = out.pad ? String(d).padStart(2, "0") : String(d);
+    return out.dayFirst ? `${ds}${out.sep}${ms}` : `${ms}${out.sep}${ds}`;
+  }
+  const name = out.abbr ? EN_MONTHS[mo - 1].abbr : EN_MONTHS[mo - 1].full;
+  if (out.dm)
+    return withYear ? `${d} ${name} ${y}` : `${d} ${name}`;
+  return withYear ? `${name} ${d}${out.comma ? "," : ""} ${y}` : `${name} ${d}`;
 };
 function genSeries(v0, n, sign, year = new Date().getFullYear()) {
   const s = parseStart(v0, year);
@@ -1734,8 +1880,15 @@ function genSeries(v0, n, sign, year = new Date().getFullYear()) {
       const len = s.list.length;
       out.push(s.list[((s.idx + sign * k) % len + len) % len]);
     } else if (s.kind === "date") {
-      const doy = ((s.idx + sign * k) % s.yearLen + s.yearLen) % s.yearLen;
-      out.push(fmtDate(doy, s.year));
+      if (s.withYear) {
+        const base = new Date(s.year, 0, 1 + s.idx);
+        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + sign * k);
+        out.push(renderDate(d.getFullYear(), d.getMonth() + 1, d.getDate(), true, s.out));
+      } else {
+        const doy = ((s.idx + sign * k) % s.yearLen + s.yearLen) % s.yearLen;
+        const [mo, dd] = doyToMD(doy, s.year);
+        out.push(renderDate(s.year, mo, dd, false, s.out));
+      }
     } else if (s.kind === "num") {
       out.push(fmtNum(s.v + sign * k, s.dec, s.pad));
     } else if (s.kind === "mix") {
@@ -4741,6 +4894,8 @@ function zebraTintOf(settings, el) {
 }
 var pendingFocusRestore = null;
 var pendingSelectionRestore = null;
+var lastTableFocus = null;
+var lastOutsidePointerAt = 0;
 var lastTouchScrollAt = 0;
 if (typeof document !== "undefined") {
   const markTouch = () => {
@@ -4850,6 +5005,19 @@ function preserveVisualSnapshot(el) {
 }
 function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, onCommit, onConvertToMd, onConvertToHtml, onExitTable, onPickColor, onOpenLink, obsidianCommand, onConvertToChart) {
   const renderStart = Date.now();
+  let reviveRC = null;
+  {
+    const ae0 = document.activeElement;
+    if (ae0 instanceof HTMLElement && el.contains(ae0)) {
+      const td0 = ae0.closest("td");
+      if (td0) {
+        const r0 = parseInt(td0.dataset.vtR ?? "-1", 10);
+        const c0 = parseInt(td0.dataset.vtC ?? "-1", 10);
+        if (r0 >= 0 && c0 >= 0)
+          reviveRC = { r: r0, c: c0 };
+      }
+    }
+  }
   preserveVisualSnapshot(el);
   el.empty();
   el.classList.add("vtable-container");
@@ -5290,6 +5458,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     const t2 = e.target;
     if (!t2 || el.contains(t2) || t2.closest?.(".vt-bar, .vt-drag-grip, .vt-ghost, .menu, .modal, .modal-container, .suggestion-container"))
       return;
+    lastOutsidePointerAt = Date.now();
     clearSelection();
     toolbar.hide();
   };
@@ -6125,6 +6294,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         focusedR = r;
         focusedC = c;
         activeController = controller;
+        lastTableFocus = { host: el, r, c, at: Date.now() };
         if (isDiag(cellData)) {
           prepareDiagEdit(td);
           enterDiagZone(td);
@@ -6207,6 +6377,8 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       td.addEventListener("blur", (e) => {
         if (recentPointerTd === td && Date.now() - lastTablePointerDown < 500)
           return;
+        if (lastTableFocus?.host === el)
+          lastTableFocus = null;
         const cell2 = grid[r]?.[c];
         if (!cell2)
           return;
@@ -6543,6 +6715,14 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         }
       };
       window.requestAnimationFrame(tryInitialFocus);
+    }
+  }
+  if (!pendingFocusRestore) {
+    const rc = reviveRC ?? (lastTableFocus && lastTableFocus.host === el && Date.now() - lastTableFocus.at < 2e3 && Date.now() - lastOutsidePointerAt > 2e3 ? { r: lastTableFocus.r, c: lastTableFocus.c } : null);
+    if (rc) {
+      const tdRv = cellMap[rc.r]?.[rc.c];
+      if (tdRv?.isConnected)
+        focusCell(rc.r, rc.c);
     }
   }
   if (pendingScrollAnchor && pendingScrollAnchor.host === el) {
@@ -8488,11 +8668,8 @@ ${first}`, 0);
       if (document.visibilityState === "hidden")
         this.toolbar.hide();
     });
-    this.registerDomEvent(document, "focusin", (e) => {
-      const t2 = e.target;
-      if (this.toolbar.el.style.display !== "none" && t2 instanceof Element && !t2.closest("table.vt, .vt-bar, .vt-mode-bar")) {
-        this.toolbar.hide();
-      }
+    this.registerDomEvent(document, "focusin", () => {
+      this.toolbar.hideIfStale();
     });
     this.registerMarkdownCodeBlockProcessor(LANG, (source, el, ctx) => {
       renderBlock(

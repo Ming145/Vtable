@@ -62,10 +62,36 @@ const CYCLES: { words: string[]; aliases?: Record<string, number> }[] = [
 
 export type Series =
         | { kind: 'cycle'; list: string[]; idx: number }
-        | { kind: 'date'; idx: number; year: number; yearLen: number }
+        | { kind: 'date'; idx: number; year: number; yearLen: number; withYear: boolean; out?: DateOut }
         | { kind: 'num'; v: number; dec: number; pad: number }
         | { kind: 'mix'; pre: string; v: number; pad: number; suf: string }
         | { kind: 'copy' };
+
+/** 日期序列的输出形态（2026-10-30 全格式支持）：省略 = 中文 M月D日 / Y年M月D日。
+ *  填充输出保持输入的书写风格（分隔符/补零/月名缩写/逗号），只推进日期本身 */
+export type DateOut =
+        | { t: 'ymd'; sep: string; pad: boolean }                     // 2027-02-28 / 2027/2/28 / 2027.2.28
+        | { t: 'md'; sep: string; dayFirst: boolean; pad: boolean }         // 2/28 / 02-28 / 28/2（首数>12 按日前置解读）
+        | { t: 'word'; dm: boolean; abbr: boolean; comma: boolean };  // March 1 / Mar 1 / 1 March / March 1, 2027 / 1 March 2027
+
+/** 英文月名表（全称+缩写，识别大小写不敏感；Sept 别名归并到 Sep） */
+const EN_MONTHS: { full: string; abbr: string }[] = [
+        { full: 'January', abbr: 'Jan' }, { full: 'February', abbr: 'Feb' },
+        { full: 'March', abbr: 'Mar' }, { full: 'April', abbr: 'Apr' },
+        { full: 'May', abbr: 'May' }, { full: 'June', abbr: 'Jun' },
+        { full: 'July', abbr: 'Jul' }, { full: 'August', abbr: 'Aug' },
+        { full: 'September', abbr: 'Sep' }, { full: 'October', abbr: 'Oct' },
+        { full: 'November', abbr: 'Nov' }, { full: 'December', abbr: 'Dec' },
+];
+const EN_MONTH_LOOKUP: Record<string, { m: number; abbr: boolean }> = (() => {
+        const map: Record<string, { m: number; abbr: boolean }> = {};
+        EN_MONTHS.forEach((e, i) => {
+                map[e.full.toLowerCase()] = { m: i + 1, abbr: false };
+                map[e.abbr.toLowerCase()] = { m: i + 1, abbr: true };
+        });
+        map['sept'] = { m: 9, abbr: true };
+        return map;
+})();
 
 /** 数字格式化：保留原小数位与前导零位宽 */
 const fmtNum = (v: number, dec: number, pad: number): string => {
@@ -108,7 +134,21 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
                         }
                 }
         }
-        // 2. 日期序列：M月D日（1月1日~12月31日按当年日历循环，闰年含 2月29日）
+        // 2. 日期序列（带年份）：YYYY年M月D日——按数据年判闰与取模（2026-10-30 用户实锤：
+        // 带年份输入此前不识别 → 落到文本+数字分支纯递增，非闰年也产出 2月29日）
+        const mdy = v0.match(/^(\d{1,4})年(\d{1,2})月(\d{1,2})日$/);
+        if (mdy) {
+                const y = parseInt(mdy[1], 10);
+                const mo = parseInt(mdy[2], 10);
+                const day = parseInt(mdy[3], 10);
+                if (y >= 1 && mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, y)) {
+                        let idx = 0;
+                        for (let m = 1; m < mo; m++) idx += monthDays(m, y);
+                        idx += day - 1;
+                        return { kind: 'date', idx, year: y, yearLen: isLeap(y) ? 366 : 365, withYear: true };
+                }
+        }
+        // 2b. 日期序列（不带年份）：M月D日（1月1日~12月31日按当年日历循环，闰年含 2月29日）
         const md = v0.match(/^(\d{1,2})月(\d{1,2})日$/);
         if (md) {
                 const mo = parseInt(md[1], 10);
@@ -117,7 +157,81 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
                         let idx = 0;
                         for (let m = 1; m < mo; m++) idx += monthDays(m, year);
                         idx += day - 1;
-                        return { kind: 'date', idx, year, yearLen: isLeap(year) ? 366 : 365 };
+                        return { kind: 'date', idx, year, yearLen: isLeap(year) ? 366 : 365, withYear: false };
+                }
+        }
+        // 2c. 数字日期（带年份）：2027-02-28 / 2027/2/28 / 2027.2.28（Y 前置，两处分隔符一致）
+        const myd = v0.match(/^(\d{4})([-/.])(\d{1,2})\2(\d{1,2})$/);
+        if (myd) {
+                const y = parseInt(myd[1], 10);
+                const mo = parseInt(myd[3], 10);
+                const day = parseInt(myd[4], 10);
+                if (mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, y)) {
+                        let idx = 0;
+                        for (let m = 1; m < mo; m++) idx += monthDays(m, y);
+                        idx += day - 1;
+                        return {
+                                kind: 'date', idx, year: y, yearLen: isLeap(y) ? 366 : 365, withYear: true,
+                                // ISO 风格默认补零：两部分都两位（含自然两位如 12/31）→ 补零；
+                                // 任一部分一位（如 2027/2/28）→ 跟随不补零
+                                out: { t: 'ymd', sep: myd[2], pad: myd[3].length === 2 && myd[4].length === 2 },
+                        };
+                }
+        }
+        // 2d. 数字日期（不带年份）：2/28 / 02-28（月前置读法，中文习惯；首数>12 自动按日前置
+        // 解读：28/2 = 2月28日，输出保持日前置写法）。按当年日历循环，闰年含 2/29
+        const mmd = v0.match(/^(\d{1,2})([-/.])(\d{1,2})$/);
+        if (mmd) {
+                let mo = parseInt(mmd[1], 10);
+                let day = parseInt(mmd[3], 10);
+                let dayFirst = false;
+                if (mo > 12 && day <= 12) { [mo, day] = [day, mo]; dayFirst = true; }
+                if (mo >= 1 && mo <= 12 && day >= 1 && day <= monthDays(mo, year)) {
+                        let idx = 0;
+                        for (let m = 1; m < mo; m++) idx += monthDays(m, year);
+                        idx += day - 1;
+                        return {
+                                kind: 'date', idx, year, yearLen: isLeap(year) ? 366 : 365, withYear: false,
+                                out: { t: 'md', sep: mmd[2], dayFirst, pad: (mmd[1].length === 2 && mmd[1][0] === '0') || (mmd[3].length === 2 && mmd[3][0] === '0') },
+                        };
+                }
+        }
+        // 2e. 英文月名日期：March 1 / Mar 1 / 1 March（当年循环）；March 1, 2027 / March 1 2027 /
+        // 1 March 2027（带年跨年推进）。识别大小写不敏感，输出保持全称/缩写与逗号风格
+        {
+                const wmd = v0.match(/^([A-Za-z]+)\.? (\d{1,2})(, | )?(\d{4})?$/);
+                const wdm = v0.match(/^(\d{1,2}) ([A-Za-z]+)\.?(, | )?(\d{4})?$/);
+                if (wmd) {
+                        const hit = EN_MONTH_LOOKUP[wmd[1].toLowerCase()];
+                        if (hit) {
+                                const mo = hit.m, day = parseInt(wmd[2], 10), y = wmd[4] ? parseInt(wmd[4], 10) : null;
+                                if (day >= 1 && day <= monthDays(mo, y ?? year)) {
+                                        let idx = 0;
+                                        const yv = y ?? year;
+                                        for (let m = 1; m < mo; m++) idx += monthDays(m, yv);
+                                        idx += day - 1;
+                                        return {
+                                                kind: 'date', idx, year: yv, yearLen: isLeap(yv) ? 366 : 365, withYear: y !== null,
+                                                out: { t: 'word', dm: false, abbr: hit.abbr, comma: wmd[3] === ', ' },
+                                        };
+                                }
+                        }
+                }
+                if (wdm) {
+                        const hit = EN_MONTH_LOOKUP[wdm[2].toLowerCase()];
+                        if (hit) {
+                                const mo = hit.m, day = parseInt(wdm[1], 10), y = wdm[4] ? parseInt(wdm[4], 10) : null;
+                                if (day >= 1 && day <= monthDays(mo, y ?? year)) {
+                                        let idx = 0;
+                                        const yv = y ?? year;
+                                        for (let m = 1; m < mo; m++) idx += monthDays(m, yv);
+                                        idx += day - 1;
+                                        return {
+                                                kind: 'date', idx, year: yv, yearLen: isLeap(yv) ? 366 : 365, withYear: y !== null,
+                                                out: { t: 'word', dm: true, abbr: hit.abbr, comma: wdm[3] === ', ' },
+                                        };
+                                }
+                        }
                 }
         }
         // 3. 纯数字（可带正负号与小数）
@@ -138,14 +252,32 @@ export function parseStart(v0: string, year: number = new Date().getFullYear()):
         return { kind: 'copy' };
 }
 
-/** 天数索引（0 起始的当年第几天）→ M月D日 */
-const fmtDate = (doy: number, year: number): string => {
+/** 天数索引（0 起始的当年第几天）→ [月, 日] */
+const doyToMD = (doy: number, year: number): [number, number] => {
         let m = 1;
         while (doy >= monthDays(m, year)) {
                 doy -= monthDays(m, year);
                 m++;
         }
-        return `${m}月${doy + 1}日`;
+        return [m, doy + 1];
+};
+
+/** 日期渲染：保持输入的书写风格。out 省略 = 中文格式 */
+const renderDate = (y: number, mo: number, d: number, withYear: boolean, out?: DateOut): string => {
+        if (!out) return withYear ? `${y}年${mo}月${d}日` : `${mo}月${d}日`;
+        if (out.t === 'ymd') {
+                const ms = out.pad ? String(mo).padStart(2, '0') : String(mo);
+                const ds = out.pad ? String(d).padStart(2, '0') : String(d);
+                return `${y}${out.sep}${ms}${out.sep}${ds}`;
+        }
+        if (out.t === 'md') {
+                const ms = out.pad ? String(mo).padStart(2, '0') : String(mo);
+                const ds = out.pad ? String(d).padStart(2, '0') : String(d);
+                return out.dayFirst ? `${ds}${out.sep}${ms}` : `${ms}${out.sep}${ds}`;
+        }
+        const name = out.abbr ? EN_MONTHS[mo - 1].abbr : EN_MONTHS[mo - 1].full;
+        if (out.dm) return withYear ? `${d} ${name} ${y}` : `${d} ${name}`;
+        return withYear ? `${name} ${d}${out.comma ? ',' : ''} ${y}` : `${name} ${d}`;
 };
 
 /** 生成填充序列：n 格，sign=1 递增 / -1 递减；循环/日期序列按一轮大小取模循环 */
@@ -157,8 +289,18 @@ export function genSeries(v0: string, n: number, sign: 1 | -1, year: number = ne
                         const len = s.list.length;
                         out.push(s.list[((s.idx + sign * k) % len + len) % len]);
                 } else if (s.kind === 'date') {
-                        const doy = ((s.idx + sign * k) % s.yearLen + s.yearLen) % s.yearLen;
-                        out.push(fmtDate(doy, s.year));
+                        if (s.withYear) {
+                                // 带年份：绝对天数推进（Date 自动处理月/年溢出与闰年）——跨年时
+                                // 年份递进、2月29日只在闰年出现（2024年2月28日→29日→3月1日；
+                                // 2025年2月28日直接→3月1日）
+                                const base = new Date(s.year, 0, 1 + s.idx);
+                                const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + sign * k);
+                                out.push(renderDate(d.getFullYear(), d.getMonth() + 1, d.getDate(), true, s.out));
+                        } else {
+                                const doy = ((s.idx + sign * k) % s.yearLen + s.yearLen) % s.yearLen;
+                                const [mo, dd] = doyToMD(doy, s.year);
+                                out.push(renderDate(s.year, mo, dd, false, s.out));
+                        }
                 } else if (s.kind === 'num') {
                         out.push(fmtNum(s.v + sign * k, s.dec, s.pad));
                 } else if (s.kind === 'mix') {

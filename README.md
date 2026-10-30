@@ -51,7 +51,8 @@ Select a cell, grab the small triangle that appears at its bottom-right corner, 
 
 - Plain text is copied; plain numbers fill incrementally (a small pop-up near the fill end flips the direction between increment and decrement)
 - Mixed text + numbers keep the text and increment the number (`Item 1, Item 2, …`)
-- Calendar-aware cycles: weekdays (`星期一…` / `Monday…`), months (`一月…` / `January…`) repeat in loops; dates like `1月1日` advance by the real calendar (leap years respected)
+- Calendar-aware cycles: weekdays (`星期一…` / `Monday…`), months (`一月…` / `January…`) repeat in loops; dates advance by the real calendar with leap years respected
+- Date formats (Chinese & English alike): `2027年2月28日`, `2027-02-28`, `2027/2/28`, `2027.2.28`, `2/28`, `02-28` (a first number above 12 is read day-first, e.g. `28/2`), `March 1`, `Mar 1`, `1 March`, `March 1, 2027`, `1 March 2027`; year-carrying dates use the date's own year for leap-year handling and roll over across New Year — no `2月29日` in non-leap years, and the year increments after `12月31日`; yearless ones cycle on the current year's calendar; fills preserve the input's writing style (separator, zero padding, full/abbreviated month names, comma)
 
 ### Diagonal split cells
 
@@ -111,17 +112,26 @@ Tables live inside a ` ```vtable ` code block and serialize to JSON, so everythi
 
 ### Keyboard and commands
 
-| Key | Action |
+The following shortcuts and gestures are built in and work out of the box (no configuration needed).
+
+| Action | Shortcut |
 | --- | --- |
-| `Tab` / `Shift+Tab` | Next / previous cell |
-| `↑ ↓ ← →` | Move between cells (symmetric landing points) |
-| `Cmd+Delete` | Delete the current row (macOS) |
-| `Ctrl/Cmd+Delete` | Delete rows/columns of a full selection |
-| `Ctrl/Cmd+C` | Copy the active selection as a Markdown table |
-| `Ctrl/Cmd+V` | Paste a Markdown table into the grid (top-left = focused cell) |
-| `Ctrl/Cmd+Alt+V` | Paste a Markdown table and extend rows/columns as needed |
-| `Ctrl/Cmd+Alt+B` | Wrap the selected text in bold (`**...**`) — in-cell editing only |
-| `Ctrl/Cmd+Alt+Z` | Undo the last in-cell edit |
+| Drag-select a cell range | Ctrl/Cmd+Shift + drag |
+| Select (or add to selection) a single cell | Ctrl/Cmd+Shift + click |
+| Select the whole row / column | Click the row number / column label (RC mode) |
+| Add rows / columns to the selection | Shift + click the row number / column label |
+| Clear the selection | Plain click outside it |
+| Select all text in a cell, then turn it into a selection | Ctrl/Cmd+A |
+| Copy the selection as a Markdown table | Ctrl/Cmd+C |
+| Paste a Markdown table (overwrite from the focused cell) | Ctrl/Cmd+V |
+| Paste a Markdown table and extend rows/columns as needed | Ctrl/Cmd+Alt+V |
+| Clear the content of selected cells | Backspace / Delete |
+| Delete the full rows / columns of the selection (non-full selections only get a hint) | Ctrl/Cmd+Delete (Cmd+Backspace on Mac keyboards) |
+| Delete the current row (macOS / iPad Magic Keyboard) | Cmd+Backspace |
+| Wrap the selected text in bold (`**...**`) — in-cell editing only | Ctrl/Cmd+Alt+B |
+| Undo the last in-cell edit | Ctrl/Cmd+Alt+Z |
+| Next / previous cell | Tab / Shift+Tab |
+| Move between cells (symmetric landing points) | ↑ ↓ ← → |
 
 All commands can be bound to custom hotkeys in Obsidian settings, including create, conversions, chart generation, styling, diagonal split, and mode switching.
 
