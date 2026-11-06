@@ -128,12 +128,10 @@ The following shortcuts and gestures are built in and work out of the box (no co
 | Clear the content of selected cells | Backspace / Delete |
 | Delete the full rows / columns of the selection (non-full selections only get a hint) | Ctrl/Cmd+Delete (Cmd+Backspace on Mac keyboards) |
 | Delete the current row (macOS / iPad Magic Keyboard) | Cmd+Backspace |
-| Wrap the selected text in bold (`**...**`) — in-cell editing only | Ctrl/Cmd+Alt+B |
-| Undo the last in-cell edit | Ctrl/Cmd+Alt+Z |
 | Next / previous cell | Tab / Shift+Tab |
 | Move between cells (symmetric landing points) | ↑ ↓ ← → |
 
-All commands can be bound to custom hotkeys in Obsidian settings, including create, conversions, chart generation, styling, diagonal split, and mode switching.
+All commands can be bound to custom hotkeys in Obsidian settings, including create, conversions, chart generation, styling, diagonal split, and mode switching. "Undo last in-cell edit" ships without a default hotkey — bind it freely in the Hotkeys settings.
 
 ### Inline code behavior
 
@@ -153,8 +151,9 @@ Quick access to insert/delete rows and columns, merge and split cells, copy / pa
 The context menu is fully customizable in **Settings → vtable → 右键菜单自定义 (Context menu customization)**:
 
 - **Text mode**: one menu row per line; `---` inserts a separator line; `cmd:commandId` inserts any Obsidian command; append `|iconName` (a Lucide icon name) to override an item's icon.
-- **Lookup helper**: type a keyword to filter vtable actions and all Obsidian commands, click one, optionally enter an icon name, then copy the generated line and paste it into the text box.
-- Press **Save** to apply the layout to all tables immediately. Built-in action ids: `vt.copy`, `vt.paste`, `vt.cut`, `vt.delete`, `vt.clearContent`, `vt.bold`, `vt.italic`, `vt.alignL`, `vt.alignC`, `vt.alignR`, `vt.alignT`, `vt.alignM`, `vt.alignB`, `vt.pickColor`, `vt.insRowAbove`, `vt.insRowBelow`, `vt.delRow`, `vt.insColLeft`, `vt.insColRight`, `vt.delCol`, `vt.mergeRight`, `vt.mergeDown`, `vt.split`, `vt.modeOL`, `vt.modeHS`, `vt.modeRC`.
+- **Lookup helper**: type a keyword to filter vtable actions and all Obsidian commands, click one; icons don't need typing — a built-in **icon picker** lets you search and click to fill the name (any Lucide name can still be typed manually), then copy the generated line and paste it into the text box.
+- Press **Save** to apply the layout to all tables immediately. Built-in action ids: `vt.copy`, `vt.paste`, `vt.cut`, `vt.delete`, `vt.clearContent`, `vt.bold`, `vt.italic`, `vt.strike`, `vt.underline`, `vt.highlight`, `vt.subscript`, `vt.superscript`, `vt.code`, `vt.clearFormat`, `vt.alignL`, `vt.alignC`, `vt.alignR`, `vt.alignT`, `vt.alignM`, `vt.alignB`, `vt.pickColor`, `vt.insRowAbove`, `vt.insRowBelow`, `vt.delRow`, `vt.insColLeft`, `vt.insColRight`, `vt.delCol`, `vt.mergeRight`, `vt.mergeDown`, `vt.split`, `vt.modeOL`, `vt.modeHS`, `vt.modeRC`.
+- Style actions (bold/italic/strikethrough/underline/highlight/sub/superscript/inline code/clear formatting…) **target your selection**: with a multi-cell selection they apply to the selected cells; with a text selection inside a cell they apply to the selected fragment only; with neither, clicking shows a hint (Set color applies to the right-clicked cell when there is no selection).
 
 ### Settings
 

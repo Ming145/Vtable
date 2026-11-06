@@ -128,12 +128,10 @@
 | 清空选区内单元格内容 | Backspace / Delete |
 | 删除选框对应的整行 / 整列（非整行列仅提示） | Ctrl/Cmd+Delete（Mac 键盘 Cmd+Backspace 同效） |
 | 删除光标所在行（macOS / iPad 妙控键盘） | Cmd+Backspace |
-| 把选中文本包裹为加粗（`**...**`）——仅格内编辑 | Ctrl/Cmd+Alt+B |
-| 撤销上一次格内编辑 | Ctrl/Cmd+Alt+Z |
 | 下一格 / 上一格 | Tab / Shift+Tab |
 | 单元格间移动（对称落点） | ↑ ↓ ← → |
 
-所有命令都可在 Obsidian 设置中绑定自定义快捷键，包括创建、转换、图表生成、样式、斜分与模式切换。
+所有命令都可在 Obsidian 设置中绑定自定义快捷键，包括创建、转换、图表生成、样式、斜分与模式切换。「撤销上一次格内编辑」不占用默认快捷键，可在快捷键设置中自由绑定。
 
 ### 行内代码行为
 
@@ -153,8 +151,9 @@
 右键菜单完全可在 **设置 → vtable → 右键菜单自定义** 中定制：
 
 - **文本模式**：每行一条菜单项；`---` 插入分隔线；`cmd:命令ID` 插入任意 Obsidian 命令；末尾追加 `|图标名`（Lucide 图标名）可覆盖该项图标。
-- **查找助手**：输入关键词过滤 vtable 动作与全部 Obsidian 命令，点击选择，可再填图标名，然后复制生成的行粘贴进文本框。
-- 点击 **保存** 立即对所有表格生效。内置动作 id：`vt.copy`、`vt.paste`、`vt.cut`、`vt.delete`、`vt.clearContent`、`vt.bold`、`vt.italic`、`vt.alignL`、`vt.alignC`、`vt.alignR`、`vt.alignT`、`vt.alignM`、`vt.alignB`、`vt.pickColor`、`vt.insRowAbove`、`vt.insRowBelow`、`vt.delRow`、`vt.insColLeft`、`vt.insColRight`、`vt.delCol`、`vt.mergeRight`、`vt.mergeDown`、`vt.split`、`vt.modeOL`、`vt.modeHS`、`vt.modeRC`。
+- **查找助手**：输入关键词过滤 vtable 动作与全部 Obsidian 命令，点击选择；图标不用手打——内置**图标选择器**，搜索后点选即填入，也可手动输入任意 Lucide 名称，然后复制生成的行粘贴进文本框。
+- 点击 **保存** 立即对所有表格生效。内置动作 id：`vt.copy`、`vt.paste`、`vt.cut`、`vt.delete`、`vt.clearContent`、`vt.bold`、`vt.italic`、`vt.strike`、`vt.underline`、`vt.highlight`、`vt.subscript`、`vt.superscript`、`vt.code`、`vt.clearFormat`、`vt.alignL`、`vt.alignC`、`vt.alignR`、`vt.alignT`、`vt.alignM`、`vt.alignB`、`vt.pickColor`、`vt.insRowAbove`、`vt.insRowBelow`、`vt.delRow`、`vt.insColLeft`、`vt.insColRight`、`vt.delCol`、`vt.mergeRight`、`vt.mergeDown`、`vt.split`、`vt.modeOL`、`vt.modeHS`、`vt.modeRC`。
+- 样式类动作（加粗/斜体/删除线/下划线/高亮/上下标/行内代码/清除格式等）**作用于选区**：有多格选框时批量作用于选中格；格内选中文字时只作用于选中片段；都没有时点击会弹出提示（设置底色在无选框时对右键格生效）。
 
 ### 设置
 

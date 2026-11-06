@@ -508,42 +508,51 @@ export function deleteCol(grid: Grid, c: number) {
 
 /**
  * 向右合并：把锚点 (r,c) 右侧紧邻的可见格并入。
- * 要求锚点为单行高度（rs===1）且右侧格同为单行，避免矩形不齐。
+ * 要求锚点与右侧格行高一致（单行是特例；两个同高的纵向合并块可并，
+ * 2026-11-05 用户案：高块左右合并曾被 rs===1 守卫整族拒绝），避免并出非矩形。
  */
 export function mergeRight(grid: Grid, r: number, c: number) {
         const anchor = grid[r]?.[c];
-        if (!anchor || !visible(anchor) || anchor.rs !== 1) return;
+        if (!anchor || !visible(anchor)) return;
 
         const nc = c + anchor.cs;
         const target = grid[r]?.[nc];
-        if (!target || !visible(target) || target.rs !== 1) return;
+        if (!target || !visible(target)) return;
+        if (target.rs !== anchor.rs) return; // 行高不齐 → 并出参差区域，拒绝
 
         anchor.t = joinText(anchor.t, target.t, ' ');
         anchor.cs += target.cs;
-        // 隐藏被吞并块占用的列
-        for (let i = 0; i < target.cs; i++) {
-                const cc = nc + i;
-                if (grid[r][cc]) grid[r][cc] = hidden();
+        // 隐藏被吞并块占用的格（整块覆盖：行 × 列——高块合并不再只有 r 一行）
+        for (let j = 0; j < anchor.rs; j++) {
+                for (let i = 0; i < target.cs; i++) {
+                        const rr = r + j;
+                        const cc = nc + i;
+                        if (grid[rr]?.[cc]) grid[rr][cc] = hidden();
+                }
         }
 }
 
 /**
  * 向下合并：把锚点 (r,c) 下方紧邻的可见格并入。
- * 要求锚点为单列宽度（cs===1）且下方格同为单列。
+ * 要求锚点与下方格列宽一致（单列是特例；两个同宽的横向合并块可并），避免并出非矩形。
  */
 export function mergeDown(grid: Grid, r: number, c: number) {
         const anchor = grid[r]?.[c];
-        if (!anchor || !visible(anchor) || anchor.cs !== 1) return;
+        if (!anchor || !visible(anchor)) return;
 
         const nr = r + anchor.rs;
         const target = grid[nr]?.[c];
-        if (!target || !visible(target) || target.cs !== 1) return;
+        if (!target || !visible(target)) return;
+        if (target.cs !== anchor.cs) return; // 列宽不齐 → 并出参差区域，拒绝
 
         anchor.t = joinText(anchor.t, target.t, '<br>');
         anchor.rs += target.rs;
         for (let i = 0; i < target.rs; i++) {
-                const rr = nr + i;
-                if (grid[rr]?.[c]) grid[rr][c] = hidden();
+                for (let j = 0; j < anchor.cs; j++) {
+                        const rr = nr + i;
+                        const cc = c + j;
+                        if (grid[rr]?.[cc]) grid[rr][cc] = hidden();
+                }
         }
 }
 

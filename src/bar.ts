@@ -14,6 +14,7 @@ import {
 import type { SelOps, SelOpKind, FocusShift } from './sel';
 import { compatExecCommand } from './compat';
 import { t } from './i18n';
+import { isWysiwyg, selectionSourceRange, placeCaretAtSourceOffset } from './wysiwyg';
 
 /** 整格字号包裹（已包则改值——A± 连点递变；与选区字号的 span 存储形态一致） */
 function wrapFontSize(src: string, px: number): string {
@@ -184,7 +185,13 @@ export class Toolbar {
                 if (this.cell && !this.cell.isConnected) this.hide();
         }
 
-        /** 富文本格式：有选区 → 逐格整块包裹；无选区 → 聚焦格整格包裹（源码域）。
+        /** 浮窗当前是否正为该格显示（pointerdown 自愈判定用：焦点在格但浮窗已丢的场景） */
+        shownFor(cell: HTMLElement | null): boolean {
+                return this.cell === cell && this.el.style.display !== 'none';
+        }
+
+        /** 富文本格式：有选区 → 逐格整块包裹；格内文字选区（Shift+方向键/拖选）→ 只包
+         *  选中片段；无选区 → 聚焦格整格包裹（源码域）。
          *  单格不再走 execCommand：其 DOM 修改会被 wysiwyg 源码投影丢弃（加粗/斜体不保存），
          *  改与选区批量同语义直接包 grid 源码，经 commit 重渲染后持久化 */
         private fmt(cmd: 'bold' | 'italic') {
@@ -193,6 +200,32 @@ export class Toolbar {
                         return;
                 }
                 const tag = cmd === 'bold' ? 'b' : 'i';
+                // 格内文字选区（2026-10-31）：只处理选中片段，不整格。DOM 域包标签必丢
+                // （text 段投影只认文本、render 段投影走 dataset.src 快照），必须在源码域
+                // 拼接后经 syncCell 重投 + commit 持久化——与整格 structOp 同构
+                const td = this.cell;
+                if (td && isWysiwyg(td) && this.data && this.onCommit) {
+                        this.flushCell?.(); // 先收未投影输入（只投影不重建 DOM，选区不破坏）
+                        const sr = selectionSourceRange(td);
+                        const cd = this.data.rows[this.cellR]?.[this.cellC];
+                        if (sr && cd && sr.b > sr.a) {
+                                const frag = cd.t.slice(sr.a, sr.b);
+                                const wrapped = toggleWrapTag(frag, tag);
+                                if (wrapped !== frag) {
+                                        cd.t = cd.t.slice(0, sr.a) + wrapped + cd.t.slice(sr.b);
+                                        this.syncCell?.(this.cellR, this.cellC); // 重投（DOM 已是包裹后源码）
+                                        // 光标落"操作选区紧贴后方"（2026-11-01 TA）：折叠光标放到
+                                        // 片段末偏移（DOM 已含包裹标签，偏移合法）→ 再次 flush 让
+                                        // lastCaretOffset 捕获它——commit 后 applyFocusRestore 走
+                                        // sameCell 分支把 textOffset 带进重渲染的 focusCell
+                                        placeCaretAtSourceOffset(td, sr.a + wrapped.length);
+                                        this.flushCell?.(); // 幂等投影 + 捕获光标偏移
+                                        const commit = this.onCommit;
+                                        commit(serialize(this.data));
+                                }
+                                return;
+                        }
+                }
                 this.structOp(cmd, (g, r, c) => {
                         const cd = g[r]?.[c];
                         if (cd) cd.t = toggleWrapTag(cd.t, tag);

@@ -10,9 +10,11 @@ import {
 import { renderBlock, getActiveTableController, requestInitialFocus, noteScrollAnchor, refreshAllTableAppearance, DEFAULT_CONTEXT_MENU } from './render';
 import { setUiLang, t, REPO_URL, barLegend } from './i18n';
 import { VT_MENU_ACTIONS } from './render';
+import { LUCIDE_ICONS } from './icons';
 import { Toolbar } from './bar';
 import { compatRequire } from './compat';
 import { gridToChart, detectChartType } from './charts';
+import { activeWysiwygTd, execCellCommand } from './wysiwyg';
 
 const LANG = 'vtable';
 
@@ -537,6 +539,18 @@ export default class VtPlugin extends Plugin {
                                         return;
                                 }
                                 ctrl.pickColor();
+                        },
+                });
+
+                // 格内撤销命令（2026-11-05 快捷键改命令；2026-11-06 用户令：加粗命令删除，仅留撤销）
+                this.addCommand({
+                        id: 'vt-undo',
+                        name: t('撤销上一次格内编辑', 'Undo last in-cell edit'),
+                        callback: () => {
+                                const td = activeWysiwygTd();
+                                if (!td || !execCellCommand(td)) {
+                                        new Notice(t('请先点击 vtable 表格中的任意单元格进入编辑状态', 'Click any cell in a vtable table first to enter edit mode'));
+                                }
                         },
                 });
         }
@@ -1333,11 +1347,43 @@ class VtSettingTab extends PluginSettingTab {
                 search.placeholder = t('输入关键词筛选（vtable 动作 + Obsidian 命令）…', 'Filter (vtable actions + Obsidian commands)…');
                 search.style.width = `100%`;
                 const listBox = wrap.createDiv({ cls: 'vt-menu-lookup-list' });
+                // 图标输入框位（2026-11-05 用户令）：持久「可选」标识——placeholder 输入后即消失，
+                // 加常驻标签表明图标不是必须选择的
+                const iconFieldLabel = wrap.createDiv({ cls: 'vt-menu-field-label' });
+                iconFieldLabel.createSpan({ text: t('图标', 'Icon') });
+                iconFieldLabel.createSpan({ cls: 'vt-optional-tag', text: t('可选', 'Optional') });
                 const genIcon = wrap.createEl('input', { type: 'text' });
-                genIcon.placeholder = t('图标名（可选，lucide 名称，如 bold）', 'Icon (optional lucide name, e.g. bold)');
+                genIcon.placeholder = t('图标名（lucide 名称，如 bold）', 'Icon name (lucide, e.g. bold)');
                 genIcon.style.width = `100%`;
                 const genLine = wrap.createDiv({ cls: 'vt-menu-lookup-line', text: t('（尚未选择命令）', '(no command selected)') });
                 let selectedLine = '';
+                // 图标选择器（2026-11-04 用户令：手输图标名太累）：搜索 + 点选即填入上方图标输入框
+                const iconPicker = wrap.createDiv({ cls: 'vt-icon-picker' });
+                const iconSearch = iconPicker.createEl('input', { type: 'text' });
+                iconSearch.placeholder = t('搜索图标（点选填入图标名）…', 'Search icons (click to pick)…');
+                iconSearch.style.width = `100%`;
+                const iconGrid = iconPicker.createDiv({ cls: 'vt-icon-grid' });
+                const renderIcons = () => {
+                        const q = iconSearch.value.trim().toLowerCase();
+                        iconGrid.empty();
+                        const cur = genIcon.value.trim().toLowerCase();
+                        const hits = LUCIDE_ICONS.filter(n => !q || n.includes(q)).slice(0, 60);
+                        for (const name of hits) {
+                                const cell = iconGrid.createSpan({
+                                        cls: 'vt-icon-cell' + (name === cur ? ' is-selected' : ''),
+                                        attr: { title: name, 'aria-label': name },
+                                });
+                                setIcon(cell, name);
+                                cell.addEventListener('click', () => {
+                                        genIcon.value = name;
+                                        if (selectedLine) genLine.setText(t('生成的行：', 'Generated line: ') + `${selectedLine}|${name}`);
+                                        renderIcons(); // 刷新选中态
+                                });
+                        }
+                        if (!hits.length) iconGrid.createDiv({ cls: 'vt-icon-empty', text: t('无匹配图标', 'No matching icons') });
+                };
+                iconSearch.addEventListener('input', renderIcons);
+                renderIcons();
                 const copyBtn = wrap.createEl('button', { text: t('复制生成的行', 'Copy generated line') });
                 copyBtn.addEventListener('click', () => {
                         if (!selectedLine) return;
@@ -1367,7 +1413,11 @@ class VtSettingTab extends PluginSettingTab {
                                 item.createEl('code', { cls: 'vt-menu-lookup-code', text: s.line });
                                 item.addEventListener('click', () => {
                                         selectedLine = s.line;
-                                        genLine.setText(t('生成的行：', 'Generated line: ') + (genIcon.value.trim() ? `${s.line}|${genIcon.value.trim()}` : s.line));
+                                        // 切换命令后图标状态自动归零（2026-11-05 用户令）：清空图标名
+                                        // + 选中高亮，可对新命令重新选图标
+                                        genIcon.value = '';
+                                        renderIcons();
+                                        genLine.setText(t('生成的行：', 'Generated line: ') + s.line);
                                 });
                         }
                         if (!hits.length) listBox.createDiv({ text: t('无匹配命令', 'No matching commands') });

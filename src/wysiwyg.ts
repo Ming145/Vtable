@@ -885,87 +885,49 @@ interface TdState {
 
 const tdStates = new WeakMap<HTMLElement, TdState>();
 let selectionHookInstalled = false;
-let boldKeyCapInstalled = false;
-let undoKeyCapInstalled = false;
 
-/** Ctrl/Cmd+Alt+B 文档捕获层加粗（2026-10-24 10:29 用户裁定）：加粗快捷键从 Ctrl+B 改为
- *  Ctrl/Cmd+Alt+B——Ctrl+B 与宿主编辑器快捷键冲突（真机 v8 捕获层拦截仍挡不住宿主链，
- *  加粗落在编辑器旧选区），彻底换键避开冲突；Ctrl/Cmd+B（无 Alt）完全放行不拦。document
- *  capture 是 DOM 事件最早阶段；选区不在任何活动格 → 不拦。模块级单例 + tdStates
- *  WeakMap，格消亡自动 GC */
-function installBoldKeyCap(): void {
-        if (boldKeyCapInstalled) return;
-        boldKeyCapInstalled = true;
-        document.addEventListener('keydown', (e) => {
-                if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
-                if (e.key.toLowerCase() !== 'b') return;
-                const sel = window.getSelection();
-                if (!sel || sel.rangeCount === 0) return;
-                const range = sel.getRangeAt(0);
-                const startEl = range.startContainer.nodeType === Node.TEXT_NODE
-                        ? range.startContainer.parentElement
-                        : ((range.startContainer != null && range.startContainer.instanceOf(Element)) ? range.startContainer : null);
-                if (!startEl) return;
-                const td = startEl.closest('td');
-                if (!td || !isWysiwyg(td)) return;
-                if (!td.contains(range.endContainer)) return; // 选区跨出本格 → 不拦
-                const st = tdStates.get(td);
-                if (!st || st.editing) return;
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                if (!range.collapsed) {
-                        const rng = selectionSourceRange(td);
-                        if (rng) {
-                                const src = projectSource(td);
-                                programEdit(td, st, rng.a, rng.b, `**${src.slice(rng.a, rng.b)}**`);
-                        }
-                }
-        }, true);
+/** 当前焦点所在的活动格（命令入口用）：activeElement 是 vtable 编辑态 td 才返回 */
+export function activeWysiwygTd(): HTMLElement | null {
+        const ae = document.activeElement;
+        if (!((ae != null && ae.instanceOf(HTMLElement)))) return null;
+        if (ae.tagName !== 'TD' || !isWysiwyg(ae)) return null;
+        return ae;
 }
 
-/** Ctrl/Cmd+Alt+Z 撤销（2026-10-24 10:29 用户需求"撤回一步"）：文档捕获层拦截+弹栈恢复。
- *  栈=rebuild 前的 (源码, 光标) 快照（每键一步，原生打字/删除/Enter/programEdit 全路径覆盖）。
- *  栈空仍拦截静默——不放行宿主撤销（格子内快捷键语义独立，防误撤编辑器文档） */
-function installUndoKeyCap(): void {
-        if (undoKeyCapInstalled) return;
-        undoKeyCapInstalled = true;
-        document.addEventListener('keydown', (e) => {
-                if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey) return;
-                if (e.key.toLowerCase() !== 'z') return;
-                const sel = window.getSelection();
-                if (!sel || sel.rangeCount === 0) return;
-                const range = sel.getRangeAt(0);
-                const startEl = range.startContainer.nodeType === Node.TEXT_NODE
-                        ? range.startContainer.parentElement
-                        : ((range.startContainer != null && range.startContainer.instanceOf(Element)) ? range.startContainer : null);
-                if (!startEl) return;
-                const td = startEl.closest('td');
-                if (!td || !isWysiwyg(td)) return;
-                if (!td.contains(range.endContainer)) return;
-                const st = tdStates.get(td);
-                if (!st || st.editing) return;
-                e.preventDefault();
-                e.stopPropagation();
-                e.stopImmediatePropagation();
-                const snap = st.undoStack.pop();
-                if (!snap) return;
-                st.undoing = true;
-                try {
-                        const cur = projectSource(td);
-                        programEdit(td, st, 0, cur.length, snap.src);
-                        placeSuppressed(td, st, Math.max(0, Math.min(snap.caret, snap.src.length)));
-                } finally {
-                        st.undoing = false;
-                }
-        }, true);
+/** 格内撤销（2026-11-05 用户令：撤销的自动快捷键去掉，改为用户可自由配置快捷键的
+ *  命令——默认不占键，Obsidian 设置 → 快捷键里自行绑定；2026-11-06 用户令：加粗命令
+ *  删除，加粗走浮窗/右键菜单按钮）：
+ *  弹撤销栈顶快照整体恢复（栈=rebuild 前的 (源码, 光标)，每键一步）
+ *  返回 false = 焦点不在活动格/选区跨出本格/无状态 → 调用方弹 Notice */
+export function execCellCommand(td: HTMLElement): boolean {
+        if (!isWysiwyg(td)) return false;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return false;
+        const range = sel.getRangeAt(0);
+        const startEl = range.startContainer.nodeType === Node.TEXT_NODE
+                ? range.startContainer.parentElement
+                : ((range.startContainer != null && range.startContainer.instanceOf(Element)) ? range.startContainer : null);
+        if (!startEl) return false;
+        if (!td.contains(range.startContainer) || !td.contains(range.endContainer)) return false; // 选区跨出本格 → 不动
+        const st = tdStates.get(td);
+        if (!st || st.editing) return false;
+        // 栈空静默返回（不放行宿主撤销——格子内语义独立，防误撤编辑器文档）
+        const snap = st.undoStack.pop();
+        if (!snap) return true;
+        st.undoing = true;
+        try {
+                const cur = projectSource(td);
+                programEdit(td, st, 0, cur.length, snap.src);
+                placeSuppressed(td, st, Math.max(0, Math.min(snap.caret, snap.src.length)));
+        } finally {
+                st.undoing = false;
+        }
+        return true;
 }
 
 /** td 创建时绑定（幂等）；事件在 vtWysiwyg=1 时才生效 */
 export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
         if (tdStates.has(td)) return;
-        installBoldKeyCap();
-        installUndoKeyCap();
         const st: TdState = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [] };
         tdStates.set(td, st);
 
@@ -1035,8 +997,8 @@ export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
                                 if (st.undoStack.length > 50) st.undoStack.shift();
                         }
                 }
-                // Ctrl/Cmd+B 加粗已迁至 installBoldKeyCap 的文档捕获层（2026-10-24）：
-                // td 冒泡层拦不住宿主快捷键分发（编辑器 toggleBold 抢先落在编辑器旧选区）
+                // 撤销快捷键已改命令（2026-11-05 用户令）：不再自动占键，
+                // 用户在 Obsidian 设置 → 快捷键里给 vt-undo 自绑——见 execCellCommand
                 if (e.key === 'Backspace' || e.key === 'Delete') {
                         const off = caretSourceOffset(td) ?? st.lastCaret;
                         const srcK = projectSource(td);
@@ -1497,41 +1459,104 @@ function onSelectionChange(td: HTMLElement, st: TdState): void {
 
         const loc = locateStart(td, range);
         const cur = loc.el;
+        // 贴邻段（2026-11-05 用户令）：结构判定，与 view 无关
+        const adj = caretNeighborSegs(td, range);
 
         // 离开上次源码段 → 全格重建（该段渲染，其余跟随最新源码）。
         // 仅【换段】算离开：段边界（s/e）是合法停留位置（rebuild 光标重放的常态），
-        // 边界不判定离开——否则 rebuild 重写 DOM 引发的选区重置会触发连环重建（光标乱跳）。
+        // 贴邻也不算离开（紧贴=停留语义，贴块自动源码的配套）——边界/贴邻不判定离开，
+        // 否则 rebuild 重写 DOM 引发的选区重置会触发连环重建（光标乱跳）。
         // 块的瞬时渲染由 input 的语法字符重建达成，不依赖此判定
         if (st.lastSrcSeg && st.lastSrcSeg.isConnected && st.lastSrcSeg.dataset.view === 'src') {
-                if (st.lastSrcSeg !== cur) {
+                if (st.lastSrcSeg !== cur && !adj.includes(st.lastSrcSeg)) {
                         st.lastSrcSeg = null;
                         rebuild(td, st, off ?? st.lastCaret);
+                        // rebuild 已重放光标：按新落点做贴邻揭示（同一任务内完成，无中间帧）
+                        const sel2 = window.getSelection();
+                        if (sel2 && sel2.rangeCount) hugReveal(td, caretNeighborSegs(td, sel2.getRangeAt(0)));
                         return;
                 }
-                return; // 光标仍在该段（含边界）：保持源码态
+                if (st.lastSrcSeg === cur) {
+                        // 光标仍在该段（含边界）：保持源码态；段边缘贴邻的渲染段也揭示
+                        hugReveal(td, adj);
+                        return;
+                }
+                // 贴邻上次源码段但光标在别的段：保持其源码态，继续统一揭示
         }
-        // 游离光标（td 直下/塌缩态）：浏览器临时状态，不做段归属判定
-        if (!cur) return;
+        // 游离光标（td 直下/塌缩态）：浏览器临时状态，不做段归属判定——贴邻揭示仍适用
+        if (!cur) {
+                hugReveal(td, adj);
+                return;
+        }
         st.lastSrcSeg = cur.dataset.view === 'src' ? cur : null;
 
-        // 进入渲染段 → 切源码（判定见 shouldReveal）
+        // 进入渲染段 → 切源码（判定见 shouldReveal）；未进入但贴邻 → 贴邻揭示（不动光标）
         if (shouldReveal(loc)) {
                 revealSeg(td, st, cur, loc);
+        } else {
+                hugReveal(td, adj);
         }
         // 记录光标监测结果：抢救误插字符时按此判定"用户本意插入点"
         st.lastLoc = cur ? { el: cur, where: loc.where, innerF: loc.innerF } : null;
 }
 
-/** 是否把渲染段切为源码：
- *  - 光标在段 DOM 内部（inner，如点在粗体字/公式图上）→ 进块，切源码
- *  - 光标贴段外侧边缘（front/back，即段与段之间的边界）→ 光标在块外，不切——
- *    光标只是监测者，贴着块走不等于要编辑块（用户明确要求光标无感）
- *  - void 图片/实体没有内部，贴边即进（需求三） */
+/** 是否把渲染段切为源码（光标【进入】段的路径，含 caret 移动/重放）：
+ *  - 光标在段 DOM 内部（inner，如点在粗体字/公式图上）→ 进块，切源码（revealSeg，光标映射入段）
+ *  - void 图片/实体没有内部，贴边即进（需求三）
+ *  - 非渲染段/文本段不在此列；光标贴段外侧边缘（front/back）的【不进块】揭示走
+ *    hugReveal（2026-11-05 用户令：贴块自动源码——只切状态不动光标） */
 function shouldReveal(loc: LocateResult): boolean {
         if (!loc.el || loc.kind === 'text') return false;
         if (loc.el.dataset.view === 'src') return false;
         if (loc.kind === 'void-img' || loc.kind === 'void-entity') return true;
         return loc.where === 'inner';
+}
+
+/** 光标结构贴邻的段（2026-11-05 贴块自动源码）：与 view 无关，返回左右紧邻的段。
+ *  贴邻 = 折叠光标正好停在段边缘：td 子节点间隙的前后段 / 段内文本首尾的前后邻段 /
+ *  td 直属游离文本首尾的两侧段。段中间不算（紧贴≠靠近） */
+function caretNeighborSegs(td: HTMLElement, range: Range): HTMLElement[] {
+        if (!range.collapsed) return [];
+        const node = range.startContainer;
+        const off = range.startOffset;
+        const res: HTMLElement[] = [];
+        const isSegEl = (n: Node | null): n is HTMLElement =>
+                n != null && (n.instanceOf(HTMLElement)) && n.classList.contains(SEG_CLS);
+        const push = (n: Node | null) => { if (isSegEl(n) && !res.includes(n)) res.push(n); };
+        if (node === td) {
+                const kids = td.childNodes;
+                push(off > 0 ? kids[off - 1] : null);
+                push(kids[off] ?? null);
+                return res;
+        }
+        // 段内（文本节点/段元素边界）：首尾位置才贴邻邻段
+        const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : ((node != null && node.instanceOf(HTMLElement)) ? node : node.parentElement))?.closest(`.${SEG_CLS}`) ?? null;
+        if (host && (host != null && host.instanceOf(HTMLElement)) && td.contains(host)) {
+                const atStart = off <= 0;
+                const atEnd = node.nodeType === Node.TEXT_NODE
+                        ? off >= (node.textContent?.length ?? 0)
+                        : off >= host.childNodes.length;
+                if (atStart) push(host.previousSibling);
+                if (atEnd) push(host.nextSibling);
+                return res;
+        }
+        // td 直属游离文本（浏览器临时插入）：首尾贴邻其两侧段
+        if (node.nodeType === Node.TEXT_NODE && node.parentElement === td) {
+                if (off <= 0) push(node.previousSibling);
+                if (off >= (node.textContent?.length ?? 0)) push(node.nextSibling);
+        }
+        return res;
+}
+
+/** 贴邻揭示（2026-11-05 用户令：光标紧贴块但还没有进入 → 块自动变源码态，适用所有类型）：
+ *  只切段状态（render→src），光标不动、lastSrcSeg 不改——"离开"判定已把贴邻算作停留，
+ *  光标真正离开贴邻位置（换段且不再贴邻）时由既有 rebuild 把段渲染回去 */
+function hugReveal(td: HTMLElement, segs: HTMLElement[]): void {
+        for (const el of segs) {
+                if (el.dataset.view === 'render' && el.dataset.kind !== 'text') {
+                        setSegSource(el, el.dataset.src ?? '');
+                }
+        }
 }
 
 /** 渲染段 → 源码态，并把光标映射到源码对应位置 */
@@ -1752,6 +1777,9 @@ function settleCaretAfterEdit(td: HTMLElement, st: TdState, caretAt: number | nu
                 revealSeg(td, st, loc.el!, loc);
         } else {
                 st.lastSrcSeg = loc.el && loc.el.dataset.view === 'src' ? loc.el : null;
+                // 贴邻揭示（2026-11-05）：编辑后光标停在块边缘 → 紧邻的渲染段切源码
+                // （rebuild 全渲染后同任务补揭示，避免打字时块闪一帧渲染态）
+                hugReveal(td, caretNeighborSegs(td, sel.getRangeAt(0)));
         }
 }
 

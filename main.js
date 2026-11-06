@@ -402,34 +402,44 @@ function deleteCol(grid, c) {
 }
 function mergeRight(grid, r, c) {
   const anchor = grid[r]?.[c];
-  if (!anchor || !visible(anchor) || anchor.rs !== 1)
+  if (!anchor || !visible(anchor))
     return;
   const nc = c + anchor.cs;
   const target = grid[r]?.[nc];
-  if (!target || !visible(target) || target.rs !== 1)
+  if (!target || !visible(target))
+    return;
+  if (target.rs !== anchor.rs)
     return;
   anchor.t = joinText(anchor.t, target.t, " ");
   anchor.cs += target.cs;
-  for (let i = 0; i < target.cs; i++) {
-    const cc = nc + i;
-    if (grid[r][cc])
-      grid[r][cc] = hidden();
+  for (let j = 0; j < anchor.rs; j++) {
+    for (let i = 0; i < target.cs; i++) {
+      const rr = r + j;
+      const cc = nc + i;
+      if (grid[rr]?.[cc])
+        grid[rr][cc] = hidden();
+    }
   }
 }
 function mergeDown(grid, r, c) {
   const anchor = grid[r]?.[c];
-  if (!anchor || !visible(anchor) || anchor.cs !== 1)
+  if (!anchor || !visible(anchor))
     return;
   const nr = r + anchor.rs;
   const target = grid[nr]?.[c];
-  if (!target || !visible(target) || target.cs !== 1)
+  if (!target || !visible(target))
+    return;
+  if (target.cs !== anchor.cs)
     return;
   anchor.t = joinText(anchor.t, target.t, "<br>");
   anchor.rs += target.rs;
   for (let i = 0; i < target.rs; i++) {
-    const rr = nr + i;
-    if (grid[rr]?.[c])
-      grid[rr][c] = hidden();
+    for (let j = 0; j < anchor.cs; j++) {
+      const rr = nr + i;
+      const cc = c + j;
+      if (grid[rr]?.[cc])
+        grid[rr][cc] = hidden();
+    }
   }
 }
 function splitCell(grid, r, c) {
@@ -1113,7 +1123,7 @@ var _SelOverlay = class {
     this.layer.style.position = `fixed`;
     this.layer.style.pointerEvents = `none`;
     this.layer.style.overflow = `visible`;
-    this.layer.style.zIndex = `1000`;
+    this.layer.style.zIndex = `calc(var(--layer-menu, 65) - 5)`;
     this.svg = document.createElementNS(SVG_NS, "svg");
     this.svg.style.overflow = `visible`;
     this.path = document.createElementNS(SVG_NS, "path");
@@ -3449,89 +3459,45 @@ function placeCaretInto(range, td, off) {
 }
 var tdStates = /* @__PURE__ */ new WeakMap();
 var selectionHookInstalled = false;
-var boldKeyCapInstalled = false;
-var undoKeyCapInstalled = false;
-function installBoldKeyCap() {
-  if (boldKeyCapInstalled)
-    return;
-  boldKeyCapInstalled = true;
-  document.addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey)
-      return;
-    if (e.key.toLowerCase() !== "b")
-      return;
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0)
-      return;
-    const range = sel.getRangeAt(0);
-    const startEl = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer != null && range.startContainer.instanceOf(Element) ? range.startContainer : null;
-    if (!startEl)
-      return;
-    const td = startEl.closest("td");
-    if (!td || !isWysiwyg(td))
-      return;
-    if (!td.contains(range.endContainer))
-      return;
-    const st = tdStates.get(td);
-    if (!st || st.editing)
-      return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    if (!range.collapsed) {
-      const rng = selectionSourceRange(td);
-      if (rng) {
-        const src = projectSource(td);
-        programEdit(td, st, rng.a, rng.b, `**${src.slice(rng.a, rng.b)}**`);
-      }
-    }
-  }, true);
+function activeWysiwygTd() {
+  const ae = document.activeElement;
+  if (!(ae != null && ae.instanceOf(HTMLElement)))
+    return null;
+  if (ae.tagName !== "TD" || !isWysiwyg(ae))
+    return null;
+  return ae;
 }
-function installUndoKeyCap() {
-  if (undoKeyCapInstalled)
-    return;
-  undoKeyCapInstalled = true;
-  document.addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey) || !e.altKey || e.shiftKey)
-      return;
-    if (e.key.toLowerCase() !== "z")
-      return;
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0)
-      return;
-    const range = sel.getRangeAt(0);
-    const startEl = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer != null && range.startContainer.instanceOf(Element) ? range.startContainer : null;
-    if (!startEl)
-      return;
-    const td = startEl.closest("td");
-    if (!td || !isWysiwyg(td))
-      return;
-    if (!td.contains(range.endContainer))
-      return;
-    const st = tdStates.get(td);
-    if (!st || st.editing)
-      return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    const snap = st.undoStack.pop();
-    if (!snap)
-      return;
-    st.undoing = true;
-    try {
-      const cur = projectSource(td);
-      programEdit(td, st, 0, cur.length, snap.src);
-      placeSuppressed(td, st, Math.max(0, Math.min(snap.caret, snap.src.length)));
-    } finally {
-      st.undoing = false;
-    }
-  }, true);
+function execCellCommand(td) {
+  if (!isWysiwyg(td))
+    return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0)
+    return false;
+  const range = sel.getRangeAt(0);
+  const startEl = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer != null && range.startContainer.instanceOf(Element) ? range.startContainer : null;
+  if (!startEl)
+    return false;
+  if (!td.contains(range.startContainer) || !td.contains(range.endContainer))
+    return false;
+  const st = tdStates.get(td);
+  if (!st || st.editing)
+    return false;
+  const snap = st.undoStack.pop();
+  if (!snap)
+    return true;
+  st.undoing = true;
+  try {
+    const cur = projectSource(td);
+    programEdit(td, st, 0, cur.length, snap.src);
+    placeSuppressed(td, st, Math.max(0, Math.min(snap.caret, snap.src.length)));
+  } finally {
+    st.undoing = false;
+  }
+  return true;
 }
 function attachWysiwyg(td, ctx) {
   if (tdStates.has(td))
     return;
-  installBoldKeyCap();
-  installUndoKeyCap();
   const st = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [] };
   tdStates.set(td, st);
   td.addEventListener("compositionstart", () => {
@@ -3950,19 +3916,30 @@ function onSelectionChange(td, st) {
   }
   const loc = locateStart(td, range);
   const cur = loc.el;
+  const adj = caretNeighborSegs(td, range);
   if (st.lastSrcSeg && st.lastSrcSeg.isConnected && st.lastSrcSeg.dataset.view === "src") {
-    if (st.lastSrcSeg !== cur) {
+    if (st.lastSrcSeg !== cur && !adj.includes(st.lastSrcSeg)) {
       st.lastSrcSeg = null;
       rebuild(td, st, off ?? st.lastCaret);
+      const sel2 = window.getSelection();
+      if (sel2 && sel2.rangeCount)
+        hugReveal(td, caretNeighborSegs(td, sel2.getRangeAt(0)));
       return;
     }
+    if (st.lastSrcSeg === cur) {
+      hugReveal(td, adj);
+      return;
+    }
+  }
+  if (!cur) {
+    hugReveal(td, adj);
     return;
   }
-  if (!cur)
-    return;
   st.lastSrcSeg = cur.dataset.view === "src" ? cur : null;
   if (shouldReveal(loc)) {
     revealSeg(td, st, cur, loc);
+  } else {
+    hugReveal(td, adj);
   }
   st.lastLoc = cur ? { el: cur, where: loc.where, innerF: loc.innerF } : null;
 }
@@ -3974,6 +3951,48 @@ function shouldReveal(loc) {
   if (loc.kind === "void-img" || loc.kind === "void-entity")
     return true;
   return loc.where === "inner";
+}
+function caretNeighborSegs(td, range) {
+  if (!range.collapsed)
+    return [];
+  const node = range.startContainer;
+  const off = range.startOffset;
+  const res = [];
+  const isSegEl = (n) => n != null && n.instanceOf(HTMLElement) && n.classList.contains(SEG_CLS);
+  const push = (n) => {
+    if (isSegEl(n) && !res.includes(n))
+      res.push(n);
+  };
+  if (node === td) {
+    const kids = td.childNodes;
+    push(off > 0 ? kids[off - 1] : null);
+    push(kids[off] ?? null);
+    return res;
+  }
+  const host = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node != null && node.instanceOf(HTMLElement) ? node : node.parentElement)?.closest(`.${SEG_CLS}`) ?? null;
+  if (host && (host != null && host.instanceOf(HTMLElement)) && td.contains(host)) {
+    const atStart = off <= 0;
+    const atEnd = node.nodeType === Node.TEXT_NODE ? off >= (node.textContent?.length ?? 0) : off >= host.childNodes.length;
+    if (atStart)
+      push(host.previousSibling);
+    if (atEnd)
+      push(host.nextSibling);
+    return res;
+  }
+  if (node.nodeType === Node.TEXT_NODE && node.parentElement === td) {
+    if (off <= 0)
+      push(node.previousSibling);
+    if (off >= (node.textContent?.length ?? 0))
+      push(node.nextSibling);
+  }
+  return res;
+}
+function hugReveal(td, segs) {
+  for (const el of segs) {
+    if (el.dataset.view === "render" && el.dataset.kind !== "text") {
+      setSegSource(el, el.dataset.src ?? "");
+    }
+  }
 }
 function revealSeg(td, st, el, loc) {
   const raw = el.dataset.src ?? "";
@@ -4187,6 +4206,7 @@ function settleCaretAfterEdit(td, st, caretAt) {
     revealSeg(td, st, loc.el, loc);
   } else {
     st.lastSrcSeg = loc.el && loc.el.dataset.view === "src" ? loc.el : null;
+    hugReveal(td, caretNeighborSegs(td, sel.getRangeAt(0)));
   }
 }
 function scheduleRebuild(td, st, trustSnapshot = true, caretOverride) {
@@ -4896,6 +4916,13 @@ var pendingFocusRestore = null;
 var pendingSelectionRestore = null;
 var lastTableFocus = null;
 var lastOutsidePointerAt = 0;
+function isStealLikeFocus(dest, tableHost) {
+  if (!dest || dest === document.body)
+    return true;
+  if (tableHost.contains(dest))
+    return false;
+  return !!dest.closest?.(".cm-editor");
+}
 var lastTouchScrollAt = 0;
 if (typeof document !== "undefined") {
   const markTouch = () => {
@@ -5776,6 +5803,25 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     onCommit(after);
     clearSelection();
   };
+  const restoreSelEnd = (rects) => {
+    if (!table.contains(document.activeElement)) {
+      pendingFocusRestore = null;
+      return;
+    }
+    let rMax = -1, cMax = -1;
+    for (const rc of rects) {
+      for (let r = rc.r1; r <= rc.r2; r++) {
+        for (let c = rc.c1; c <= rc.c2; c++) {
+          if (r > rMax || r === rMax && c > cMax) {
+            rMax = r;
+            cMax = c;
+          }
+        }
+      }
+    }
+    const anchor = rMax >= 0 ? anchorIndex.get(`${rMax},${cMax}`) : void 0;
+    pendingFocusRestore = anchor ? { r: anchor.r, c: anchor.c, caretAtEnd: true, textOffset: null } : { r: focusedR, c: focusedC, caretAtEnd: false, textOffset: null };
+  };
   const selOps = {
     get rects() {
       return selRects;
@@ -5881,16 +5927,26 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           splitCell(grid, r, c);
       }, true, () => applyFocusRestore(0, 0, focusedInside && !wasFocusedAnchor));
     },
-    bold: () => commitSel((rects) => {
+    bold: () => selOps.wrapTag("b"),
+    italic: () => selOps.wrapTag("i"),
+    // 样式族泛化底座（2026-11-04）：整格对称标签包裹，选区批量
+    wrapTag: (tag) => commitSel((rects) => {
       forEachSelectedAnchor(rects, (r, c) => {
-        grid[r][c].t = toggleWrapTag(grid[r][c].t, "b");
+        grid[r][c].t = toggleWrapTag(grid[r][c].t, tag);
       });
-    }, true, (rects) => applyFocusRestore(0, 0, rects.some((rc) => rectContains(rc, focusedR, focusedC)))),
-    italic: () => commitSel((rects) => {
+    }, true, restoreSelEnd),
+    // 行内代码（markdown 反引号语法族）：整格包裹/解包
+    code: () => commitSel((rects) => {
       forEachSelectedAnchor(rects, (r, c) => {
-        grid[r][c].t = toggleWrapTag(grid[r][c].t, "i");
+        grid[r][c].t = toggleWrapMd(grid[r][c].t, "`");
       });
-    }, true, (rects) => applyFocusRestore(0, 0, rects.some((rc) => rectContains(rc, focusedR, focusedC)))),
+    }, true, restoreSelEnd),
+    // 剥除选区整格的内联格式标签（span 一并剥除 = 字号一并清除）
+    stripFormat: () => commitSel((rects) => {
+      forEachSelectedAnchor(rects, (r, c) => {
+        grid[r][c].t = stripInlineFormat(grid[r][c].t);
+      });
+    }, true, restoreSelEnd),
     fontStep: (delta) => {
       for (let r = 0; r < grid.length; r++) {
         for (let c = 0; c < (grid[0]?.length ?? 0); c++) {
@@ -5914,7 +5970,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         else
           cd.a = mode;
       });
-    }, true),
+    }, true, restoreSelEnd),
     // 垂直对齐（t/m/b；存进 Cell.va，重渲染后由内联样式生效；顶对齐=默认，字段瘦身）
     alignV: (mode) => commitSel((rects) => {
       forEachSelectedAnchor(rects, (r, c) => {
@@ -5924,7 +5980,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         else
           cd.va = mode;
       });
-    }, true),
+    }, true, restoreSelEnd),
     // 任务2：选区底色（null = 清除）
     setColor: (color) => commitSel((rects) => {
       forEachSelectedAnchor(rects, (r, c) => {
@@ -5934,13 +5990,13 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         else
           delete cd.bg;
       });
-    }, true),
+    }, true, restoreSelEnd),
     // 任务3：清空选区内容（不动行列结构，选区保持）
     clearContent: () => commitSel((rects) => {
       forEachSelectedAnchor(rects, (r, c) => {
         grid[r][c].t = "";
       });
-    }, true),
+    }, true, restoreSelEnd),
     // 任务2：取色弹窗（main.ts 提供弹窗实现）；无选区时对聚焦格取色（任务10）
     pickColor: () => {
       const rects = effectiveRects();
@@ -6285,27 +6341,11 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         }
         if (selRects.length)
           clearSelection();
+        if (document.activeElement === td && !toolbar.shownFor(td)) {
+          showBarFor();
+        }
       });
-      td.addEventListener("focus", () => {
-        if (!td.closest(".cm-editor")) {
-          td.blur();
-          return;
-        }
-        focusedR = r;
-        focusedC = c;
-        activeController = controller;
-        lastTableFocus = { host: el, r, c, at: Date.now() };
-        if (isDiag(cellData)) {
-          prepareDiagEdit(td);
-          enterDiagZone(td);
-          return;
-        }
-        if (td.dataset.vtView !== "edit") {
-          td.dataset.vtView = "edit";
-          const src = grid[r][c].t;
-          enterWysiwyg(td, src, wysiwygCtx);
-          placeCaretAtSourceOffset(td, src.length);
-        }
+      const showBarFor = () => {
         showEditingUi();
         updateEdgeBars();
         syncFillHandle();
@@ -6336,6 +6376,28 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
             resyncCellFromSource(td2, cd2.t);
           }
         );
+      };
+      td.addEventListener("focus", () => {
+        if (!td.closest(".cm-editor")) {
+          td.blur();
+          return;
+        }
+        focusedR = r;
+        focusedC = c;
+        activeController = controller;
+        lastTableFocus = { host: el, r, c, at: Date.now() };
+        if (isDiag(cellData)) {
+          prepareDiagEdit(td);
+          enterDiagZone(td);
+          return;
+        }
+        if (td.dataset.vtView !== "edit") {
+          td.dataset.vtView = "edit";
+          const src = grid[r][c].t;
+          enterWysiwyg(td, src, wysiwygCtx);
+          placeCaretAtSourceOffset(td, src.length);
+        }
+        showBarFor();
       });
       const finishDiagEdit = () => {
         const cell2 = grid[r]?.[c];
@@ -6386,6 +6448,26 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         if (isDiag(cell2)) {
           if (!td.contains(document.activeElement))
             finishDiagEdit();
+          return;
+        }
+        const stealDest = e.relatedTarget ?? document.activeElement;
+        if (isStealLikeFocus(stealDest, el)) {
+          const htmlS = normalizeCellHtml(stripRcHandles(isWysiwyg(td) ? projectSource(td) : td.innerHTML));
+          if (cell2.t !== htmlS) {
+            cell2.t = htmlS;
+            pendingDirty = true;
+            autoExpandRowHeight(td, data, r, true);
+          }
+          if (Date.now() - lastOutsidePointerAt < 400)
+            hideEditingUi();
+          window.setTimeout(() => {
+            if (!table.isConnected || table.contains(document.activeElement))
+              return;
+            if (pendingDirty) {
+              commit();
+              pendingDirty = false;
+            }
+          }, 600);
           return;
         }
         const html = normalizeCellHtml(stripRcHandles(isWysiwyg(td) ? projectSource(td) : td.innerHTML));
@@ -6555,10 +6637,17 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         const inSelection = selRects.some((rc) => rectContains(rc, r2, c2));
         if (selRects.length && !inSelection)
           clearSelection();
+        let textSel = null;
+        if (!inSelection && isWysiwyg(td)) {
+          flushActiveCell();
+          const sr = selectionSourceRange(td);
+          if (sr && sr.b > sr.a)
+            textSel = { a: sr.a, b: sr.b };
+        }
         showCellMenu(e, data, r2, c2, toolbar, flushActiveCell, (shift) => {
           applyFocusRestore(shift?.dr ?? 0, shift?.dc ?? 0, shift?.resetCaret ?? false);
           onCommit(serialize(data));
-        }, setMode, inSelection ? selOps : null, settings, obsidianCommand);
+        }, setMode, inSelection ? selOps : null, settings, obsidianCommand, textSel, td, onPickColor);
       });
     });
   });
@@ -6648,7 +6737,18 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         flushActiveCell,
         () => onConvertToMd(grid),
         () => onConvertToHtml(grid),
-        selOps
+        selOps,
+        // 浮窗文本类操作后的重投（2026-11-01 补）：此处 show 会覆盖 focus 链
+        // showBarFor 装的接线——旧表编辑请求被他表冒领消费时会在用户点击后
+        // 跑到这里，缺参时 syncCell=空函数 → 片段格式化的 resync 空跑 →
+        // 后续投影把旧 DOM 覆盖回 grid（写入丢 <i>/<b> 的根因）
+        (rr, cc) => {
+          const td2 = cellMap[rr]?.[cc];
+          const cd2 = grid[rr]?.[cc];
+          if (!td2 || !cd2 || isDiag(cd2) || !isWysiwyg(td2))
+            return;
+          resyncCellFromSource(td2, cd2.t);
+        }
       );
     }
     const bringBack = () => {
@@ -7314,6 +7414,17 @@ function renderWikiLinks(root, onOpenLink) {
 function cellPlainText(html) {
   return parseTrustedHtml(html.replace(/<br\s*\/?>/gi, "\n")).textContent ?? "";
 }
+function toggleWrapMd(src, delim) {
+  if (src.length >= delim.length * 2 && src.startsWith(delim) && src.endsWith(delim)) {
+    return src.slice(delim.length, src.length - delim.length);
+  }
+  if (!src.trim())
+    return src;
+  return delim + src + delim;
+}
+function stripInlineFormat(src) {
+  return src.replace(/<\/?(?:b|i|u|s|em|strong|mark|sub|sup|small|del|ins|kbd|font|span)\b[^>]*>/gi, "");
+}
 function copyCtxToClipboard(ctx) {
   let text = "";
   if (ctx.sel && ctx.sel.rects.length) {
@@ -7410,6 +7521,90 @@ function alignVCtx(ctx, mode) {
       cd.va = mode;
   });
 }
+function noticeNoSelTarget() {
+  new import_obsidian3.Notice(t("\u8BF7\u5148\u9009\u4E2D\u5355\u5143\u683C\u6216\u5355\u5143\u683C\u5185\u7684\u6587\u5B57", "Select some cells or text inside a cell first"));
+}
+function wrapCtx(ctx, tag) {
+  if (ctx.sel && ctx.sel.rects.length) {
+    ctx.sel.wrapTag(tag);
+    return;
+  }
+  if (!ctx.textSel) {
+    noticeNoSelTarget();
+    return;
+  }
+  const { a, b } = ctx.textSel;
+  ctx.applyFragment((src) => {
+    const wrapped = toggleWrapTag(src.slice(a, b), tag);
+    return { next: src.slice(0, a) + wrapped + src.slice(b), caret: a + wrapped.length };
+  });
+}
+function codeCtx(ctx) {
+  if (ctx.sel && ctx.sel.rects.length) {
+    ctx.sel.code();
+    return;
+  }
+  if (!ctx.textSel) {
+    noticeNoSelTarget();
+    return;
+  }
+  const { a, b } = ctx.textSel;
+  ctx.applyFragment((src) => {
+    const wrapped = toggleWrapMd(src.slice(a, b), "`");
+    return { next: src.slice(0, a) + wrapped + src.slice(b), caret: a + wrapped.length };
+  });
+}
+function clearFormatCtx(ctx) {
+  if (ctx.sel && ctx.sel.rects.length) {
+    ctx.sel.stripFormat();
+    return;
+  }
+  if (!ctx.textSel) {
+    noticeNoSelTarget();
+    return;
+  }
+  const { a, b } = ctx.textSel;
+  ctx.applyFragment((src) => {
+    const stripped = stripInlineFormat(src.slice(a, b));
+    return { next: src.slice(0, a) + stripped + src.slice(b), caret: a + stripped.length };
+  });
+}
+function clearContentCtx(ctx) {
+  if (ctx.sel && ctx.sel.rects.length) {
+    ctx.sel.clearContent();
+    return;
+  }
+  if (!ctx.textSel) {
+    noticeNoSelTarget();
+    return;
+  }
+  const { a, b } = ctx.textSel;
+  ctx.applyFragment((src) => {
+    if (!src.slice(a, b).trim())
+      return null;
+    return { next: src.slice(0, a) + src.slice(b), caret: a };
+  });
+}
+function pickColorCtx(ctx) {
+  if (ctx.sel && ctx.sel.rects.length) {
+    ctx.sel.pickColor();
+    return;
+  }
+  const cd = ctx.grid[ctx.r]?.[ctx.c];
+  if (!ctx.onPickColor)
+    return;
+  ctx.onPickColor(cd?.bg ?? "", (color) => {
+    ctx.apply(() => {
+      const cd2 = ctx.grid[ctx.r]?.[ctx.c];
+      if (!cd2)
+        return;
+      if (color)
+        cd2.bg = color;
+      else
+        delete cd2.bg;
+    });
+  });
+}
 var VT_MENU_ACTIONS = {
   "vt.copy": { zh: "\u590D\u5236", en: "Copy", icon: "copy", exec: (ctx) => copyCtxToClipboard(ctx) },
   "vt.paste": { zh: "\u7C98\u8D34", en: "Paste", icon: "clipboard-paste", exec: (ctx) => pasteCtxFromClipboard(ctx) },
@@ -7423,17 +7618,27 @@ var VT_MENU_ACTIONS = {
     }
   },
   "vt.delete": { zh: "\u5220\u9664\u5185\u5BB9", en: "Delete content", icon: "eraser", exec: (ctx) => clearCtxContent(ctx) },
-  "vt.clearContent": { zh: "\u6E05\u7A7A\u6240\u9009\u5185\u5BB9", en: "Clear selection", icon: "eraser", needsSel: true, exec: (ctx) => ctx.sel.clearContent() },
-  "vt.bold": { zh: "\u52A0\u7C97", en: "Bold", icon: "bold", needsSel: true, exec: (ctx) => ctx.sel.bold() },
-  "vt.italic": { zh: "\u659C\u4F53", en: "Italic", icon: "italic", needsSel: true, exec: (ctx) => ctx.sel.italic() },
-  // 对齐六项不设 needsSel：有选区走选区批量；无选区（右键单格，ctx.sel=null）对右键格直接生效
+  "vt.clearContent": { zh: "\u6E05\u7A7A\u6240\u9009\u5185\u5BB9", en: "Clear selection", icon: "eraser", exec: (ctx) => clearContentCtx(ctx) },
+  "vt.bold": { zh: "\u52A0\u7C97", en: "Bold", icon: "bold", exec: (ctx) => wrapCtx(ctx, "b") },
+  "vt.italic": { zh: "\u659C\u4F53", en: "Italic", icon: "italic", exec: (ctx) => wrapCtx(ctx, "i") },
+  // 样式族扩编（2026-11-04 用户令：markdown/html 多加）：目标=用户选区（选框批量/文字选区片段），
+  // 存储与 b/i 同形（HTML 对称标签，均在 wysiwyg HTML_PAIR_TAGS 内）；code 走 markdown 反引号族
+  "vt.strike": { zh: "\u5220\u9664\u7EBF", en: "Strikethrough", icon: "strikethrough", exec: (ctx) => wrapCtx(ctx, "s") },
+  "vt.highlight": { zh: "\u9AD8\u4EAE", en: "Highlight", icon: "highlighter", exec: (ctx) => wrapCtx(ctx, "mark") },
+  "vt.underline": { zh: "\u4E0B\u5212\u7EBF", en: "Underline", icon: "underline", exec: (ctx) => wrapCtx(ctx, "u") },
+  "vt.subscript": { zh: "\u4E0B\u6807", en: "Subscript", icon: "subscript", exec: (ctx) => wrapCtx(ctx, "sub") },
+  "vt.superscript": { zh: "\u4E0A\u6807", en: "Superscript", icon: "superscript", exec: (ctx) => wrapCtx(ctx, "sup") },
+  "vt.code": { zh: "\u884C\u5185\u4EE3\u7801", en: "Inline code", icon: "code", exec: (ctx) => codeCtx(ctx) },
+  "vt.clearFormat": { zh: "\u6E05\u9664\u683C\u5F0F", en: "Clear formatting", icon: "remove-formatting", exec: (ctx) => clearFormatCtx(ctx) },
+  // 对齐六项：有选区走选区批量；无选区（右键单格，ctx.sel=null）对右键格直接生效
   "vt.alignL": { zh: "\u5C45\u5DE6", en: "Align left", icon: "align-left", exec: (ctx) => alignCtx(ctx, "l") },
   "vt.alignC": { zh: "\u5C45\u4E2D", en: "Align center", icon: "align-center", exec: (ctx) => alignCtx(ctx, "c") },
   "vt.alignR": { zh: "\u5C45\u53F3", en: "Align right", icon: "align-right", exec: (ctx) => alignCtx(ctx, "r") },
   "vt.alignT": { zh: "\u9876\u5BF9\u9F50", en: "Align top", icon: "arrow-up-to-line", exec: (ctx) => alignVCtx(ctx, "t") },
   "vt.alignM": { zh: "\u5782\u76F4\u5C45\u4E2D", en: "Align middle", icon: "align-vertical-justify-center", exec: (ctx) => alignVCtx(ctx, "m") },
   "vt.alignB": { zh: "\u5E95\u5BF9\u9F50", en: "Align bottom", icon: "arrow-down-to-line", exec: (ctx) => alignVCtx(ctx, "b") },
-  "vt.pickColor": { zh: "\u8BBE\u7F6E\u5E95\u8272\u2026", en: "Set color\u2026", icon: "paintbrush", needsSel: true, exec: (ctx) => ctx.sel.pickColor() },
+  // 底色（恒可见）：选框 → 批量；无选框 → 右键格单格
+  "vt.pickColor": { zh: "\u8BBE\u7F6E\u5E95\u8272\u2026", en: "Set color\u2026", icon: "paintbrush", exec: (ctx) => pickColorCtx(ctx) },
   "vt.insRowAbove": {
     zh: "\u4E0A\u65B9\u63D2\u5165\u884C",
     en: "Insert row above",
@@ -7575,6 +7780,9 @@ var DEFAULT_CONTEXT_MENU = [
   "---",
   "vt.alignL\uFF5Cvt.alignC\uFF5Cvt.alignR",
   "vt.alignT\uFF5Cvt.alignM\uFF5Cvt.alignB",
+  // 样式图标组（2026-11-04）：恒显示；无选区目标时点击弹提示
+  "vt.bold\uFF5Cvt.italic\uFF5Cvt.strike\uFF5Cvt.highlight",
+  "vt.underline\uFF5Cvt.subscript\uFF5Cvt.superscript\uFF5Cvt.code\uFF5Cvt.clearFormat",
   "vt.pickColor",
   "---",
   "vt.mergeRight",
@@ -7620,8 +7828,6 @@ function buildCellMenu(settings, ctx, obsidianCommand) {
       const acts = spec.ids.map((id) => VT_MENU_ACTIONS[id]).filter((a) => !!a);
       if (!acts.length)
         continue;
-      if (acts.some((a) => a.needsSel) && !(ctx.sel && ctx.sel.rects.length))
-        continue;
       menu.addItem((i) => {
         i.setTitle("");
         const wrap = i.titleEl.createSpan({ cls: "vt-menu-icons" });
@@ -7652,8 +7858,6 @@ function buildCellMenu(settings, ctx, obsidianCommand) {
     const act = VT_MENU_ACTIONS[spec.id];
     if (!act)
       continue;
-    if (act.needsSel && !(ctx.sel && ctx.sel.rects.length))
-      continue;
     menu.addItem((i) => {
       i.setTitle(t(act.zh, act.en)).setIcon(spec.icon || act.icon);
       if (act.checked?.(ctx))
@@ -7663,16 +7867,31 @@ function buildCellMenu(settings, ctx, obsidianCommand) {
   }
   return menu;
 }
-function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit, setMode, sel, settings, obsidianCommand) {
+function showCellMenu(e, data, r, c, toolbar, flushCell, onCommit, setMode, sel, settings, obsidianCommand, textSel, td, onPickColor) {
   const grid = data.rows;
   const apply = (fn, shift) => {
     flushCell();
     fn();
     onCommit(shift);
   };
+  const applyFragment = (fn) => {
+    const cd = grid[r]?.[c];
+    if (!cd || !textSel)
+      return;
+    const res = fn(cd.t ?? "");
+    if (!res || res.next === cd.t)
+      return;
+    cd.t = res.next;
+    if (td && isWysiwyg(td)) {
+      resyncCellFromSource(td, res.next);
+      placeCaretAtSourceOffset(td, Math.min(res.caret, res.next.length));
+      flushCell();
+    }
+    onCommit();
+  };
   const focusR = () => document.activeElement != null && document.activeElement.instanceOf(HTMLElement) ? parseInt(document.activeElement.dataset.vtR ?? "-1", 10) : -1;
   const focusC = () => document.activeElement != null && document.activeElement.instanceOf(HTMLElement) ? parseInt(document.activeElement.dataset.vtC ?? "-1", 10) : -1;
-  const ctx = { r, c, grid, data, apply, sel, setMode, focusR, focusC };
+  const ctx = { r, c, grid, data, apply, sel, setMode, focusR, focusC, textSel, td, onPickColor, applyFragment };
   buildCellMenu(settings, ctx, obsidianCommand).showAtMouseEvent(e);
 }
 function isWikiLinkInsideBackticks(text, matchIndex) {
@@ -7680,6 +7899,118 @@ function isWikiLinkInsideBackticks(text, matchIndex) {
   const tickCount = (before.match(/`/g) ?? []).length;
   return tickCount % 2 === 1;
 }
+
+// src/icons.ts
+var LUCIDE_ICONS = [
+  // 文字格式
+  "bold",
+  "italic",
+  "underline",
+  "strikethrough",
+  "highlighter",
+  "superscript",
+  "subscript",
+  "case-upper",
+  "case-lower",
+  "code",
+  "remove-formatting",
+  "type",
+  "heading",
+  "pilcrow",
+  "wrap-text",
+  // 颜色
+  "paintbrush",
+  "palette",
+  "eraser",
+  // 编辑
+  "copy",
+  "clipboard",
+  "clipboard-paste",
+  "clipboard-copy",
+  "scissors",
+  "trash",
+  "trash-2",
+  "undo-2",
+  "redo-2",
+  "search",
+  "replace",
+  // 表格与列表
+  "table",
+  "table-2",
+  "list",
+  "list-ordered",
+  "list-todo",
+  "merge",
+  "split",
+  "combine",
+  "split-square-horizontal",
+  "split-square-vertical",
+  "move-horizontal",
+  "move-vertical",
+  "move-up",
+  "move-down",
+  // 对齐
+  "align-left",
+  "align-center",
+  "align-right",
+  "align-justify",
+  "align-vertical-justify-start",
+  "align-vertical-justify-center",
+  "align-vertical-justify-end",
+  // 方向
+  "arrow-up",
+  "arrow-down",
+  "arrow-left",
+  "arrow-right",
+  "arrow-up-to-line",
+  "arrow-down-to-line",
+  "arrow-left-to-line",
+  "arrow-right-to-line",
+  "corner-down-left",
+  "corner-down-right",
+  "chevron-up",
+  "chevron-down",
+  "chevron-left",
+  "chevron-right",
+  "chevrons-up",
+  "chevrons-down",
+  "chevrons-left",
+  "chevrons-right",
+  "rotate-cw",
+  "rotate-ccw",
+  // 内容对象
+  "link",
+  "unlink",
+  "image",
+  "paperclip",
+  "hash",
+  "quote",
+  "star",
+  "heart",
+  "bookmark",
+  "tag",
+  "clock",
+  "calendar",
+  "mail",
+  "external-link",
+  // 状态与杂项
+  "check",
+  "x",
+  "plus",
+  "minus",
+  "circle",
+  "square",
+  "info",
+  "zap",
+  "sun",
+  "moon",
+  "file-text",
+  "folder",
+  "terminal",
+  "settings",
+  "eye",
+  "pin"
+];
 
 // src/bar.ts
 function wrapFontSize(src, px) {
@@ -7845,7 +8176,12 @@ var Toolbar = class {
     if (this.cell && !this.cell.isConnected)
       this.hide();
   }
-  /** 富文本格式：有选区 → 逐格整块包裹；无选区 → 聚焦格整格包裹（源码域）。
+  /** 浮窗当前是否正为该格显示（pointerdown 自愈判定用：焦点在格但浮窗已丢的场景） */
+  shownFor(cell2) {
+    return this.cell === cell2 && this.el.style.display !== "none";
+  }
+  /** 富文本格式：有选区 → 逐格整块包裹；格内文字选区（Shift+方向键/拖选）→ 只包
+   *  选中片段；无选区 → 聚焦格整格包裹（源码域）。
    *  单格不再走 execCommand：其 DOM 修改会被 wysiwyg 源码投影丢弃（加粗/斜体不保存），
    *  改与选区批量同语义直接包 grid 源码，经 commit 重渲染后持久化 */
   fmt(cmd) {
@@ -7854,6 +8190,25 @@ var Toolbar = class {
       return;
     }
     const tag = cmd === "bold" ? "b" : "i";
+    const td = this.cell;
+    if (td && isWysiwyg(td) && this.data && this.onCommit) {
+      this.flushCell?.();
+      const sr = selectionSourceRange(td);
+      const cd = this.data.rows[this.cellR]?.[this.cellC];
+      if (sr && cd && sr.b > sr.a) {
+        const frag = cd.t.slice(sr.a, sr.b);
+        const wrapped = toggleWrapTag(frag, tag);
+        if (wrapped !== frag) {
+          cd.t = cd.t.slice(0, sr.a) + wrapped + cd.t.slice(sr.b);
+          this.syncCell?.(this.cellR, this.cellC);
+          placeCaretAtSourceOffset(td, sr.a + wrapped.length);
+          this.flushCell?.();
+          const commit = this.onCommit;
+          commit(serialize(this.data));
+        }
+        return;
+      }
+    }
     this.structOp(cmd, (g, r, c) => {
       const cd = g[r]?.[c];
       if (cd)
@@ -8943,6 +9298,16 @@ ${first}`, 0);
         ctrl.pickColor();
       }
     });
+    this.addCommand({
+      id: "vt-undo",
+      name: t("\u64A4\u9500\u4E0A\u4E00\u6B21\u683C\u5185\u7F16\u8F91", "Undo last in-cell edit"),
+      callback: () => {
+        const td = activeWysiwygTd();
+        if (!td || !execCellCommand(td)) {
+          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+        }
+      }
+    });
   }
   insertTable(ed) {
     const source = blankSource(2, 2);
@@ -9599,11 +9964,42 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
     search.placeholder = t("\u8F93\u5165\u5173\u952E\u8BCD\u7B5B\u9009\uFF08vtable \u52A8\u4F5C + Obsidian \u547D\u4EE4\uFF09\u2026", "Filter (vtable actions + Obsidian commands)\u2026");
     search.style.width = `100%`;
     const listBox = wrap.createDiv({ cls: "vt-menu-lookup-list" });
+    const iconFieldLabel = wrap.createDiv({ cls: "vt-menu-field-label" });
+    iconFieldLabel.createSpan({ text: t("\u56FE\u6807", "Icon") });
+    iconFieldLabel.createSpan({ cls: "vt-optional-tag", text: t("\u53EF\u9009", "Optional") });
     const genIcon = wrap.createEl("input", { type: "text" });
-    genIcon.placeholder = t("\u56FE\u6807\u540D\uFF08\u53EF\u9009\uFF0Clucide \u540D\u79F0\uFF0C\u5982 bold\uFF09", "Icon (optional lucide name, e.g. bold)");
+    genIcon.placeholder = t("\u56FE\u6807\u540D\uFF08lucide \u540D\u79F0\uFF0C\u5982 bold\uFF09", "Icon name (lucide, e.g. bold)");
     genIcon.style.width = `100%`;
     const genLine = wrap.createDiv({ cls: "vt-menu-lookup-line", text: t("\uFF08\u5C1A\u672A\u9009\u62E9\u547D\u4EE4\uFF09", "(no command selected)") });
     let selectedLine = "";
+    const iconPicker = wrap.createDiv({ cls: "vt-icon-picker" });
+    const iconSearch = iconPicker.createEl("input", { type: "text" });
+    iconSearch.placeholder = t("\u641C\u7D22\u56FE\u6807\uFF08\u70B9\u9009\u586B\u5165\u56FE\u6807\u540D\uFF09\u2026", "Search icons (click to pick)\u2026");
+    iconSearch.style.width = `100%`;
+    const iconGrid = iconPicker.createDiv({ cls: "vt-icon-grid" });
+    const renderIcons = () => {
+      const q = iconSearch.value.trim().toLowerCase();
+      iconGrid.empty();
+      const cur = genIcon.value.trim().toLowerCase();
+      const hits = LUCIDE_ICONS.filter((n) => !q || n.includes(q)).slice(0, 60);
+      for (const name of hits) {
+        const cell2 = iconGrid.createSpan({
+          cls: "vt-icon-cell" + (name === cur ? " is-selected" : ""),
+          attr: { title: name, "aria-label": name }
+        });
+        (0, import_obsidian4.setIcon)(cell2, name);
+        cell2.addEventListener("click", () => {
+          genIcon.value = name;
+          if (selectedLine)
+            genLine.setText(t("\u751F\u6210\u7684\u884C\uFF1A", "Generated line: ") + `${selectedLine}|${name}`);
+          renderIcons();
+        });
+      }
+      if (!hits.length)
+        iconGrid.createDiv({ cls: "vt-icon-empty", text: t("\u65E0\u5339\u914D\u56FE\u6807", "No matching icons") });
+    };
+    iconSearch.addEventListener("input", renderIcons);
+    renderIcons();
     const copyBtn = wrap.createEl("button", { text: t("\u590D\u5236\u751F\u6210\u7684\u884C", "Copy generated line") });
     copyBtn.addEventListener("click", () => {
       if (!selectedLine)
@@ -9631,7 +10027,9 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
         item.createEl("code", { cls: "vt-menu-lookup-code", text: s.line });
         item.addEventListener("click", () => {
           selectedLine = s.line;
-          genLine.setText(t("\u751F\u6210\u7684\u884C\uFF1A", "Generated line: ") + (genIcon.value.trim() ? `${s.line}|${genIcon.value.trim()}` : s.line));
+          genIcon.value = "";
+          renderIcons();
+          genLine.setText(t("\u751F\u6210\u7684\u884C\uFF1A", "Generated line: ") + s.line);
         });
       }
       if (!hits.length)

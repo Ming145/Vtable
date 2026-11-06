@@ -32,6 +32,12 @@ export interface SelOps {
         split(): void;
         bold(): void;
         italic(): void;
+        /** 整格 <tag> 包裹/解包（b/i/s/mark/u/sub/sup 等对称标签；bold/italic 的泛化底座） */
+        wrapTag(tag: string): void;
+        /** 整格反引号包裹/解包（行内代码，markdown 语法族） */
+        code(): void;
+        /** 剥除选区内联格式标签（b/i/u/s/em/strong/mark/sub/sup/small/del/ins/kbd/font/span） */
+        stripFormat(): void;
         fontStep(delta: number): void;
         /** 设置选区水平对齐 */
         align(mode: 'l' | 'c' | 'r'): void;
@@ -491,7 +497,9 @@ export class SelOverlay {
                 this.layer.style.position = `fixed`;
                 this.layer.style.pointerEvents = `none`;
                 this.layer.style.overflow = `visible`;
-                this.layer.style.zIndex = `1000`;
+                // 层级（2026-11-01 TA：选框盖在右键菜单上）：原 1000 压过 Obsidian Menu
+                // (--layer-menu 65)——降到菜单之下，随主题变量自适应（同 .vt-fill-handle 公式）
+                this.layer.style.zIndex = `calc(var(--layer-menu, 65) - 5)`;
                 this.svg = document.createElementNS(SVG_NS, 'svg');
                 this.svg.style.overflow = `visible`;
                 this.path = document.createElementNS(SVG_NS, 'path');

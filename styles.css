@@ -822,20 +822,22 @@ table.vt td.vt-diag {
 
 /* iPad 专用：浮窗按钮长宽比与桌面完全一致（max-width 48 上限回归，禁 UA 内在尺寸放大）。
    仅用 .is-tablet 精确命中，不误伤手机（.is-mobile 保持上面的宽松规则） */
+/* 顽固 bug 回归恢复（2026-09-19 修复，2026-10-24 !important 清理误删致 iPad 按钮变宽，2026-11-01 TA 报）：
+   !important 必须保留——iPadOS WebKit 上同特异性级联锁不住桌面比例 */
 .is-tablet .vt-bar-btn {
-        -webkit-appearance: none;
-        appearance: none;
-        min-width: 28px;
-        max-width: 48px;
-        width: auto;
-        height: 28px;
-        padding: 0 5px;
-        flex: 0 1 auto;
-        font-size: 13px;
-        line-height: 1;
-        white-space: nowrap;
-        box-sizing: border-box;
-        -webkit-text-size-adjust: 100%;
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        min-width: 28px !important;
+        max-width: 48px !important;
+        width: auto !important;
+        height: 28px !important;
+        padding: 0 5px !important;
+        flex: 0 1 auto !important;
+        font-size: 13px !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+        box-sizing: border-box !important;
+        -webkit-text-size-adjust: 100% !important;
 }
 
 @media (pointer: coarse) {
@@ -1104,6 +1106,75 @@ table.vt td.vt-diag {
         min-height: 1.2em;
 }
 
+/* 图标输入框位的字段标签 + 「可选」常驻标识（2026-11-05） */
+.vt-menu-field-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-muted, #666);
+}
+
+.vt-optional-tag {
+        padding: 0 6px;
+        border-radius: var(--radius-s, 4px);
+        background: var(--background-modifier-hover, rgba(0, 0, 0, 0.05));
+        color: var(--text-faint, #999);
+        font-size: 11px;
+        line-height: 18px;
+        user-select: none;
+}
+
+/* 右键菜单自定义：图标选择器（搜索 + 网格点选，2026-11-04） */
+.vt-icon-picker {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+}
+
+.vt-icon-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        max-height: 150px;
+        overflow-y: auto;
+        border: 1px solid var(--background-modifier-border, #ddd);
+        border-radius: 4px;
+        padding: 6px;
+}
+
+.vt-icon-cell {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-normal, #333);
+        flex-shrink: 0;
+}
+
+.vt-icon-cell:hover {
+        background: var(--background-modifier-hover, rgba(0, 0, 0, 0.05));
+}
+
+.vt-icon-cell.is-selected {
+        background: var(--interactive-accent, rgba(0, 0, 0, 0.1));
+        color: var(--text-on-accent, var(--text-normal, #333));
+}
+
+.vt-icon-cell svg.svg-icon {
+        width: 16px;
+        height: 16px;
+}
+
+.vt-icon-empty {
+        color: var(--text-muted, #888);
+        font-size: 12px;
+        padding: 4px;
+}
+
 /* 双链渲染（⑦）：主题已有 .internal-link 全局样式，这里兜底最基本观感 */
 .vtable-container a.internal-link {
         color: var(--link-color, var(--text-accent, #7c3aed));
@@ -1248,7 +1319,7 @@ table.vt td.vt-diag {
    不可见（无磨砂无底色），只负责扩大触达范围。线条用内嵌 SVG currentColor 继承 */
 /* 声明式设置：样式折叠区宿主行（框架预建 setting-item 行清空为纯容器，抵消 flex 布局） */
 .vt-style-section-host {
-	display: block;
+        display: block;
 }
 
 .vt-img-seg .vt-img-resize {

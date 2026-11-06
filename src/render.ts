@@ -38,6 +38,7 @@ import {
         caretSourceOffset,
         placeCaretAtSourceOffset,
         resyncCellFromSource,
+        selectionSourceRange,
         arrowIntoSegTail,
         isWysiwyg,
         type WysiwygCtx,
@@ -261,6 +262,15 @@ let lastTableFocus: { host: HTMLElement; r: number; c: number; at: number } | nu
 /** 最近一次点表外时刻（onOutsidePointer 登记）：表外点击若引发光标离开代码块的 widget 重建，
  *  回退登记不得把焦点抢回来 */
 let lastOutsidePointerAt = 0;
+
+/** 焦点落点是否"劫持形态"（CM/内核挪移焦点，非用户离表意图）——blur 收尾判定用：
+ *  无落点/body，或落在本表之外的编辑器内部（cm-content/cm-editor 等）。
+ *  本表内元素、浮窗/菜单/弹窗/侧栏按钮等真实目的地都返回 false（走正常收尾） */
+function isStealLikeFocus(dest: HTMLElement | null, tableHost: HTMLElement): boolean {
+        if (!dest || dest === document.body) return true;
+        if (tableHost.contains(dest)) return false;
+        return !!dest.closest?.('.cm-editor');
+}
 
 /** 最近一次触摸滚动的时刻：iOS WKWebView 已知死锁——程序性写 scrollTop 撞上触摸
  *  惯性滚动会令触摸滚动永久失效（"页面划不动、重启才恢复"）。restore 写入前必须确认
@@ -1253,6 +1263,28 @@ export function renderBlock(
                 clearSelection();
         };
 
+        /** 选区内容类操作（加粗/对齐/底色/清空…）后的光标落位（2026-11-01 TA）：光标不落
+         *  选区前端，而是落到"刚刚操作的选区紧贴着的后方"——选区阅读顺序末格（合并格归一
+         *  到锚点格），光标放该格内容末尾 */
+        const restoreSelEnd = (rects: SelRect[]) => {
+                if (!table.contains(document.activeElement)) {
+                        pendingFocusRestore = null; // 焦点本就不在表内：不抢焦点（与 applyFocusRestore 同护栏）
+                        return;
+                }
+                let rMax = -1, cMax = -1;
+                for (const rc of rects) {
+                        for (let r = rc.r1; r <= rc.r2; r++) {
+                                for (let c = rc.c1; c <= rc.c2; c++) {
+                                        if (r > rMax || (r === rMax && c > cMax)) { rMax = r; cMax = c; }
+                                }
+                        }
+                }
+                const anchor = rMax >= 0 ? anchorIndex.get(`${rMax},${cMax}`) : undefined;
+                pendingFocusRestore = anchor
+                        ? { r: anchor.r, c: anchor.c, caretAtEnd: true, textOffset: null }
+                        : { r: focusedR, c: focusedC, caretAtEnd: false, textOffset: null };
+        };
+
         const selOps: SelOps = {
                 get rects() { return selRects; },
                 insRowAbove: () => commitSel(rects => {
@@ -1357,16 +1389,26 @@ export function renderBlock(
                                 for (const [r, c] of targets) splitCell(grid, r, c);
                         }, true, () => applyFocusRestore(0, 0, focusedInside && !wasFocusedAnchor));
                 },
-                bold: () => commitSel(rects => {
+                bold: () => selOps.wrapTag('b'),
+                italic: () => selOps.wrapTag('i'),
+                // 样式族泛化底座（2026-11-04）：整格对称标签包裹，选区批量
+                wrapTag: (tag: string) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                grid[r][c].t = toggleWrapTag(grid[r][c].t, 'b');
+                                grid[r][c].t = toggleWrapTag(grid[r][c].t, tag);
                         });
-                }, true, rects => applyFocusRestore(0, 0, rects.some(rc => rectContains(rc, focusedR, focusedC)))),
-                italic: () => commitSel(rects => {
+                }, true, restoreSelEnd),
+                // 行内代码（markdown 反引号语法族）：整格包裹/解包
+                code: () => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
-                                grid[r][c].t = toggleWrapTag(grid[r][c].t, 'i');
+                                grid[r][c].t = toggleWrapMd(grid[r][c].t, '`');
                         });
-                }, true, rects => applyFocusRestore(0, 0, rects.some(rc => rectContains(rc, focusedR, focusedC)))),
+                }, true, restoreSelEnd),
+                // 剥除选区整格的内联格式标签（span 一并剥除 = 字号一并清除）
+                stripFormat: () => commitSel(rects => {
+                        forEachSelectedAnchor(rects, (r, c) => {
+                                grid[r][c].t = stripInlineFormat(grid[r][c].t);
+                        });
+                }, true, restoreSelEnd),
                 fontStep: (delta: number) => {
                         // 字号只改 td 内联样式、不提交（与单格行为一致）；完成后选框消失（浮窗按钮统一行为）
                         for (let r = 0; r < grid.length; r++) {
@@ -1387,7 +1429,7 @@ export function renderBlock(
                                 if (mode === 'l') delete cd.a; // 左对齐是默认，字段瘦身
                                 else cd.a = mode;
                         });
-                }, true),
+                }, true, restoreSelEnd),
                 // 垂直对齐（t/m/b；存进 Cell.va，重渲染后由内联样式生效；顶对齐=默认，字段瘦身）
                 alignV: (mode) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
@@ -1395,7 +1437,7 @@ export function renderBlock(
                                 if (mode === 't') delete cd.va;
                                 else cd.va = mode;
                         });
-                }, true),
+                }, true, restoreSelEnd),
                 // 任务2：选区底色（null = 清除）
                 setColor: (color) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
@@ -1403,13 +1445,13 @@ export function renderBlock(
                                 if (color) cd.bg = color;
                                 else delete cd.bg;
                         });
-                }, true),
+                }, true, restoreSelEnd),
                 // 任务3：清空选区内容（不动行列结构，选区保持）
                 clearContent: () => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
                                 grid[r][c].t = '';
                         });
-                }, true),
+                }, true, restoreSelEnd),
                 // 任务2：取色弹窗（main.ts 提供弹窗实现）；无选区时对聚焦格取色（任务10）
                 pickColor: () => {
                         const rects = effectiveRects();
@@ -1791,8 +1833,37 @@ export function renderBlock(
                                         return;
                                 }
                                 if (selRects.length) clearSelection();
+                                // 浮窗自愈（2026-10-31）：焦点仍在本格但浮窗已丢（任何路径误杀后
+                                // 焦点未离格 → 同格再点永远不触发 focus 事件，浮窗成死态）→ 本次
+                                // 点击重挂。真机"点两次浮窗消失"的兜底防线
+                                if (document.activeElement === td && !toolbar.shownFor(td)) {
+                                        showBarFor();
+                                }
                         });
 
+                        // 浮窗重挂（2026-10-31）：focus 处理器与 pointerdown 自愈共用接线
+                        // （提取自原 focus 内联段，行为不变）
+                        const showBarFor = () => {
+                                showEditingUi();
+                                updateEdgeBars();
+                                syncFillHandle();
+                                if (Platform.isDesktop && !settings.enableDesktopToolbar) return;
+                                if ((Platform.isMobile || Platform.isTablet) && !settings.enableMobileToolbar) return;
+                                toolbar.show(td, data, r, c,
+                                        (s: string) => {
+                                                const shift = toolbar.consumeFocusShift();
+                                                applyFocusRestore(shift?.dr ?? 0, shift?.dc ?? 0, shift?.resetCaret ?? false);
+                                                onCommit(s);
+                                        },
+                                        flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps,
+                                        // 浮窗文本类操作后按新 grid 源码重投聚焦格（防离焦投影回写旧值覆盖——不保存的根因）
+                                        (rr, cc) => {
+                                                const td2 = cellMap[rr]?.[cc];
+                                                const cd2 = grid[rr]?.[cc];
+                                                if (!td2 || !cd2 || isDiag(cd2) || !isWysiwyg(td2)) return;
+                                                resyncCellFromSource(td2, cd2.t);
+                                        });
+                        };
                         td.addEventListener('focus', () => {
                                 if (!td.closest('.cm-editor')) {
                                         td.blur();
@@ -1820,25 +1891,7 @@ export function renderBlock(
                                         enterWysiwyg(td, src, wysiwygCtx);
                                         placeCaretAtSourceOffset(td, src.length);
                                 }
-                                showEditingUi();
-                                updateEdgeBars();
-                                syncFillHandle();
-                                if (Platform.isDesktop && !settings.enableDesktopToolbar) return;
-                                if ((Platform.isMobile || Platform.isTablet) && !settings.enableMobileToolbar) return;
-                                toolbar.show(td, data, r, c,
-                                        (s: string) => {
-                                                const shift = toolbar.consumeFocusShift();
-                                                applyFocusRestore(shift?.dr ?? 0, shift?.dc ?? 0, shift?.resetCaret ?? false);
-                                                onCommit(s);
-                                        },
-                                        flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps,
-                                        // 浮窗文本类操作后按新 grid 源码重投聚焦格（防离焦投影回写旧值覆盖——不保存的根因）
-                                        (rr, cc) => {
-                                                const td2 = cellMap[rr]?.[cc];
-                                                const cd2 = grid[rr]?.[cc];
-                                                if (!td2 || !cd2 || isDiag(cd2) || !isWysiwyg(td2)) return;
-                                                resyncCellFromSource(td2, cd2.t);
-                                        });
+                                showBarFor();
                         });
 
                                         // 区编辑收尾：dataset 暂存写回 grid → 重建显示态 → commit 判定
@@ -1893,6 +1946,33 @@ export function renderBlock(
                                         // 斜分格收尾只走 zone 的 onZoneLeave（td 在进入 zone 编辑时已 blur 过一次）；
                                         // 这里仅防程序性 blur td 时误走普通格投影
                                         if (!td.contains(document.activeElement)) finishDiagEdit();
+                                        return;
+                                }
+                                // D2（2026-10-31，"点两次浮窗消失"真机第二轮）：焦点落点为劫持形态
+                                // （无落点/body/本表之外的编辑器内部）——CM/内核挪移焦点，非用户离表。
+                                // 与 D 案 500ms 窗口互补：窗口管点击瞬间的同步挪移，这里管迟到的异步
+                                // 挪移（真机存在 >500ms 的挪移，pw 模拟不出）。劫持不是离表：只投影数据
+                                // （内容不丢），不 hide 浮窗、不摘编辑态——焦点归位时 focus 处理器自然
+                                // 重挂一切；真离表的 UI 收口各有其主：点表外由 onOutsidePointer
+                                // （pointerdown capture 层）即时处理，Tab 离表落点必是真实可聚焦元素
+                                // （非劫持形态，走下方原路径）。
+                                const stealDest = ((e).relatedTarget as HTMLElement | null)
+                                        ?? (document.activeElement as HTMLElement | null);
+                                if (isStealLikeFocus(stealDest, el)) {
+                                        const htmlS = normalizeCellHtml(stripRcHandles(isWysiwyg(td) ? projectSource(td) : td.innerHTML));
+                                        if (cell.t !== htmlS) {
+                                                cell.t = htmlS;
+                                                pendingDirty = true;
+                                                autoExpandRowHeight(td, data, r, true);
+                                        }
+                                        // 表外点击佐证（onOutsidePointer 刚收过 pointerdown）：浮窗/选区
+                                        // 已被那一层收走，这里只补侧边把手；纯劫持不动（归位时原样恢复）
+                                        if (Date.now() - lastOutsidePointerAt < 400) hideEditingUi();
+                                        // 劫持后若焦点永不归位：延迟兜底 commit，防编辑滞留内存
+                                        window.setTimeout(() => {
+                                                if (!table.isConnected || table.contains(document.activeElement)) return;
+                                                if (pendingDirty) { commit(); pendingDirty = false; }
+                                        }, 600);
                                         return;
                                 }
                                 const html = normalizeCellHtml(stripRcHandles(isWysiwyg(td) ? projectSource(td) : td.innerHTML));
@@ -2093,10 +2173,19 @@ export function renderBlock(
                                 const inSelection = selRects.some(rc => rectContains(rc, r, c));
                                 // 6b：右键点在选区内 → 菜单按选区批量执行；点在选区外 → 清空选区走单格菜单
                                 if (selRects.length && !inSelection) clearSelection();
+                                // 格内文字选区捕获（样式类命令的选区目标，2026-11-04）：右键不破坏 DOM 选区
+                                // （pointerdown 对非左键早退），此刻选区仍在 → 落源码域偏移，菜单交互期间不失效。
+                                // 选框批量优先：右键点在选区内时不捕获（与浮窗 fmt 的分流顺序一致）
+                                let textSel: { a: number; b: number } | null = null;
+                                if (!inSelection && isWysiwyg(td)) {
+                                        flushActiveCell(); // 先收未投影输入（只投影不重建 DOM，选区不破坏）
+                                        const sr = selectionSourceRange(td);
+                                        if (sr && sr.b > sr.a) textSel = { a: sr.a, b: sr.b };
+                                }
                                 showCellMenu(e, data, r, c, toolbar, flushActiveCell, (shift?: FocusShift) => {
                                         applyFocusRestore(shift?.dr ?? 0, shift?.dc ?? 0, shift?.resetCaret ?? false);
                                         onCommit(serialize(data));
-                                }, setMode, inSelection ? selOps : null, settings, obsidianCommand);
+                                }, setMode, inSelection ? selOps : null, settings, obsidianCommand, textSel, td, onPickColor);
                         });
                 });
         });
@@ -2196,7 +2285,17 @@ export function renderBlock(
                                         applyFocusRestore(shift?.dr ?? 0, shift?.dc ?? 0, shift?.resetCaret ?? false);
                                         onCommit(s);
                                 },
-                                flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps);
+                                flushActiveCell, () => onConvertToMd(grid), () => onConvertToHtml(grid), selOps,
+                                // 浮窗文本类操作后的重投（2026-11-01 补）：此处 show 会覆盖 focus 链
+                                // showBarFor 装的接线——旧表编辑请求被他表冒领消费时会在用户点击后
+                                // 跑到这里，缺参时 syncCell=空函数 → 片段格式化的 resync 空跑 →
+                                // 后续投影把旧 DOM 覆盖回 grid（写入丢 <i>/<b> 的根因）
+                                (rr, cc) => {
+                                        const td2 = cellMap[rr]?.[cc];
+                                        const cd2 = grid[rr]?.[cc];
+                                        if (!td2 || !cd2 || isDiag(cd2) || !isWysiwyg(td2)) return;
+                                        resyncCellFromSource(td2, cd2.t);
+                                });
                 }
                 // bug4：多表重渲染期间滚动高度塌陷会把视图钳到文档顶部，
                 // 重渲染稳定后把视图拉回聚焦格（两帧后 + 250ms 兜底）
@@ -2933,14 +3032,22 @@ type MenuCtx = {
         setMode: (mode: VtMode) => void;
         focusR: () => number;
         focusC: () => number;
+        /** 右键格内文字选区（源码域偏移；contextmenu 时捕获，菜单交互期间不失效）。
+         *  样式类命令在无选框时的作用目标（用户钉死 2026-11-04：样式针对选区，不做整格兜底） */
+        textSel: { a: number; b: number } | null;
+        /** 右键格 DOM：片段操作原地重投与光标放置用；右键格离开编辑态（焦点被菜单抢走）时为空跑 */
+        td: HTMLElement | null;
+        /** 取色弹窗入口（pickColor 单格降级用；renderBlock 的 onPickColor 透传） */
+        onPickColor: ((initial: string, cb: (color: string | null) => void) => void) | null;
+        /** 片段级源码变换（文字选区目标）：变源码 → 原地重投 → 光标落片段尾后 → 提交。
+         *  返回 null 或源码无变化 = 不提交（与 commitSel 同护栏） */
+        applyFragment: (fn: (src: string) => { next: string; caret: number } | null) => void;
 };
 
 type MenuAction = {
         zh: string;
         en: string;
         icon: string;
-        /** 仅在有选区时渲染（无单格语义的动作） */
-        needsSel?: boolean;
         checked?: (ctx: MenuCtx) => boolean;
         exec: (ctx: MenuCtx) => void;
 };
@@ -2948,6 +3055,21 @@ type MenuAction = {
 /** 单元格 html → 纯文本（<br> → 换行，其余标签剥除） */
 function cellPlainText(html: string): string {
         return parseTrustedHtml(html.replace(/<br\s*\/?>/gi, '\n')).textContent ?? '';
+}
+
+/** markdown 定界符包裹/解包（反引号等）：整体已包裹则解开，空内容不动（与 toggleWrapTag 同语义） */
+function toggleWrapMd(src: string, delim: string): string {
+        if (src.length >= delim.length * 2 && src.startsWith(delim) && src.endsWith(delim)) {
+                return src.slice(delim.length, src.length - delim.length);
+        }
+        if (!src.trim()) return src;
+        return delim + src + delim;
+}
+
+/** 内联格式标签剥除（清除格式命令用）：b/i/u/s/em/strong/mark/sub/sup/small/del/ins/kbd/font/span，
+ *  连同属性剥除（span 被剥 = 字号一并清除）；<br>/<code>/链接/图片等非纯格式结构保留 */
+function stripInlineFormat(src: string): string {
+        return src.replace(/<\/?(?:b|i|u|s|em|strong|mark|sub|sup|small|del|ins|kbd|font|span)\b[^>]*>/gi, '');
 }
 
 /** 复制菜单位置（选区 → 逐矩形 TSV；单格 → 格内容）到剪贴板 */
@@ -3039,6 +3161,72 @@ function alignVCtx(ctx: MenuCtx, mode: 't' | 'm' | 'b'): void {
         });
 }
 
+/** 样式类命令无选区目标时的统一提示（2026-11-04 用户定稿：恒显示，不满足条件弹提示不动作） */
+function noticeNoSelTarget(): void {
+        new Notice(t('请先选中单元格或单元格内的文字', 'Select some cells or text inside a cell first'));
+}
+
+/** 样式类三路分发（2026-11-04 用户定稿：恒显示；目标=用户的选框/文字选区，不做整格兜底）：
+ *  选框 → 选区批量（selOps）；格内文字选区 → 片段包裹（原地重投+光标落片段尾后）；
+ *  两者皆无 → Notice 提示后不动作 */
+function wrapCtx(ctx: MenuCtx, tag: string): void {
+        if (ctx.sel && ctx.sel.rects.length) { ctx.sel.wrapTag(tag); return; }
+        if (!ctx.textSel) { noticeNoSelTarget(); return; }
+        const { a, b } = ctx.textSel;
+        ctx.applyFragment((src) => {
+                const wrapped = toggleWrapTag(src.slice(a, b), tag);
+                return { next: src.slice(0, a) + wrapped + src.slice(b), caret: a + wrapped.length };
+        });
+}
+
+/** 行内代码三路分发：选框 → 整格反引号包裹；文字选区 → 片段反引号包裹 */
+function codeCtx(ctx: MenuCtx): void {
+        if (ctx.sel && ctx.sel.rects.length) { ctx.sel.code(); return; }
+        if (!ctx.textSel) { noticeNoSelTarget(); return; }
+        const { a, b } = ctx.textSel;
+        ctx.applyFragment((src) => {
+                const wrapped = toggleWrapMd(src.slice(a, b), '`');
+                return { next: src.slice(0, a) + wrapped + src.slice(b), caret: a + wrapped.length };
+        });
+}
+
+/** 清除格式三路分发：选框 → 选区整格剥格式标签；文字选区 → 片段剥格式标签 */
+function clearFormatCtx(ctx: MenuCtx): void {
+        if (ctx.sel && ctx.sel.rects.length) { ctx.sel.stripFormat(); return; }
+        if (!ctx.textSel) { noticeNoSelTarget(); return; }
+        const { a, b } = ctx.textSel;
+        ctx.applyFragment((src) => {
+                const stripped = stripInlineFormat(src.slice(a, b));
+                return { next: src.slice(0, a) + stripped + src.slice(b), caret: a + stripped.length };
+        });
+}
+
+/** 清空所选内容三路分发：选框 → 清格；文字选区 → 删除选中片段 */
+function clearContentCtx(ctx: MenuCtx): void {
+        if (ctx.sel && ctx.sel.rects.length) { ctx.sel.clearContent(); return; }
+        if (!ctx.textSel) { noticeNoSelTarget(); return; }
+        const { a, b } = ctx.textSel;
+        ctx.applyFragment((src) => {
+                if (!src.slice(a, b).trim()) return null; // 只删了空白：保持 DOM 与选区，不触发重渲染
+                return { next: src.slice(0, a) + src.slice(b), caret: a };
+        });
+}
+
+/** 设置底色（对齐系同构，恒可见）：选框 → 选区批量；无选框 → 右键格单格生效 */
+function pickColorCtx(ctx: MenuCtx): void {
+        if (ctx.sel && ctx.sel.rects.length) { ctx.sel.pickColor(); return; }
+        const cd = ctx.grid[ctx.r]?.[ctx.c];
+        if (!ctx.onPickColor) return;
+        ctx.onPickColor(cd?.bg ?? '', (color) => {
+                ctx.apply(() => {
+                        const cd2 = ctx.grid[ctx.r]?.[ctx.c];
+                        if (!cd2) return;
+                        if (color) cd2.bg = color;
+                        else delete cd2.bg;
+                });
+        });
+}
+
 /** 删除内容/结构：选区 → 批量；单格 → 本格/本行/本列。光标平移语义与原菜单一致 */
 export const VT_MENU_ACTIONS: Record<string, MenuAction> = {
         'vt.copy': { zh: '复制', en: 'Copy', icon: 'copy', exec: (ctx) => copyCtxToClipboard(ctx) },
@@ -3048,17 +3236,27 @@ export const VT_MENU_ACTIONS: Record<string, MenuAction> = {
                 exec: (ctx) => { copyCtxToClipboard(ctx); clearCtxContent(ctx); },
         },
         'vt.delete': { zh: '删除内容', en: 'Delete content', icon: 'eraser', exec: (ctx) => clearCtxContent(ctx) },
-        'vt.clearContent': { zh: '清空所选内容', en: 'Clear selection', icon: 'eraser', needsSel: true, exec: (ctx) => ctx.sel!.clearContent() },
-        'vt.bold': { zh: '加粗', en: 'Bold', icon: 'bold', needsSel: true, exec: (ctx) => ctx.sel!.bold() },
-        'vt.italic': { zh: '斜体', en: 'Italic', icon: 'italic', needsSel: true, exec: (ctx) => ctx.sel!.italic() },
-        // 对齐六项不设 needsSel：有选区走选区批量；无选区（右键单格，ctx.sel=null）对右键格直接生效
+        'vt.clearContent': { zh: '清空所选内容', en: 'Clear selection', icon: 'eraser', exec: (ctx) => clearContentCtx(ctx) },
+        'vt.bold': { zh: '加粗', en: 'Bold', icon: 'bold', exec: (ctx) => wrapCtx(ctx, 'b') },
+        'vt.italic': { zh: '斜体', en: 'Italic', icon: 'italic', exec: (ctx) => wrapCtx(ctx, 'i') },
+        // 样式族扩编（2026-11-04 用户令：markdown/html 多加）：目标=用户选区（选框批量/文字选区片段），
+        // 存储与 b/i 同形（HTML 对称标签，均在 wysiwyg HTML_PAIR_TAGS 内）；code 走 markdown 反引号族
+        'vt.strike': { zh: '删除线', en: 'Strikethrough', icon: 'strikethrough', exec: (ctx) => wrapCtx(ctx, 's') },
+        'vt.highlight': { zh: '高亮', en: 'Highlight', icon: 'highlighter', exec: (ctx) => wrapCtx(ctx, 'mark') },
+        'vt.underline': { zh: '下划线', en: 'Underline', icon: 'underline', exec: (ctx) => wrapCtx(ctx, 'u') },
+        'vt.subscript': { zh: '下标', en: 'Subscript', icon: 'subscript', exec: (ctx) => wrapCtx(ctx, 'sub') },
+        'vt.superscript': { zh: '上标', en: 'Superscript', icon: 'superscript', exec: (ctx) => wrapCtx(ctx, 'sup') },
+        'vt.code': { zh: '行内代码', en: 'Inline code', icon: 'code', exec: (ctx) => codeCtx(ctx) },
+        'vt.clearFormat': { zh: '清除格式', en: 'Clear formatting', icon: 'remove-formatting', exec: (ctx) => clearFormatCtx(ctx) },
+        // 对齐六项：有选区走选区批量；无选区（右键单格，ctx.sel=null）对右键格直接生效
         'vt.alignL': { zh: '居左', en: 'Align left', icon: 'align-left', exec: (ctx) => alignCtx(ctx, 'l') },
         'vt.alignC': { zh: '居中', en: 'Align center', icon: 'align-center', exec: (ctx) => alignCtx(ctx, 'c') },
         'vt.alignR': { zh: '居右', en: 'Align right', icon: 'align-right', exec: (ctx) => alignCtx(ctx, 'r') },
         'vt.alignT': { zh: '顶对齐', en: 'Align top', icon: 'arrow-up-to-line', exec: (ctx) => alignVCtx(ctx, 't') },
         'vt.alignM': { zh: '垂直居中', en: 'Align middle', icon: 'align-vertical-justify-center', exec: (ctx) => alignVCtx(ctx, 'm') },
         'vt.alignB': { zh: '底对齐', en: 'Align bottom', icon: 'arrow-down-to-line', exec: (ctx) => alignVCtx(ctx, 'b') },
-        'vt.pickColor': { zh: '设置底色…', en: 'Set color…', icon: 'paintbrush', needsSel: true, exec: (ctx) => ctx.sel!.pickColor() },
+        // 底色（恒可见）：选框 → 批量；无选框 → 右键格单格
+        'vt.pickColor': { zh: '设置底色…', en: 'Set color…', icon: 'paintbrush', exec: (ctx) => pickColorCtx(ctx) },
         'vt.insRowAbove': {
                 zh: '上方插入行', en: 'Insert row above', icon: 'arrow-up',
                 exec: (ctx) => {
@@ -3142,6 +3340,9 @@ export const DEFAULT_CONTEXT_MENU = [
         'vt.insColLeft', 'vt.insColRight', 'vt.delCol', '---',
         'vt.alignL｜vt.alignC｜vt.alignR',
         'vt.alignT｜vt.alignM｜vt.alignB',
+        // 样式图标组（2026-11-04）：恒显示；无选区目标时点击弹提示
+        'vt.bold｜vt.italic｜vt.strike｜vt.highlight',
+        'vt.underline｜vt.subscript｜vt.superscript｜vt.code｜vt.clearFormat',
         'vt.pickColor', '---',
         'vt.mergeRight', 'vt.mergeDown', 'vt.split', '---',
         'vt.modeOL', 'vt.modeHS', 'vt.modeRC',
@@ -3179,13 +3380,13 @@ function parseMenuConfig(src: string): MenuItemSpec[] {
 
 function buildCellMenu(settings: VtSettings, ctx: MenuCtx, obsidianCommand: (cmdId: string) => { name: string; run: () => void } | null): Menu {
         const menu = new Menu();
+        // 全部动作恒显示（2026-11-04 用户定稿）：不满足条件的动作点击时由各 exec 弹提示
         for (const spec of parseMenuConfig(settings.contextMenu || DEFAULT_CONTEXT_MENU)) {
                 if (spec.kind === 'sep') { menu.addSeparator(); continue; }
                 if (spec.kind === 'group') {
-                        // 纯图标组（一行多个小图标）：组内任一成员需要选区而无选区 → 整组隐藏
+                        // 纯图标组（一行多个小图标）
                         const acts = spec.ids.map(id => VT_MENU_ACTIONS[id]).filter(a => !!a);
                         if (!acts.length) continue;
-                        if (acts.some(a => a.needsSel) && !(ctx.sel && ctx.sel.rects.length)) continue;
                         menu.addItem((i) => {
                                 i.setTitle('');
                                 const wrap = (i as unknown as { titleEl: HTMLElement }).titleEl.createSpan({ cls: 'vt-menu-icons' });
@@ -3213,7 +3414,6 @@ function buildCellMenu(settings: VtSettings, ctx: MenuCtx, obsidianCommand: (cmd
                 }
                 const act = VT_MENU_ACTIONS[spec.id];
                 if (!act) continue; // 未知 id：跳过
-                if (act.needsSel && !(ctx.sel && ctx.sel.rects.length)) continue;
                 menu.addItem(i => {
                         i.setTitle(t(act.zh, act.en)).setIcon(spec.icon || act.icon);
                         if (act.checked?.(ctx)) i.setChecked(true);
@@ -3235,6 +3435,12 @@ function showCellMenu(
         sel: SelOps | null,
         settings: VtSettings,
         obsidianCommand: (cmdId: string) => { name: string; run: () => void } | null,
+        /** 右键格内文字选区（contextmenu 时捕获的源码域偏移；无则 null） */
+        textSel: { a: number; b: number } | null,
+        /** 右键格 DOM（片段操作原地重投用） */
+        td: HTMLElement | null,
+        /** 取色弹窗入口（pickColor 单格降级） */
+        onPickColor: ((initial: string, cb: (color: string | null) => void) => void) | null,
 ) {
         const grid = data.rows;
         const apply = (fn: () => void, shift?: FocusShift) => {
@@ -3242,11 +3448,27 @@ function showCellMenu(
                 fn();
                 onCommit(shift);
         };
+        /** 片段级源码变换（文字选区目标；与浮窗 fmt 同构的 11-01 验证路径）：
+         *  变源码 → 原地重投 → 光标落片段尾后 → flush 捕获光标偏移 → 提交重渲染后还原。
+         *  右键格被菜单抢走焦点（离开编辑态）时跳过重投与光标，走纯提交（与其它菜单项一致，不抢焦点） */
+        const applyFragment = (fn: (src: string) => { next: string; caret: number } | null) => {
+                const cd = grid[r]?.[c];
+                if (!cd || !textSel) return;
+                const res = fn(cd.t ?? '');
+                if (!res || res.next === cd.t) return; // 无实际变化：不触发重渲染
+                cd.t = res.next;
+                if (td && isWysiwyg(td)) {
+                        resyncCellFromSource(td, res.next);
+                        placeCaretAtSourceOffset(td, Math.min(res.caret, res.next.length));
+                        flushCell(); // 幂等投影 + 捕获光标偏移（applyFocusRestore 消费）
+                }
+                onCommit();
+        };
         const focusR = () => ((document.activeElement != null && document.activeElement.instanceOf(HTMLElement))
                 ? parseInt(document.activeElement.dataset.vtR ?? '-1', 10) : -1);
         const focusC = () => ((document.activeElement != null && document.activeElement.instanceOf(HTMLElement))
                 ? parseInt(document.activeElement.dataset.vtC ?? '-1', 10) : -1);
-        const ctx: MenuCtx = { r, c, grid, data, apply, sel, setMode, focusR, focusC };
+        const ctx: MenuCtx = { r, c, grid, data, apply, sel, setMode, focusR, focusC, textSel, td, onPickColor, applyFragment };
         buildCellMenu(settings, ctx, obsidianCommand).showAtMouseEvent(e);
 }
 
