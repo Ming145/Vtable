@@ -16,13 +16,6 @@ import { compatExecCommand } from './compat';
 import { t } from './i18n';
 import { isWysiwyg, selectionSourceRange, placeCaretAtSourceOffset } from './wysiwyg';
 
-/** 整格字号包裹（已包则改值——A± 连点递变；与选区字号的 span 存储形态一致） */
-function wrapFontSize(src: string, px: number): string {
-        const m = src.match(/^<span style="font-size:\s*[\d.]+px"([^>]*)>([\s\S]*)<\/span>$/);
-        if (m) return `<span style="font-size:${px}px"${m[1]}>${m[2]}</span>`;
-        return `<span style="font-size:${px}px">${src}</span>`;
-}
-
 export class Toolbar {
         readonly el: HTMLElement;
         private cell: HTMLElement | null = null;
@@ -62,20 +55,23 @@ export class Toolbar {
 
         private buildRows() {
                 // 第一行：B I A- A+ | 拆 合↓ 合→
+                // 字号（2026-11-14 重写）：A- / A+ 与 B / I 走同一条包裹通道，只负责在
+                // 选区两侧写入 <small> / <big>，渲染与持久化交给既有 HTML 管线，不做任何
+                // 字号计算/内联样式/DOM 直改
                 const row1 = this.el.createDiv({ cls: 'vt-bar-row' });
-                const fmtDefs: Array<[string, string, () => void]> = [
-                        ['B',  t('加粗', 'Bold'),          () => this.fmt('bold')],
-                        ['I',  t('斜体', 'Italic'),        () => this.fmt('italic')],
-                        ['A-', t('缩小字号', 'Smaller'),   () => this.stepFont(-2)],
-                        ['A+', t('放大字号', 'Larger'),    () => this.stepFont(2)],
+                const fmtDefs: Array<[string, string, string]> = [
+                        ['B',  t('加粗', 'Bold'),          'b'],
+                        ['I',  t('斜体', 'Italic'),        'i'],
+                        ['A-', t('缩小字号', 'Smaller'),   'small'],
+                        ['A+', t('放大字号', 'Larger'),    'big'],
                 ];
-                for (const [label, hint, fn] of fmtDefs) {
+                for (const [label, hint, tag] of fmtDefs) {
                         const btn = row1.createEl('button', { cls: 'vt-bar-btn', text: label });
                         btn.title = hint;
                         btn.addEventListener('mousedown', (e) => {
                                 e.preventDefault();
                                 document.body.dataset.vtBarClick = '1';
-                                fn();
+                                this.wrap(tag);
                                 window.setTimeout(() => { delete document.body.dataset.vtBarClick; }, 200);
                         });
                 }
@@ -144,9 +140,10 @@ export class Toolbar {
                 });
         }
 
-        /** 执行结构操作：有选区 → 按选区批量执行；无选区 → 单格（原有行为 + 光标位置保持） */
-        private structOp(kind: SelOpKind, fn: (g: VtData['rows'], r: number, c: number) => void) {
-                if (this.selActive()) {
+        /** 执行结构操作：有选区 → 按选区批量执行；无选区 → 单格（原有行为 + 光标位置保持）。
+         *  kind = null：纯单格文本类操作（字号族），选区路径已由调用方自行处理 */
+        private structOp(kind: SelOpKind | null, fn: (g: VtData['rows'], r: number, c: number) => void) {
+                if (kind && this.selActive()) {
                         this.selOps![kind]();
                         return;
                 }
@@ -164,7 +161,7 @@ export class Toolbar {
                         delCols: { dc: -1, resetCaret: true },        // 聚焦列被删 → 落到左一列
                         merge: { resetCaret: true },                  // 合并后内容变化 → 光标落格首
                 };
-                this.focusShift = shifts[kind] ?? null;
+                this.focusShift = (kind ? shifts[kind] : undefined) ?? null;
                 fn(g, r, c);
                 // 文本类操作只改 grid 不动 td——离焦投影把旧 DOM 写回会覆盖 grid 新值
                 // （加粗/斜体不保存的根因），立即按新源码重投聚焦格，DOM 与数据闭环
@@ -193,13 +190,13 @@ export class Toolbar {
         /** 富文本格式：有选区 → 逐格整块包裹；格内文字选区（Shift+方向键/拖选）→ 只包
          *  选中片段；无选区 → 聚焦格整格包裹（源码域）。
          *  单格不再走 execCommand：其 DOM 修改会被 wysiwyg 源码投影丢弃（加粗/斜体不保存），
-         *  改与选区批量同语义直接包 grid 源码，经 commit 重渲染后持久化 */
-        private fmt(cmd: 'bold' | 'italic') {
+         *  改与选区批量同语义直接包 grid 源码，经 commit 重渲染后持久化。
+         *  字号复用本通道：tag = 'small' / 'big'，只写包裹标签，不涉及字号数值与内联样式 */
+        private wrap(tag: string) {
                 if (this.selActive()) {
-                        this.selOps![cmd]();
+                        this.selOps!.wrapTag(tag);
                         return;
                 }
-                const tag = cmd === 'bold' ? 'b' : 'i';
                 // 格内文字选区（2026-10-31）：只处理选中片段，不整格。DOM 域包标签必丢
                 // （text 段投影只认文本、render 段投影走 dataset.src 快照），必须在源码域
                 // 拼接后经 syncCell 重投 + commit 持久化——与整格 structOp 同构
@@ -226,7 +223,7 @@ export class Toolbar {
                                 return;
                         }
                 }
-                this.structOp(cmd, (g, r, c) => {
+                this.structOp(null, (g, r, c) => {
                         const cd = g[r]?.[c];
                         if (cd) cd.t = toggleWrapTag(cd.t, tag);
                 });
@@ -363,38 +360,6 @@ export class Toolbar {
 
         private exec(cmd: string, value?: string) {
                 compatExecCommand(document, cmd, value);
-        }
-
-        private stepFont(delta: number) {
-                if (this.selActive()) {
-                        this.selOps!.fontStep(delta);
-                        return;
-                }
-                const sel = window.getSelection();
-                if (!sel || sel.rangeCount === 0) return;
-                const range = sel.getRangeAt(0);
-                const anchor = range.startContainer.parentElement;
-                if (!anchor) return;
-                const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
-                const next = Math.max(8, Math.min(72, cur + delta));
-                if (!sel.isCollapsed) {
-                        const span = createSpan();
-                        span.style.fontSize = `${next}px`;
-                        try { range.surroundContents(span); } catch { /* 跨节点选区忽略 */ }
-                } else if (this.cell) {
-                        // 有内容：进 grid 持久化（整格 span 包裹，与选区字号同存储形态）。
-                        // 原 td.style 直改无持久化载体——projectSource 只投影段，td 内联样式必丢（字号不保存的根因）
-                        const cd = this.data?.rows[this.cellR]?.[this.cellC];
-                        if (cd && (cd.t ?? '').trim() !== '' && this.onCommit) {
-                                this.flushCell?.();
-                                cd.t = wrapFontSize(cd.t, next);
-                                this.syncCell?.(this.cellR, this.cellC);
-                                const commit = this.onCommit;
-                                commit(serialize(this.data));
-                                return;
-                        }
-                        this.cell.style.fontSize = `${next}px`; // 空格无内容载体，维持 DOM 行为
-                }
         }
 
         destroy() {

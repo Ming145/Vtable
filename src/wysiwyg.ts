@@ -62,7 +62,7 @@ export interface Seg {
 /** 允许所见即所得渲染的 HTML 对称标签（inline 格式类；<br>/<img> 走 void 规则） */
 const HTML_PAIR_TAGS = new Set([
         'b', 'i', 'u', 's', 'em', 'strong', 'mark', 'sub', 'sup',
-        'small', 'font', 'span', 'kbd', 'del', 'ins', 'cite', 'q', 'abbr',
+        'small', 'big', 'font', 'span', 'kbd', 'del', 'ins', 'cite', 'q', 'abbr',
 ]);
 /** text 段推进时停下的「潜在块开头」字符 */
 const TRIGGER_RE = /[*`~=$[!<&_]/;
@@ -881,6 +881,10 @@ interface TdState {
         /** 删除前快照：光标行只有空白字符（空格等）但并非真空行——空格删光同属"删光一行内容"，
          *  内核同样补尾占位 <br> 出假行；但 segHasText 把空白行判"无字"，不补这个状态就不置折叠位 */
         delHadBlankOnly?: boolean;
+        /** 贴邻揭示过、等待走远恢复的段（2026-11-08 hug 走远恢复机制）：
+         *  光标不再贴邻时 expireHugged 触发 rebuild 把它们渲染回去（图片 L 拖柄
+         *  只挂渲染态段——滞留源码态 = 拖柄消失的根因） */
+        hugged: Set<HTMLElement>;
 }
 
 const tdStates = new WeakMap<HTMLElement, TdState>();
@@ -928,7 +932,7 @@ export function execCellCommand(td: HTMLElement): boolean {
 /** td 创建时绑定（幂等）；事件在 vtWysiwyg=1 时才生效 */
 export function attachWysiwyg(td: HTMLElement, ctx: WysiwygCtx): void {
         if (tdStates.has(td)) return;
-        const st: TdState = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [] };
+        const st: TdState = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [], queuedCaret: 0, hugged: new Set() };
         tdStates.set(td, st);
 
         td.addEventListener('compositionstart', () => {
@@ -1462,6 +1466,11 @@ function onSelectionChange(td: HTMLElement, st: TdState): void {
         // 贴邻段（2026-11-05 用户令）：结构判定，与 view 无关
         const adj = caretNeighborSegs(td, range);
 
+        // hug 走远恢复（2026-11-08）：曾贴邻揭示的段已不再贴邻 → rebuild 渲染回去
+        //（图片 L 拖柄等随渲染态回来的东西一并恢复；这里 rebuild 后 hug 段全部还原，
+        //  光标由 rebuild 重放，新落点贴邻的段由下方常规路径重新揭示）
+        if (expireHugged(td, st, adj, off)) return;
+
         // 离开上次源码段 → 全格重建（该段渲染，其余跟随最新源码）。
         // 仅【换段】算离开：段边界（s/e）是合法停留位置（rebuild 光标重放的常态），
         // 贴邻也不算离开（紧贴=停留语义，贴块自动源码的配套）——边界/贴邻不判定离开，
@@ -1473,19 +1482,19 @@ function onSelectionChange(td: HTMLElement, st: TdState): void {
                         rebuild(td, st, off ?? st.lastCaret);
                         // rebuild 已重放光标：按新落点做贴邻揭示（同一任务内完成，无中间帧）
                         const sel2 = window.getSelection();
-                        if (sel2 && sel2.rangeCount) hugReveal(td, caretNeighborSegs(td, sel2.getRangeAt(0)));
+                        if (sel2 && sel2.rangeCount) hugReveal(td, st, caretNeighborSegs(td, sel2.getRangeAt(0)));
                         return;
                 }
                 if (st.lastSrcSeg === cur) {
                         // 光标仍在该段（含边界）：保持源码态；段边缘贴邻的渲染段也揭示
-                        hugReveal(td, adj);
+                        hugReveal(td, st, adj);
                         return;
                 }
                 // 贴邻上次源码段但光标在别的段：保持其源码态，继续统一揭示
         }
         // 游离光标（td 直下/塌缩态）：浏览器临时状态，不做段归属判定——贴邻揭示仍适用
         if (!cur) {
-                hugReveal(td, adj);
+                hugReveal(td, st, adj);
                 return;
         }
         st.lastSrcSeg = cur.dataset.view === 'src' ? cur : null;
@@ -1494,7 +1503,7 @@ function onSelectionChange(td: HTMLElement, st: TdState): void {
         if (shouldReveal(loc)) {
                 revealSeg(td, st, cur, loc);
         } else {
-                hugReveal(td, adj);
+                hugReveal(td, st, adj);
         }
         // 记录光标监测结果：抢救误插字符时按此判定"用户本意插入点"
         st.lastLoc = cur ? { el: cur, where: loc.where, innerF: loc.innerF } : null;
@@ -1549,14 +1558,35 @@ function caretNeighborSegs(td: HTMLElement, range: Range): HTMLElement[] {
 }
 
 /** 贴邻揭示（2026-11-05 用户令：光标紧贴块但还没有进入 → 块自动变源码态，适用所有类型）：
- *  只切段状态（render→src），光标不动、lastSrcSeg 不改——"离开"判定已把贴邻算作停留，
- *  光标真正离开贴邻位置（换段且不再贴邻）时由既有 rebuild 把段渲染回去 */
-function hugReveal(td: HTMLElement, segs: HTMLElement[]): void {
+ *  只切段状态（render→src），光标不动、lastSrcSeg 不改。切过的段登记进 st.hugged——
+ *  光标走远（不再贴邻）时由 expireHugged 触发 rebuild 把段渲染回去（2026-11-08 修复：
+ *  原以为"既有 rebuild 会恢复"，实际 hug 段不设 lastSrcSeg，走远后无恢复路径 →
+ *  图片段滞留源码态、L 形拖柄消失的根因） */
+function hugReveal(td: HTMLElement, st: TdState, segs: HTMLElement[]): void {
         for (const el of segs) {
                 if (el.dataset.view === 'render' && el.dataset.kind !== 'text') {
                         setSegSource(el, el.dataset.src ?? '');
+                        st.hugged.add(el);
                 }
         }
+}
+
+/** hug 走远恢复（2026-11-08）：曾贴邻揭示的段不再被光标贴邻 → rebuild 全格
+ *  （渲染态恢复，图片拖柄等随渲染回来的东西一并回来）。返回 true = 已 rebuild
+ *  （调用方就此返回，光标由 rebuild 重放） */
+function expireHugged(td: HTMLElement, st: TdState, adj: HTMLElement[], off: number | null): boolean {
+        if (!st.hugged.size) return false;
+        let expired = false;
+        for (const el of st.hugged) {
+                if (!el.isConnected) continue;           // 段已随重建消亡
+                if (adj.includes(el)) continue;          // 仍贴邻：保持源码
+                if (el === st.lastSrcSeg) continue;      // 正在编辑的段：交给既有离开判定
+                if (el.dataset.view === 'src') expired = true;
+        }
+        if (!expired) return false;
+        st.hugged.clear();
+        rebuild(td, st, off ?? st.lastCaret);
+        return true;
 }
 
 /** 渲染段 → 源码态，并把光标映射到源码对应位置 */
@@ -1779,7 +1809,7 @@ function settleCaretAfterEdit(td: HTMLElement, st: TdState, caretAt: number | nu
                 st.lastSrcSeg = loc.el && loc.el.dataset.view === 'src' ? loc.el : null;
                 // 贴邻揭示（2026-11-05）：编辑后光标停在块边缘 → 紧邻的渲染段切源码
                 // （rebuild 全渲染后同任务补揭示，避免打字时块闪一帧渲染态）
-                hugReveal(td, caretNeighborSegs(td, sel.getRangeAt(0)));
+                hugReveal(td, st, caretNeighborSegs(td, sel.getRangeAt(0)));
         }
 }
 
@@ -1852,6 +1882,9 @@ function rebuild(td: HTMLElement, st: TdState, caretOff: number): void {
                         else src = collapseEnterTail(src);
                 }
                 enterWysiwyg(td, src, st.ctx);
+                // hug 走远恢复配套（2026-11-08）：DOM 已重建，旧段引用全部失效，
+                // hug 登记清零（新落点的贴邻揭示由 settle/selectionchange 按需重新登记）
+                st.hugged.clear();
                 placeSuppressed(td, st, Math.max(0, Math.min(caretOff, src.length)));
                 // 光标落在渲染段内部 → 立即切源码（稳定态：光标所在段为源码）；
                 // 贴段外边缘不切（settleCaretAfterEdit 统一判定，光标无感原则）；

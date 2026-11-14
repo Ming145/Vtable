@@ -1378,3 +1378,81 @@ table.vt td.vt-diag {
         display: none;
 }
 
+
+/* ===== 列内排序小符号（2026-11-07；2026-11-08 用户令改纯文字形态）：
+   无可见边框无按钮，孤零零的文字；每字符一个 span，其矩形盒即触碰热区（相邻不重叠）；
+   字间距稍窄（letter-spacing 微负，不能窄太多） ===== */
+.vt-sort-layer {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1; /* 同 .vt-drag-grip / .vt-edge-bar：body 直挂的实证最低可行层级 */
+}
+
+.vt-sort-pill {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        letter-spacing: -0.3px; /* 字间距稍微窄一点（不能窄太多） */
+        pointer-events: auto;
+        user-select: none;
+        -webkit-user-select: none;
+        background: none;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+}
+
+.vt-sort-ch {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 12px;  /* 矩形触碰热区（不可见）：宽高撑起，flex 相邻盒子不重叠 */
+        height: 16px;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+        font-family: inherit;
+        color: var(--text-muted, #999);
+        cursor: pointer;
+}
+
+.vt-sort-ch:hover {
+        color: var(--text-normal, #333);
+}
+
+.vt-sort-ch.vt-sort-lab {
+        color: var(--text-faint, #aaa);
+        cursor: default;
+}
+
+.vt-sort-ch.vt-sort-lab:hover {
+        color: var(--text-faint, #aaa);
+}
+
+/* ===== 设置面板：使用文档行居中（2026-11-14，开头结尾同款） ===== */
+.vt-doc-row {
+        justify-content: center;
+}
+
+.vt-doc-box {
+        text-align: center;
+}
+
+/* ===== 设置面板：捐赠按钮行居中（2026-11-14） ===== */
+.vt-donation-row {
+        justify-content: center;
+}
+
+/* ===== 微信捐赠子页：返回钮行（2026-11-14），图片无样式仅嵌入 ===== */
+.vt-donation-back {
+        text-align: left;
+        margin-bottom: 8px;
+}
+
+/* 收款码图片水平居中（2026-11-14） */
+.vt-donation-modal .vt-donation-img {
+        display: block;
+        margin: 0 auto;
+        max-width: 100%;
+}

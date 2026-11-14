@@ -22,8 +22,9 @@ import {
         SelOverlay, SelRect, SelOps, FocusShift,
 } from './sel';
 import { Toolbar } from './bar';
-import { bindRowColDrag } from './drag';
+import { bindRowColDrag, refreshRowColDrag } from './drag';
 import { FillHandle } from './fill';
+import { SortBar } from './sort';
 import {
         isDiag, buildDiagDom, bindDiagTd,
         prepareDiagEdit, enterDiagZone, exitDiagEdit,
@@ -658,6 +659,7 @@ export function renderBlock(
                                 renderSel();
                         },
                         getSelection: () => selRects,
+                        sortEnabled: () => settings.enableSortBar,
                         onDragStart: () => flushActiveCell(),
                         onMutate: (focus) => {
                                 pendingFocusRestore = focus
@@ -881,6 +883,8 @@ export function renderBlock(
                 else if (!extra && selectionOwner === controller) selectionOwner = null;
                 selOverlay.update(extra ? [...selRects, extra] : selRects, cellMap);
                 syncFillHandle();
+                sortBar.sync();          // 排序符号层跟随选区（空选区 = 流程静默结束）
+                refreshRowColDrag();    // 把手显隐重估（选框存在 → 让位给排序符号）
         };
 
         const clearSelection = () => {
@@ -888,6 +892,41 @@ export function renderBlock(
                 selGesture = null;
                 renderSel();
         };
+
+        /* ===== 列内排序符号层（2026-11-07）：选框存在 → 把手让位，列上方小符号 =====
+         *  2026-11-09 设置开关 enableSortBar：关 = 符号层完全不工作（sync 直接清场），
+         *  拖动把手在选框时照常显示（drag.apply 的 selHide 同走开关） */
+        const sortBar = new SortBar({
+                hostEl: () => el,
+                tableEl: () => table,
+                getRects: () => selRects,
+                cellTd: (r, c) => cellMap[r]?.[c] ?? null,
+                grid: () => grid,
+                data: () => data,
+                anchorIndex: () => anchorIndex,
+                flushActive: () => flushActiveCell(),
+                enabled: () => settings.enableSortBar,
+                applySort: (apply, allDone) => {
+                        flushActiveCell();
+                        const before = serialize(data);
+                        apply();
+                        const after = serialize(data);
+                        if (after === before) { // 排序无实际变化：不提交，选区维持
+                                if (allDone) clearSelection();
+                                return;
+                        }
+                        // 焦点在表内：恢复到原聚焦格（内容已变，光标落末尾安全位）
+                        const act = document.activeElement as HTMLElement | null;
+                        if (act?.matches('td') && table.contains(act)) {
+                                const rr = parseInt(act.dataset.vtR ?? '-1', 10);
+                                const cc = parseInt(act.dataset.vtC ?? '-1', 10);
+                                if (rr >= 0 && cc >= 0) pendingFocusRestore = { r: rr, c: cc, caretAtEnd: true };
+                        }
+                        // 还有未处理列：选区跨重渲染恢复（排序流程分立续接）；全部完成 → 选区消失
+                        if (!allDone) pendingSelectionRestore = { rects: selRects.slice(), host: el };
+                        onCommit(after);
+                },
+        });
 
         // 自动填充（桌面端专属；移动端不创建；设置关闭时不创建，已显示的在下方 sync 点即时隐藏）
         let fillHandle: FillHandle | null = (!settings.enableFillHandle || Platform.isMobile || Platform.isTablet)
@@ -940,14 +979,16 @@ export function renderBlock(
         // 点击表格之外（编辑器正文/侧栏/标签页/任何位置）→ 强制清光所有浮在页面上的东西：
         // 选框 + 浮动工具条。仅表格自身与它挂的 UI（工具条/菜单/弹窗/拖动把手/拖影）除外。
         // （旧版"点编辑器之外不打断选区"→ 选框经常残留不消失，用户要求强制清理）
+        let pardonRibbon = false; // 最近一次指针落点在侧栏（2026-11-13：侧边栏赦免，focusout 消费即焚）
         const onOutsidePointer = (e: PointerEvent) => {
                 if (!el.isConnected) { // 表格已销毁：自摘防监听器泄漏
                         document.removeEventListener('pointerdown', onOutsidePointer, true);
                         return;
                 }
                 const t = e.target as Element | null;
+                pardonRibbon = !!(t && !el.contains(t) && t.closest?.('.workspace-ribbon')); // 侧栏按钮列赦免（选区保住，后续命令可用）
                 if (!t || el.contains(t)
-                        || t.closest?.('.vt-bar, .vt-drag-grip, .vt-ghost, .menu, .modal, .modal-container, .suggestion-container')) return;
+                        || t.closest?.('.vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon')) return;
                 // 登记表外点击时刻（配套模块级 revive 回退链）：表外点击引发的 widget 重建不得抢回焦点
                 lastOutsidePointerAt = Date.now();
                 clearSelection();
@@ -1114,11 +1155,17 @@ export function renderBlock(
                 // 结构操作重渲染期间的 focusout（元素被摘除）交给恢复逻辑
                 if (pendingSelectionRestore || pendingFocusRestore) return;
                 const related = e.relatedTarget as HTMLElement | null;
-                // 强制清理：只有焦点明确落在表格内/表格自身浮层（工具条、菜单、弹窗）时才保留选区；
+                // 强制清理：只有焦点明确落在表格内/表格自身浮层（工具条、菜单、弹窗、侧栏）时才保留选区；
                 // 其余一律视为离开表格立即清选框——包括 relatedTarget 为 null（iPad blur 常态，
-                // 旧版判为"不知道去哪"而不清 → 选框残留）和焦点去了侧栏/其它应用 UI 的情况
+                // 旧版判为"不知道去哪"而不清 → 选框残留）和焦点去了侧栏/其它应用 UI 的情况。
+                // 例外（2026-11-13 TA：侧边栏赦免）：null 且最近指针落点在侧栏（点击 ribbon 按钮
+                // 的 div 不获焦 → blur 拿不到去向）→ 保选区；真点表外由 onOutsidePointer 兜底清理
                 if (related && (el.contains(related)
-                        || related.closest('.vt-bar, .vt-drag-grip, .vt-ghost, .menu, .modal, .modal-container, .suggestion-container'))) return;
+                        || related.closest('.vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon'))) return;
+                if (!related && pardonRibbon) {
+                        pardonRibbon = false; // 消费即焚：仅本次点击引发的 null blur 赦免
+                        return;
+                }
                 clearSelection();
         });
 
@@ -1409,19 +1456,6 @@ export function renderBlock(
                                 grid[r][c].t = stripInlineFormat(grid[r][c].t);
                         });
                 }, true, restoreSelEnd),
-                fontStep: (delta: number) => {
-                        // 字号只改 td 内联样式、不提交（与单格行为一致）；完成后选框消失（浮窗按钮统一行为）
-                        for (let r = 0; r < grid.length; r++) {
-                                for (let c = 0; c < (grid[0]?.length ?? 0); c++) {
-                                        if (!selRects.some(rc => rectContains(rc, r, c))) continue;
-                                        const td = cellMap[r]?.[c];
-                                        if (!td) continue;
-                                        const cur = parseFloat(getComputedStyle(td).fontSize) || 16;
-                                        td.style.fontSize = `${Math.max(8, Math.min(72, cur + delta))}px`;
-                                }
-                        }
-                        clearSelection();
-                },
                 // 任务1：选区对齐（l/c/r；存进 Cell.a，重渲染后由内联样式生效）
                 align: (mode) => commitSel(rects => {
                         forEachSelectedAnchor(rects, (r, c) => {
@@ -3066,10 +3100,10 @@ function toggleWrapMd(src: string, delim: string): string {
         return delim + src + delim;
 }
 
-/** 内联格式标签剥除（清除格式命令用）：b/i/u/s/em/strong/mark/sub/sup/small/del/ins/kbd/font/span，
+/** 内联格式标签剥除（清除格式命令用）：b/i/u/s/em/strong/mark/sub/sup/small/big/del/ins/kbd/font/span，
  *  连同属性剥除（span 被剥 = 字号一并清除）；<br>/<code>/链接/图片等非纯格式结构保留 */
 function stripInlineFormat(src: string): string {
-        return src.replace(/<\/?(?:b|i|u|s|em|strong|mark|sub|sup|small|del|ins|kbd|font|span)\b[^>]*>/gi, '');
+        return src.replace(/<\/?(?:b|i|u|s|em|strong|mark|sub|sup|small|big|del|ins|kbd|font|span)\b[^>]*>/gi, '');
 }
 
 /** 复制菜单位置（选区 → 逐矩形 TSV；单格 → 格内容）到剪贴板 */
@@ -3332,20 +3366,23 @@ export const VT_MENU_ACTIONS: Record<string, MenuAction> = {
         'vt.modeRC': { zh: '切换到 RC 模式', en: 'RC mode', icon: 'table', checked: (ctx) => ctx.data.mode === 'RC', exec: (ctx) => ctx.setMode('RC') },
 };
 
-/** 右键菜单默认配置（与历史菜单等价 + 新增复制/剪切/删除 + 对齐图标组）。
+/** 右键菜单默认配置（2026-11-14 用户定稿：格式 → 剪贴板 → 行 → 列 → 对齐，行间分隔）。
  *  语法：一行一项；'---'=分隔线；'id'|'id|icon'=普通项；全角'｜'分隔一行内多个纯图标小项（对齐组） */
 export const DEFAULT_CONTEXT_MENU = [
-        'vt.copy', 'vt.paste', 'vt.cut', 'vt.delete', '---',
-        'vt.insRowAbove', 'vt.insRowBelow', 'vt.delRow', '---',
-        'vt.insColLeft', 'vt.insColRight', 'vt.delCol', '---',
+        'vt.bold｜vt.italic｜vt.highlight',
+        '---',
+        'vt.copy｜vt.paste｜vt.cut｜vt.delete',
+        '---',
+        'vt.insRowAbove',
+        'vt.insRowBelow',
+        'vt.delRow',
+        '---',
+        'vt.insColLeft',
+        'vt.insColRight',
+        'vt.delCol',
+        '---',
         'vt.alignL｜vt.alignC｜vt.alignR',
         'vt.alignT｜vt.alignM｜vt.alignB',
-        // 样式图标组（2026-11-04）：恒显示；无选区目标时点击弹提示
-        'vt.bold｜vt.italic｜vt.strike｜vt.highlight',
-        'vt.underline｜vt.subscript｜vt.superscript｜vt.code｜vt.clearFormat',
-        'vt.pickColor', '---',
-        'vt.mergeRight', 'vt.mergeDown', 'vt.split', '---',
-        'vt.modeOL', 'vt.modeHS', 'vt.modeRC',
 ].join('\n');
 
 type MenuItemSpec =

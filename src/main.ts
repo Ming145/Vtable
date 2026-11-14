@@ -14,6 +14,7 @@ import { LUCIDE_ICONS } from './icons';
 import { Toolbar } from './bar';
 import { compatRequire } from './compat';
 import { gridToChart, detectChartType } from './charts';
+import { WECHAT_QR_BASE64 } from './donation';
 import { activeWysiwygTd, execCellCommand } from './wysiwyg';
 
 const LANG = 'vtable';
@@ -51,6 +52,9 @@ export interface VtSettings {
         enableRcScale: boolean;
         /** 图片缩放柄：编辑态嵌入图片旁 L 形拖柄，拖拽写回 |数字 宽度语法 */
         enableImgResize: boolean;
+        /** 列内排序符号（2026-11-09）：开 = 选框时列上方排序符号（拖动把手让位）；
+         *  关 = 排序符号不出现，选框时拖动把手照常显示 */
+        enableSortBar: boolean;
 }
 
 const DEFAULT_SETTINGS: VtSettings = {
@@ -71,7 +75,34 @@ const DEFAULT_SETTINGS: VtSettings = {
         enableFillHandle: true,
         enableRcScale: true,
         enableImgResize: true,
+        enableSortBar: true,
 };
+
+/** 上一版内置默认菜单（识别"没改过菜单"的旧安装并升级到新默认；自定义配置原样保留） */
+const LEGACY_DEFAULT_CONTEXT_MENU = [
+        'vt.alignL｜vt.alignC｜vt.alignR',
+        'vt.alignT｜vt.alignM｜vt.alignB',
+        'vt.bold｜vt.italic｜vt.strike｜vt.highlight',
+        'vt.underline｜vt.subscript｜vt.superscript｜vt.code｜vt.clearFormat',
+        'vt.pickColor',
+].join('\n');
+
+/** 菜单配置 → 动作 id 集合（去分隔线/图标/组内分隔符，排序后比较：忽略顺序与行形态） */
+function menuActionKey(src: string): string {
+        return src.split('\n')
+                .flatMap(line => line.split('｜'))
+                .map(item => item.trim().split('|')[0].trim())
+                .filter(id => id && id !== '---')
+                .sort()
+                .join(',');
+}
+
+/** 旧默认菜单（含历史升级补插的 vt.paste）才升级为新默认，自定义菜单不动 */
+function isLegacyDefaultMenu(src: string): boolean {
+        const key = menuActionKey(src);
+        return key === menuActionKey(LEGACY_DEFAULT_CONTEXT_MENU)
+                || key === menuActionKey(LEGACY_DEFAULT_CONTEXT_MENU + '\nvt.paste');
+}
 
 /** 旧版默认菜单配置（历史存档对照用；现行升级策略=按"缺对齐组"插入，见 onload） */
 export default class VtPlugin extends Plugin {
@@ -174,6 +205,12 @@ export default class VtPlugin extends Plugin {
                 // 语言必须先于任何 addCommand 初始化：命令名在注册时求值（t() 即时返回），
                 // 晚于注册再切语言只会改到设置面板文本，命令名仍是注册时的旧语言
                 this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<VtSettings>);
+                // 右键菜单默认配置改版（2026-11-14 用户定稿）：旧内置默认 → 新默认；
+                // 用户自定义过的菜单不覆盖
+                if (isLegacyDefaultMenu(this.settings.contextMenu)) {
+                        this.settings.contextMenu = DEFAULT_CONTEXT_MENU;
+                        await this.saveSettings();
+                }
                 // 旧菜单配置升级（多种历史默认形态/自定义串都可能没有对齐组）：
                 // 不含 vt.alignL → 在合并组前插入两个对齐图标组（自定义用户可在文本框删掉）
                 if (!this.settings.contextMenu.includes('vt.alignL')) {
@@ -1037,14 +1074,24 @@ class VtSettingTab extends PluginSettingTab {
          *  （key 直绑 plugin.settings，框架经 get/setControlValue 读写并自动保存）；
          *  特殊 UI（图表按钮/折叠样式区/菜单自定义）走 render 回调自理（render 不带 type 字段，
          *  文档链接走 desc 片段——官方链接标准形态）。详见官方迁移指南 Path A */
+        /** 使用文档行（2026-11-14 TA：居中，开头结尾同款） */
+        private docRowDefs(): SettingDefinitionItem {
+                return {
+                        name: t('使用文档', 'Documentation'),
+                        render: (s) => {
+                                s.settingEl.empty();
+                                s.settingEl.addClass('vt-doc-row');
+                                const box = s.settingEl.createDiv({ cls: 'vt-doc-box' });
+                                box.appendChild(makeDocLinksFrag());
+                        },
+                };
+        }
+
         getSettingDefinitions(): SettingDefinitionItem[] {
         const defs: SettingDefinitionItem[] = [];
 
-        // 面板开头的双语文档链接（GitHub README 中文版 + 英文版）
-        defs.push({
-                name: t('使用文档', 'Documentation'),
-                desc: makeDocLinksFrag(),
-        });
+        // 面板开头的双语文档链接（GitHub README 中文版 + 英文版）——居中（2026-11-14 TA）
+        defs.push(this.docRowDefs());
 
         // ===== 界面语言（默认中文）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
         defs.push({
@@ -1057,24 +1104,6 @@ class VtSettingTab extends PluginSettingTab {
                 },
         });
 
-        // 图表模板按需添加：两个语言按钮固定显示（文案不随界面语言切换）
-        defs.push({
-                name: t('图表模板', 'Chart templates'),
-                desc: t('把对应语言的图表模板（柱状图/饼图/折线图）添加到模板文件夹，写入检测到的模板目录。', 'Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.'),
-                render: (s) => {
-                        s.addButton(b => b
-                                .setButtonText('+中文图表模板')
-                                .onClick(() => {
-                                        this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
-                                }));
-                        s.addButton(b => b
-                                .setButtonText('+英文图表模板')
-                                .onClick(() => {
-                                        this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
-                                }));
-                },
-        });
-
         // 英文模式：浮窗按钮为 ≤2 字符缩写，给出对照说明行（语言切换后 update() 重估显隐）
         defs.push({
                 name: t('浮窗按钮说明', 'Floating toolbar legend'),
@@ -1082,41 +1111,19 @@ class VtSettingTab extends PluginSettingTab {
                 visible: () => this.plugin.settings.uiLang === 'en',
         });
 
-        // ===== 功能开关（简单 toggle 直绑 settings） =====
+        // ===== 体验自定义板块（2026-11-14 TA：details 默认折叠）=====
         defs.push({
-                name: t('电脑端浮窗工具栏', 'Desktop floating toolbar'),
-                desc: t('在电脑端编辑单元格时显示悬浮格式化工具栏', 'Show the floating formatting toolbar while editing cells on desktop'),
-                control: { type: 'toggle', key: 'enableDesktopToolbar' },
-        });
-        defs.push({
-                name: t('移动端浮窗工具栏', 'Mobile / tablet floating toolbar'),
-                desc: t('在手机/平板设备上编辑单元格时显示悬浮格式化工具栏', 'Show the floating toolbar while editing cells on phones and tablets'),
-                control: { type: 'toggle', key: 'enableMobileToolbar' },
-        });
-        defs.push({
-                name: t('模式切换按钮', 'Mode switcher'),
-                desc: t('编辑表格时显示 OL / HS / RC 三种模式的切换按钮', 'Show the OL / HS / RC mode switcher while editing'),
-                control: { type: 'toggle', key: 'enableModeSwitcher' },
-        });
-        // 把手类交互开关：新渲染的表格生效（填充柄额外在同步点即时隐藏）
-        defs.push({
-                name: t('自动填充柄', 'Auto fill handle'),
-                desc: t('选中单元格时在右下角显示填充柄，拖拽可复制或按序列填充相邻单元格（桌面端专属）。', 'Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).'),
-                control: { type: 'toggle', key: 'enableFillHandle' },
-        });
-        defs.push({
-                name: t('RC 整体缩放把手', 'RC whole-table scaling handle'),
-                desc: t('RC 模式下在表格右下角显示缩放把手，拖拽可整体拉伸所有行高列宽。', 'In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.'),
-                control: { type: 'toggle', key: 'enableRcScale' },
-        });
-        defs.push({
-                name: t('图片缩放柄', 'Image resize handle'),
-                desc: t('编辑时在嵌入图片旁显示 L 形拖柄，拖拽调整图片宽度（写回 |数字 尺寸语法）。', 'Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).'),
-                control: { type: 'toggle', key: 'enableImgResize' },
+                name: t('体验自定义', 'Experience customization'),
+                render: (s) => {
+                        s.settingEl.empty();
+                        s.settingEl.addClass('vt-style-section-host');
+                        this.buildExperienceSection(s.settingEl);
+                },
         });
 
-        // ===== 表格样式板块（details 折叠保真）+ 右键菜单自定义（纳入折叠，与 2.0.9 同构） =====
-        // 框架预建行清空为纯容器（render 回调对行有完全控制权，官方文档 render 语义），整块自理渲染
+        // 列内排序符号已并入「体验自定义」板块（2026-11-14），此处不再单独成行
+
+        // ===== 表格样式板块（details 默认折叠，2026-11-14 TA）=====
         defs.push({
                 name: t('表格样式', 'Table style'),
                 render: (s) => {
@@ -1126,13 +1133,78 @@ class VtSettingTab extends PluginSettingTab {
                 },
         });
 
-        // 面板结尾的双语文档链接（与开头同一套）
+        // 面板结尾的双语文档链接（与开头同款同格式，2026-11-14 TA）
+        defs.push(this.docRowDefs());
+
+        // 捐赠按钮（2026-11-14 TA：末尾居中，☕️ 微信 WeChat，点开收款码子页）
         defs.push({
-                name: t('使用文档', 'Documentation'),
-                desc: makeDocLinksFrag(),
+                name: t('捐赠', 'Donation'),
+                render: (s) => {
+                        s.settingEl.empty();
+                        s.settingEl.addClass('vt-donation-row');
+                        const btn = s.settingEl.createEl('button', { text: '☕️ WeChat 微信' });
+                        btn.addEventListener('click', () => new VtDonationModal(this.app).open());
+                },
         });
 
         return defs;
+        }
+
+        /** 体验自定义板块（2026-11-14 TA）：图表模板 + 浮窗/模式/把手类开关，details 默认折叠 */
+        private buildExperienceSection(host: HTMLElement) {
+                host.empty();
+                const section = host.createEl('details', { cls: 'vt-style-section' });
+                section.createEl('summary', { text: t('体验自定义', 'Experience customization') });
+
+                // 图表模板按需添加：两个语言按钮固定显示（文案不随界面语言切换）
+                new Setting(section)
+                        .setName(t('图表模板', 'Chart templates'))
+                        .setDesc(t('把对应语言的图表模板（柱状图/饼图/折线图）添加到模板文件夹，写入检测到的模板目录。', 'Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.'))
+                        .addButton(b => b
+                                .setButtonText('+中文图表模板')
+                                .onClick(() => {
+                                        this.plugin.addChartTemplates('zh').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                                }))
+                        .addButton(b => b
+                                .setButtonText('+英文图表模板')
+                                .onClick(() => {
+                                        this.plugin.addChartTemplates('en').catch(() => new Notice(t('图表模板添加失败', 'Failed to add chart templates')));
+                                }));
+
+                const addToggle = (name: string, nameEn: string, desc: string, descEn: string, key: string) => {
+                        new Setting(section)
+                                .setName(t(name, nameEn))
+                                .setDesc(t(desc, descEn))
+                                .addToggle(tg => tg
+                                        .setValue((this.plugin.settings as unknown as Record<string, boolean>)[key] ?? false)
+                                        .onChange(async (value) => {
+                                                (this.plugin.settings as unknown as Record<string, boolean>)[key] = value;
+                                                await this.plugin.saveSettings();
+                                                if (key === 'uiLang') { /* 语言不走此路径 */ }
+                                        }));
+                };
+
+                addToggle('电脑端浮窗工具栏', 'Desktop floating toolbar',
+                        '在电脑端编辑单元格时显示悬浮格式化工具栏', 'Show the floating formatting toolbar while editing cells on desktop',
+                        'enableDesktopToolbar');
+                addToggle('移动端浮窗工具栏', 'Mobile / tablet floating toolbar',
+                        '在手机/平板设备上编辑单元格时显示悬浮格式化工具栏', 'Show the floating toolbar while editing cells on phones and tablets',
+                        'enableMobileToolbar');
+                addToggle('模式切换按钮', 'Mode switcher',
+                        '编辑表格时显示 OL / HS / RC 三种模式的切换按钮', 'Show the OL / HS / RC mode switcher while editing',
+                        'enableModeSwitcher');
+                addToggle('自动填充柄', 'Auto fill handle',
+                        '选中单元格时在右下角显示填充柄，拖拽可复制或按序列填充相邻单元格（桌面端专属）。', 'Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).',
+                        'enableFillHandle');
+                addToggle('RC 整体缩放把手', 'RC whole-table scaling handle',
+                        'RC 模式下在表格右下角显示缩放把手，拖拽可整体拉伸所有行高列宽。', 'In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.',
+                        'enableRcScale');
+                addToggle('图片缩放柄', 'Image resize handle',
+                        '编辑时在嵌入图片旁显示 L 形拖柄，拖拽调整图片宽度（写回 |数字 尺寸语法）。', 'Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).',
+                        'enableImgResize');
+                addToggle('列内排序符号', 'Column sort markers',
+                        '开启后，选中单元格范围时各列上方出现排序小符号（拖动把手暂时让位）；关闭后排序符号不出现，选框时拖动把手照常显示。', 'When on, small sort markers appear above each covered column while a selection is active (drag handles step aside); when off, no sort markers appear and the drag handles show as usual during selections.',
+                        'enableSortBar');
         }
 
         /** 声明式控件读写：key 直绑 plugin.settings；变更副作用按 key 分派 */
@@ -1156,7 +1228,7 @@ class VtSettingTab extends PluginSettingTab {
         private buildStyleSection(host: HTMLElement) {
                 host.empty();
                 const styleSection = host.createEl('details', { cls: 'vt-style-section' });
-                styleSection.setAttribute('open', '');
+                // 默认折叠（2026-11-14 TA：表格样式板块默认折叠，点击 summary 展开）
                 styleSection.createEl('summary', { text: t('表格样式', 'Table style') });
 
                 // 任务5：表格外框圆角（拖条，即时生效）。特殊规则：设置启用后所有表统一生效，不能对单表取消
@@ -1585,6 +1657,29 @@ function findVtableBlockAbove(ed: Editor): VtBlockRange | null {
 }
 
 /** 任务2：选区底色取色弹窗——预设色板 + 十六进制输入 + 确定/取消 */
+/** 微信捐赠子页（2026-11-14 TA）：左上角返回按钮 + 收款码图片（base64 内嵌，无边框无样式仅嵌入） */
+class VtDonationModal extends Modal {
+        onOpen() {
+                this.modalEl.addClass('vt-donation-modal');
+                const { contentEl } = this;
+                contentEl.empty();
+                const backRow = contentEl.createDiv({ cls: 'vt-donation-back' });
+                const backBtn = backRow.createEl('button', {
+                        cls: 'clickable-icon vt-donation-back-btn',
+                        attr: { 'aria-label': t('返回', 'Back') },
+                });
+                setIcon(backBtn, 'arrow-left');
+                backBtn.addEventListener('click', () => this.close());
+                const img = contentEl.createEl('img', { cls: 'vt-donation-img' });
+                img.src = WECHAT_QR_BASE64;
+                img.alt = t('微信收款码', 'WeChat QR code');
+        }
+
+        onClose() {
+                this.contentEl.empty();
+        }
+}
+
 class VtColorModal extends Modal {
         private readonly onOk: (color: string | null) => void;
         private selected: string | null = null; // null = 无填充

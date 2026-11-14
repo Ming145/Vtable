@@ -22,7 +22,7 @@ __export(main_exports, {
   default: () => VtPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/builder.ts
 var RC_HANDLE_RE = /<div\s+class="vt-rc-handle[^"]*"[^>]*>\s*<\/div>/gi;
@@ -618,7 +618,7 @@ function toggleTodoMark(html, idx, checked) {
 }
 
 // src/render.ts
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/compat.ts
 function compatExecCommand(doc, cmd, value) {
@@ -1123,7 +1123,7 @@ var _SelOverlay = class {
     this.layer.style.position = `fixed`;
     this.layer.style.pointerEvents = `none`;
     this.layer.style.overflow = `visible`;
-    this.layer.style.zIndex = `calc(var(--layer-menu, 65) - 5)`;
+    this.layer.style.zIndex = `1`;
     this.svg = document.createElementNS(SVG_NS, "svg");
     this.svg.style.overflow = `visible`;
     this.path = document.createElementNS(SVG_NS, "path");
@@ -1175,6 +1175,10 @@ var lastMouse = null;
 var persistedRC = null;
 var activeUid = null;
 var activeCleanup = null;
+var activeRefresh = null;
+function refreshRowColDrag() {
+  activeRefresh?.();
+}
 function bindRowColDrag(table, data, wrap, editing, hooks) {
   activeCleanup?.();
   activeCleanup = null;
@@ -1289,15 +1293,16 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
   };
   const apply = () => {
     const cur = hoverRC ?? focusRC;
-    const showR = cur && rowOk[cur.r] ? cur.r : -1;
-    const showC = cur && colOk[cur.c] ? cur.c : -1;
+    const selHide = (hooks.sortEnabled?.() ?? true) && hooks.getSelection().length > 0;
+    const showR = !selHide && cur && rowOk[cur.r] ? cur.r : -1;
+    const showC = !selHide && cur && colOk[cur.c] ? cur.c : -1;
     rowGrips.forEach((g, r) => {
       g.classList.toggle("vt-drag-on", r === showR);
     });
     colGrips.forEach((g, c) => g.classList.toggle("vt-drag-on", c === showC));
     const sel = hooks.getSelection();
-    const litRows = sel.length > 0 && sel.every((rc) => rc.c1 === 0 && rc.c2 === cols - 1);
-    const litCols = sel.length > 0 && sel.every((rc) => rc.r1 === 0 && rc.r2 === grid.length - 1);
+    const litRows = !selHide && sel.length > 0 && sel.every((rc) => rc.c1 === 0 && rc.c2 === cols - 1);
+    const litCols = !selHide && sel.length > 0 && sel.every((rc) => rc.r1 === 0 && rc.r2 === grid.length - 1);
     rowGrips.forEach((g) => g.classList.toggle("vt-drag-lit", litRows));
     colGrips.forEach((g) => g.classList.toggle("vt-drag-lit", litCols));
     placeGrips();
@@ -1577,6 +1582,7 @@ function bindRowColDrag(table, data, wrap, editing, hooks) {
     dropLine.remove();
   };
   activeCleanup = cleanup;
+  activeRefresh = apply;
   const uid = Symbol("vtDrag");
   activeUid = uid;
   const tick = () => {
@@ -2341,6 +2347,520 @@ var FillHandle = class {
   }
 };
 
+// src/sort.ts
+var import_obsidian2 = require("obsidian");
+
+// src/formula.ts
+function colIndex(col) {
+  let n = 0;
+  for (let i = 0; i < col.length; i++)
+    n = n * 26 + col.charCodeAt(i) - 64;
+  return n - 1;
+}
+function parseRef(ref) {
+  const m = ref.match(/^([A-Z]+)(\d+)$/);
+  if (!m)
+    return null;
+  return { col: colIndex(m[1]), row: parseInt(m[2]) - 1 };
+}
+function parseRange(range) {
+  const parts = range.split(":");
+  if (parts.length !== 2)
+    return null;
+  const a = parseRef(parts[0].trim());
+  const b = parseRef(parts[1].trim());
+  if (!a || !b)
+    return null;
+  return {
+    r0: Math.min(a.row, b.row),
+    c0: Math.min(a.col, b.col),
+    r1: Math.max(a.row, b.row),
+    c1: Math.max(a.col, b.col)
+  };
+}
+function cellToNumber(cell2) {
+  let s = cell2.t.replace(/<[^>]*>/g, "");
+  s = mdInlineToHtml(s);
+  s = s.replace(/<[^>]*>/g, "");
+  s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim();
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function collectNums(grid, range) {
+  const r = parseRange(range);
+  if (!r)
+    return [];
+  const out = [];
+  for (let row = r.r0; row <= r.r1; row++) {
+    for (let col = r.c0; col <= r.c1; col++) {
+      const cell2 = grid[row]?.[col];
+      if (!cell2 || cell2.rs === 0 || cell2.cs === 0)
+        continue;
+      const n = cellToNumber(cell2);
+      if (n !== null)
+        out.push(n);
+    }
+  }
+  return out;
+}
+var FUNCTIONS = {
+  SUM(grid, args) {
+    const vals = collectNums(grid, args);
+    return vals.reduce((a, b) => a + b, 0).toString();
+  },
+  AVERAGE(grid, args) {
+    const vals = collectNums(grid, args);
+    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toString() : "0";
+  },
+  COUNT(grid, args) {
+    return collectNums(grid, args).length.toString();
+  },
+  MIN(grid, args) {
+    const vals = collectNums(grid, args);
+    return vals.length ? Math.min(...vals).toString() : "0";
+  },
+  MAX(grid, args) {
+    const vals = collectNums(grid, args);
+    return vals.length ? Math.max(...vals).toString() : "0";
+  }
+};
+function evalFormula(grid, text) {
+  const m = text.match(/^=([A-Z]+)\((.+)\)$/i);
+  if (!m)
+    return text;
+  const fn = FUNCTIONS[m[1].toUpperCase()];
+  if (!fn)
+    return text;
+  try {
+    return fn(grid, m[2]);
+  } catch {
+    return text;
+  }
+}
+
+// src/sort.ts
+function sortFlatText(src) {
+  let s = src.replace(/<br\s*\/?>/gi, " ");
+  s = s.replace(/<[^>]*>/g, "");
+  s = mdInlineToHtml(s);
+  s = s.replace(/<[^>]*>/g, "");
+  s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ");
+  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  return s.replace(/\s+/g, " ").trim();
+}
+var TRAIL_NUM = /[+-]?\d+(?:\.\d+)?$/;
+var FIRST_NUM = /[+-]?\d+(?:\.\d+)?/;
+function keyOfCell(cell2, grid) {
+  if (!cell2 || cell2.rs === 0 && cell2.cs === 0)
+    return { kind: "blank", value: null, flat: "", prefix: "", firstNum: null, rank: 0 };
+  let flat = sortFlatText(cell2.t);
+  if (/^=[A-Za-z]+\(/.test(cell2.t))
+    flat = sortFlatText(evalFormula(grid, cell2.t));
+  if (!flat)
+    return { kind: "blank", value: null, flat: "", prefix: "", firstNum: null, rank: 0 };
+  const fm0 = flat.match(FIRST_NUM);
+  const prefix0 = fm0 ? flat.slice(0, fm0.index) : flat;
+  const firstNum0 = fm0 ? parseFloat(fm0[0]) : null;
+  const tm = flat.match(TRAIL_NUM);
+  if (tm) {
+    return {
+      kind: "num",
+      value: tm[0].length === flat.length ? parseFloat(flat) : parseFloat(tm[0]),
+      flat,
+      prefix: prefix0,
+      firstNum: firstNum0,
+      rank: tm[0].length === flat.length ? 3 : 2
+      // 纯数字 3 / 文末数字 2
+    };
+  }
+  return { kind: "text", value: null, flat, prefix: prefix0, firstNum: firstNum0, rank: fm0 ? 1 : 0 };
+}
+function detectFlow(keys) {
+  const nb = keys.filter((k) => k.kind !== "blank");
+  if (!nb.length)
+    return "text";
+  const cats = new Set(nb.map((k) => k.rank === 0 || k.rank === 3 ? k.rank : 2));
+  if (cats.size >= 2)
+    return "mix";
+  if (nb.every((k) => k.kind === "num") && nb.every((k) => k.prefix === ""))
+    return "num";
+  if (nb.every((k) => k.firstNum !== null && k.prefix !== "")) {
+    const nd = nb.map((k) => k.flat.replace(/\d+/g, ""));
+    if (nd.every((s) => s === nd[0]))
+      return "numonly";
+    return "dual";
+  }
+  return "text";
+}
+function coll(a, b) {
+  return a.localeCompare(b, "zh-Hans-CN", { sensitivity: "base" });
+}
+function orderKeys(entries, flow, numDir, textDir) {
+  const nums = [], txts = [], blanks = [];
+  for (const e of entries) {
+    if (e.key.kind === "blank")
+      blanks.push(e);
+    else if (e.key.kind === "num")
+      nums.push(e);
+    else
+      txts.push(e);
+  }
+  if (flow === "mix") {
+    const ladder = [[], [], [], []];
+    for (const e of entries) {
+      if (e.key.kind === "blank")
+        continue;
+      ladder[e.key.rank].push(e);
+    }
+    const order = textDir === "asc" ? [0, 1, 2, 3] : [3, 2, 1, 0];
+    return [...order.flatMap((rk) => ladder[rk]), ...blanks];
+  }
+  if (flow === "numonly") {
+    if (numDir === "skip")
+      return [...entries.filter((e) => e.key.kind !== "blank"), ...blanks];
+    const sgn2 = numDir === "asc" ? 1 : -1;
+    const all = entries.filter((e) => e.key.kind !== "blank");
+    const sorted = all.slice().sort((x, y) => sgn2 * ((x.key.firstNum ?? 0) - (y.key.firstNum ?? 0)));
+    return [...sorted, ...blanks];
+  }
+  if (flow === "dual") {
+    const useNum = numDir !== "skip", useTxt = textDir !== "skip";
+    const all = entries.filter((e) => e.key.kind !== "blank");
+    const sorted = all.slice().sort((x, y) => {
+      if (useNum) {
+        const d = (x.key.firstNum ?? 0) - (y.key.firstNum ?? 0);
+        if (d !== 0)
+          return numDir === "asc" ? d : -d;
+      }
+      if (useTxt) {
+        const c = coll(x.key.flat, y.key.flat);
+        return textDir === "asc" ? c : -c;
+      }
+      return 0;
+    });
+    return [...sorted, ...blanks];
+  }
+  const pick = flow === "num" ? numDir : textDir;
+  const sgn = pick === "desc" ? -1 : 1;
+  nums.sort((x, y) => sgn * ((x.key.value ?? 0) - (y.key.value ?? 0)));
+  txts.sort((x, y) => sgn * coll(x.key.flat, y.key.flat));
+  return [...nums, ...txts, ...blanks];
+}
+function columnsFromRects(rects) {
+  const cols = /* @__PURE__ */ new Map();
+  for (const rc of rects) {
+    for (let c = rc.c1; c <= rc.c2; c++) {
+      for (let r = rc.r1; r <= rc.r2; r++) {
+        const arr = cols.get(c);
+        if (arr) {
+          if (!arr.includes(r))
+            arr.push(r);
+        } else
+          cols.set(c, [r]);
+      }
+    }
+  }
+  for (const arr of cols.values())
+    arr.sort((a, b) => a - b);
+  return cols;
+}
+var session = null;
+var sameRects = (a, b) => a.length === b.length && a.every((rc, i) => rc.r1 === b[i].r1 && rc.c1 === b[i].c1 && rc.r2 === b[i].r2 && rc.c2 === b[i].c2);
+var SortBar = class {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.layer = null;
+    this.raf = 0;
+    this.deferred = [];
+    this.lastSig = "";
+    this.onShiftUp = (e) => {
+      if (e.key !== "Shift")
+        return;
+      this.flushDeferred();
+    };
+    this.onWinBlur = () => {
+      this.flushDeferred();
+    };
+    /* ===== 定位：每帧校准（滚动/布局变化自动跟随，同把手模式） ===== */
+    this.tick = () => {
+      this.raf = window.requestAnimationFrame(this.tick);
+      if (!this.layer)
+        return;
+      if (!this.ctx.tableEl().isConnected) {
+        this.destroy(true);
+        return;
+      }
+      if (!this.ctx.getRects().length) {
+        this.destroy(false);
+        return;
+      }
+      this.positionPills();
+    };
+  }
+  /** 选区变化同步点（renderSel 调）：空选区/开关关闭 = 流程静默结束（已执行的保留） */
+  sync() {
+    if (!this.ctx.enabled()) {
+      if (this.layer)
+        this.destroy(false);
+      return;
+    }
+    const rects = this.ctx.getRects();
+    if (!rects.length) {
+      if (this.layer)
+        this.destroy(false);
+      session = null;
+      return;
+    }
+    if (session && (session.host !== this.ctx.hostEl() || !sameRects(session.rects, rects)))
+      session = null;
+    if (!session)
+      session = { host: this.ctx.hostEl(), rects: rects.map((rc) => ({ ...rc })), cols: /* @__PURE__ */ new Map() };
+    if (!this.layer) {
+      this.layer = document.body.createDiv({ cls: "vt-sort-layer" });
+      document.addEventListener("keyup", this.onShiftUp);
+      window.addEventListener("blur", this.onWinBlur);
+      this.raf = window.requestAnimationFrame(this.tick);
+    }
+    this.buildPills();
+  }
+  /** 层销毁（表格销毁/选区清空）。keepSession：宿主重渲染销毁时保留会话供新层续接 */
+  destroy(keepSession) {
+    if (this.raf)
+      window.cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    document.removeEventListener("keyup", this.onShiftUp);
+    window.removeEventListener("blur", this.onWinBlur);
+    this.layer?.remove();
+    this.layer = null;
+    this.deferred = [];
+    this.lastSig = "";
+    if (!keepSession)
+      session = null;
+  }
+  /** 符号构建：未处理的列各一粒（processed 的不建），dual 两阶段按 stage 切换形态 */
+  buildPills() {
+    if (!this.layer || !session)
+      return;
+    const rects = this.ctx.getRects();
+    const sig = JSON.stringify([rects, [...session.cols.entries()]]);
+    if (sig === this.lastSig)
+      return;
+    this.lastSig = sig;
+    this.layer.empty();
+    const cols = columnsFromRects(rects);
+    const grid = this.ctx.grid();
+    for (const [c, rows] of cols) {
+      const st = session.cols.get(c) ?? { processed: false, stage: 0, numChoice: null };
+      session.cols.set(c, st);
+      if (st.processed)
+        continue;
+      if (rows.length < 2) {
+        st.processed = true;
+        continue;
+      }
+      const keys = rows.map((r) => keyOfCell(grid[r]?.[c], grid));
+      const nbk = keys.filter((k) => k.kind !== "blank");
+      if (!nbk.length || nbk.every((k) => k.flat === nbk[0].flat)) {
+        st.processed = true;
+        continue;
+      }
+      const flow = detectFlow(keys);
+      this.layer.appendChild(this.buildPill(c, flow, st, rows.length));
+    }
+    this.layer.style.display = this.layer.childElementCount ? "" : "none";
+    this.positionPills();
+  }
+  buildPill(c, flow, st, rowCount) {
+    const pill = createDiv({ cls: "vt-sort-pill" });
+    pill.dataset.c = String(c);
+    pill.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    const mkCh = (act, ch, label) => {
+      const s = createSpan({
+        cls: "vt-sort-ch" + (act == null ? " vt-sort-lab" : ""),
+        text: ch,
+        attr: { "aria-label": label }
+      });
+      if (act != null)
+        s.addEventListener("click", (e) => this.onChoice(c, flow, st, act, e));
+      pill.appendChild(s);
+    };
+    if (flow === "mix") {
+      mkCh("asc", "A", t("\u7EAF\u6587\u5B57\u5728\u524D\uFF08\u6587\u5B57\u2192\u6587\u4E2D\u6570\u5B57\u2192\u6587\u672B\u6570\u5B57\u2192\u6570\u5B57\uFF09", "Text first (text \u2192 mid-number \u2192 trailing-number \u2192 number)"));
+      mkCh("desc", "1", t("\u6570\u5B57\u5728\u524D\uFF08\u6570\u5B57\u2192\u6587\u672B\u6570\u5B57\u2192\u6587\u4E2D\u6570\u5B57\u2192\u7EAF\u6587\u5B57\uFF09", "Numbers first (number \u2192 trailing-number \u2192 mid-number \u2192 text)"));
+    } else if (flow === "num" || flow === "numonly") {
+      mkCh(null, "1", t("\u6570\u5B57\u5217", "Number column"));
+      mkCh("desc", "\u2191", t("\u4ECE\u5927\u5230\u5C0F", "Descending"));
+      mkCh("asc", "\u2193", t("\u4ECE\u5C0F\u5230\u5927", "Ascending"));
+      if (flow === "numonly")
+        mkCh("skip", "\u2192", t("\u4E0D\u6392\u6570\u5B57\uFF08\u4FDD\u6301\u539F\u6837\uFF09", "Skip sorting (keep as is)"));
+    } else if (flow === "text") {
+      mkCh("asc", "A", t("\u4ECEA\u5230Z", "A to Z"));
+      mkCh("desc", "Z", t("\u4ECEZ\u5230A", "Z to A"));
+    } else {
+      if (st.stage === 0) {
+        mkCh(null, "1", t("\u6570\u5B57\u6B65", "Number step"));
+        mkCh("desc", "\u2191", t("\u4ECE\u5927\u5230\u5C0F", "Descending"));
+        mkCh("asc", "\u2193", t("\u4ECE\u5C0F\u5230\u5927", "Ascending"));
+        mkCh("skip", "\u2192", t("\u4E0D\u6392\u6570\u5B57", "Skip numbers"));
+      } else {
+        mkCh("asc", "A", t("\u4ECEA\u5230Z", "A to Z"));
+        mkCh("desc", "Z", t("\u4ECEZ\u5230A", "Z to A"));
+        mkCh("skip", "\u2192", t("\u4E0D\u6392\u5B57\u6BCD", "Skip letters"));
+      }
+    }
+    if (rowCount < 2)
+      pill.addClass("vt-sort-idle");
+    return pill;
+  }
+  onChoice(c, flow, st, act, ev) {
+    if (!session)
+      return;
+    const rects = this.ctx.getRects();
+    const rows = columnsFromRects(rects).get(c) ?? [];
+    if (!rows.length)
+      return;
+    const ai = this.ctx.anchorIndex();
+    const grid = this.ctx.grid();
+    for (const r of rows) {
+      const a = ai.get(`${r},${c}`) ?? { r, c };
+      const cell2 = grid[a.r]?.[a.c];
+      if (cell2 && (cell2.rs > 1 || cell2.cs > 1)) {
+        new import_obsidian2.Notice(t("\u6240\u9009\u5217\u8303\u56F4\u5305\u542B\u5408\u5E76\u5355\u5143\u683C\uFF0C\u65E0\u6CD5\u6392\u5E8F", "The selected column range contains merged cells; sorting is not available"));
+        return;
+      }
+    }
+    if (flow === "dual") {
+      if (st.stage === 0) {
+        st.numChoice = act;
+        st.stage = 1;
+        this.lastSig = "";
+        if (act !== "skip") {
+          this.execColumn(c, rows, act, "skip", ev.shiftKey);
+          return;
+        }
+        this.buildPills();
+        return;
+      }
+      this.completeColumn(c, rows, st.numChoice ?? "skip", act, ev.shiftKey);
+      return;
+    }
+    if (flow === "num" || flow === "numonly")
+      this.completeColumn(c, rows, act, "skip", ev.shiftKey);
+    else
+      this.completeColumn(c, rows, "skip", act, ev.shiftKey);
+  }
+  /** 一列流程走完（立即执行或入队）：标记 processed（流程收尾）后交 execColumn */
+  completeColumn(c, rows, numDir, textDir, withShift) {
+    if (!session)
+      return;
+    const st = session.cols.get(c);
+    if (!st)
+      return;
+    st.processed = true;
+    this.execColumn(c, rows, numDir, textDir, withShift);
+  }
+  /** 排序执行（不动流程状态）：2026-11-13 TA——数据物理顺序一变立即写回
+   *  （数字步/字母步/单步共用；写回即独立 CM 事务 = 撤销栈逐步记录）。
+   *  dual 数字步走此路径不设 processed → 流程续接字母步（选区恢复链自动挂） */
+  execColumn(c, rows, numDir, textDir, withShift) {
+    if (!session)
+      return;
+    this.ctx.flushActive();
+    const grid = this.ctx.grid();
+    const entries = rows.map((r) => ({ r, key: keyOfCell(grid[r]?.[c], grid) }));
+    const flow = detectFlow(entries.map((e) => e.key));
+    const order = orderKeys(entries, flow, numDir, textDir).map((e) => grid[e.r][c]);
+    this.lastSig = "";
+    if (withShift) {
+      this.deferred.push({ c, rows, order });
+      this.buildPills();
+      return;
+    }
+    const allDone = this.isAllDone();
+    this.ctx.applySort(() => this.applyColumn(c, rows, order), allDone);
+    this.buildPills();
+  }
+  /** 松开 shift：队列统一执行（一次提交） */
+  flushDeferred() {
+    if (!this.deferred.length || !this.layer)
+      return;
+    const items = this.deferred;
+    this.deferred = [];
+    const allDone = this.isAllDone();
+    this.ctx.applySort(() => {
+      for (const it of items)
+        this.applyColumn(it.c, it.rows, it.order);
+    }, allDone);
+    this.lastSig = "";
+    this.buildPills();
+  }
+  applyColumn(c, rows, order) {
+    const grid = this.ctx.grid();
+    rows.forEach((r, i) => {
+      const cell2 = order[i];
+      if (cell2)
+        grid[r][c] = { ...cell2, rs: 1, cs: 1 };
+    });
+    const data = this.ctx.data();
+    if (data.mode === "RC" && data.rowHeights) {
+      for (const r of rows)
+        data.rowHeights[r] = 0;
+    }
+  }
+  isAllDone() {
+    if (!session)
+      return true;
+    const cols = columnsFromRects(session.rects);
+    for (const c of cols.keys()) {
+      const st = session.cols.get(c);
+      if (!st || !st.processed)
+        return false;
+    }
+    return true;
+  }
+  positionPills() {
+    if (!this.layer || !session)
+      return;
+    const cols = columnsFromRects(this.ctx.getRects());
+    const placed = [];
+    for (const pill of Array.from(this.layer.children)) {
+      if (!(pill != null && pill.instanceOf(HTMLDivElement)))
+        continue;
+      const c = parseInt(pill.dataset.c ?? "-1", 10);
+      const rows = cols.get(c);
+      if (!rows)
+        continue;
+      let td = null;
+      for (const r of rows) {
+        td = this.ctx.cellTd(r, c);
+        if (td)
+          break;
+      }
+      if (!td)
+        continue;
+      const rect = td.getBoundingClientRect();
+      const w = pill.offsetWidth, h = pill.offsetHeight;
+      placed.push({
+        el: pill,
+        left: rect.left + rect.width / 2 - w / 2,
+        top: rect.top - h - 3,
+        w
+      });
+    }
+    placed.sort((a, b) => a.left - b.left);
+    let prevRight = -Infinity;
+    for (const p of placed) {
+      const left = Math.max(p.left, prevRight + 2);
+      p.el.style.left = `${Math.round(left)}px`;
+      p.el.style.top = `${Math.round(p.top)}px`;
+      prevRight = left + p.w;
+    }
+  }
+};
+
 // src/diag.ts
 var SVG_NS2 = "http://www.w3.org/2000/svg";
 function isDiag(cd) {
@@ -2591,94 +3111,6 @@ function insertPlainTextAtCaret(zone, text) {
   sel.addRange(range);
 }
 
-// src/formula.ts
-function colIndex(col) {
-  let n = 0;
-  for (let i = 0; i < col.length; i++)
-    n = n * 26 + col.charCodeAt(i) - 64;
-  return n - 1;
-}
-function parseRef(ref) {
-  const m = ref.match(/^([A-Z]+)(\d+)$/);
-  if (!m)
-    return null;
-  return { col: colIndex(m[1]), row: parseInt(m[2]) - 1 };
-}
-function parseRange(range) {
-  const parts = range.split(":");
-  if (parts.length !== 2)
-    return null;
-  const a = parseRef(parts[0].trim());
-  const b = parseRef(parts[1].trim());
-  if (!a || !b)
-    return null;
-  return {
-    r0: Math.min(a.row, b.row),
-    c0: Math.min(a.col, b.col),
-    r1: Math.max(a.row, b.row),
-    c1: Math.max(a.col, b.col)
-  };
-}
-function cellToNumber(cell2) {
-  let s = cell2.t.replace(/<[^>]*>/g, "");
-  s = mdInlineToHtml(s);
-  s = s.replace(/<[^>]*>/g, "");
-  s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").trim();
-  const n = parseFloat(s);
-  return isNaN(n) ? null : n;
-}
-function collectNums(grid, range) {
-  const r = parseRange(range);
-  if (!r)
-    return [];
-  const out = [];
-  for (let row = r.r0; row <= r.r1; row++) {
-    for (let col = r.c0; col <= r.c1; col++) {
-      const cell2 = grid[row]?.[col];
-      if (!cell2 || cell2.rs === 0 || cell2.cs === 0)
-        continue;
-      const n = cellToNumber(cell2);
-      if (n !== null)
-        out.push(n);
-    }
-  }
-  return out;
-}
-var FUNCTIONS = {
-  SUM(grid, args) {
-    const vals = collectNums(grid, args);
-    return vals.reduce((a, b) => a + b, 0).toString();
-  },
-  AVERAGE(grid, args) {
-    const vals = collectNums(grid, args);
-    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toString() : "0";
-  },
-  COUNT(grid, args) {
-    return collectNums(grid, args).length.toString();
-  },
-  MIN(grid, args) {
-    const vals = collectNums(grid, args);
-    return vals.length ? Math.min(...vals).toString() : "0";
-  },
-  MAX(grid, args) {
-    const vals = collectNums(grid, args);
-    return vals.length ? Math.max(...vals).toString() : "0";
-  }
-};
-function evalFormula(grid, text) {
-  const m = text.match(/^=([A-Z]+)\((.+)\)$/i);
-  if (!m)
-    return text;
-  const fn = FUNCTIONS[m[1].toUpperCase()];
-  if (!fn)
-    return text;
-  try {
-    return fn(grid, m[2]);
-  } catch {
-    return text;
-  }
-}
-
 // src/html.ts
 var VT_HTML_PARSER = new DOMParser();
 function parseTrustedHtml(html) {
@@ -2699,6 +3131,7 @@ var HTML_PAIR_TAGS = /* @__PURE__ */ new Set([
   "sub",
   "sup",
   "small",
+  "big",
   "font",
   "span",
   "kbd",
@@ -3498,7 +3931,7 @@ function execCellCommand(td) {
 function attachWysiwyg(td, ctx) {
   if (tdStates.has(td))
     return;
-  const st = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [] };
+  const st = { ctx, composing: false, suppress: false, editing: false, lastSrcSeg: null, lastCaret: 0, lastLoc: null, undoStack: [], queuedCaret: 0, hugged: /* @__PURE__ */ new Set() };
   tdStates.set(td, st);
   td.addEventListener("compositionstart", () => {
     st.composing = true;
@@ -3917,29 +4350,31 @@ function onSelectionChange(td, st) {
   const loc = locateStart(td, range);
   const cur = loc.el;
   const adj = caretNeighborSegs(td, range);
+  if (expireHugged(td, st, adj, off))
+    return;
   if (st.lastSrcSeg && st.lastSrcSeg.isConnected && st.lastSrcSeg.dataset.view === "src") {
     if (st.lastSrcSeg !== cur && !adj.includes(st.lastSrcSeg)) {
       st.lastSrcSeg = null;
       rebuild(td, st, off ?? st.lastCaret);
       const sel2 = window.getSelection();
       if (sel2 && sel2.rangeCount)
-        hugReveal(td, caretNeighborSegs(td, sel2.getRangeAt(0)));
+        hugReveal(td, st, caretNeighborSegs(td, sel2.getRangeAt(0)));
       return;
     }
     if (st.lastSrcSeg === cur) {
-      hugReveal(td, adj);
+      hugReveal(td, st, adj);
       return;
     }
   }
   if (!cur) {
-    hugReveal(td, adj);
+    hugReveal(td, st, adj);
     return;
   }
   st.lastSrcSeg = cur.dataset.view === "src" ? cur : null;
   if (shouldReveal(loc)) {
     revealSeg(td, st, cur, loc);
   } else {
-    hugReveal(td, adj);
+    hugReveal(td, st, adj);
   }
   st.lastLoc = cur ? { el: cur, where: loc.where, innerF: loc.innerF } : null;
 }
@@ -3987,12 +4422,33 @@ function caretNeighborSegs(td, range) {
   }
   return res;
 }
-function hugReveal(td, segs) {
+function hugReveal(td, st, segs) {
   for (const el of segs) {
     if (el.dataset.view === "render" && el.dataset.kind !== "text") {
       setSegSource(el, el.dataset.src ?? "");
+      st.hugged.add(el);
     }
   }
+}
+function expireHugged(td, st, adj, off) {
+  if (!st.hugged.size)
+    return false;
+  let expired = false;
+  for (const el of st.hugged) {
+    if (!el.isConnected)
+      continue;
+    if (adj.includes(el))
+      continue;
+    if (el === st.lastSrcSeg)
+      continue;
+    if (el.dataset.view === "src")
+      expired = true;
+  }
+  if (!expired)
+    return false;
+  st.hugged.clear();
+  rebuild(td, st, off ?? st.lastCaret);
+  return true;
 }
 function revealSeg(td, st, el, loc) {
   const raw = el.dataset.src ?? "";
@@ -4206,7 +4662,7 @@ function settleCaretAfterEdit(td, st, caretAt) {
     revealSeg(td, st, loc.el, loc);
   } else {
     st.lastSrcSeg = loc.el && loc.el.dataset.view === "src" ? loc.el : null;
-    hugReveal(td, caretNeighborSegs(td, sel.getRangeAt(0)));
+    hugReveal(td, st, caretNeighborSegs(td, sel.getRangeAt(0)));
   }
 }
 function scheduleRebuild(td, st, trustSnapshot = true, caretOverride) {
@@ -4253,6 +4709,7 @@ function rebuild(td, st, caretOff) {
         src = collapseEnterTail(src);
     }
     enterWysiwyg(td, src, st.ctx);
+    st.hugged.clear();
     placeSuppressed(td, st, Math.max(0, Math.min(caretOff, src.length)));
     settleCaretAfterEdit(td, st, caretOff);
     if (st.unwrapShift != null) {
@@ -4330,7 +4787,7 @@ function handleCopyCut(td, st, e, type) {
 }
 
 // src/modes.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var cornerBinds = (wrap) => wrap;
 var MODE_HINTS = {
   OL: "\u539F\u59CB\u6362\u884C\u6A21\u5F0F",
@@ -4352,7 +4809,7 @@ var ModeSwitcher = class {
       btn.dataset.mode = mode;
       btn.title = MODE_HINTS[mode];
       btn.setAttribute("aria-label", MODE_HINTS[mode]);
-      (0, import_obsidian2.setIcon)(btn, MODE_ICONS[mode]);
+      (0, import_obsidian3.setIcon)(btn, MODE_ICONS[mode]);
       btn.addEventListener("mousedown", (e) => {
         e.preventDefault();
         document.body.dataset.vtModeClick = "1";
@@ -4530,7 +4987,7 @@ function bindRcResizeHandles(table, data, editing, onUpdate, enabled = true) {
     }
     return null;
   };
-  const hit = import_obsidian2.Platform.isMobile || import_obsidian2.Platform.isTablet ? 12 : 6;
+  const hit = import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet ? 12 : 6;
   const placeHandles = () => {
     const tableRect0 = table.getBoundingClientRect();
     const visL = wrap.scrollLeft;
@@ -4794,13 +5251,13 @@ function autoExpandRowHeight(td, data, r, contentChanged) {
 var mathJaxReady = null;
 function ensureMathJax() {
   if (!mathJaxReady)
-    mathJaxReady = (0, import_obsidian3.loadMathJax)();
+    mathJaxReady = (0, import_obsidian4.loadMathJax)();
   return mathJaxReady;
 }
 function scheduleMathRender(root) {
   void ensureMathJax().then(() => {
     if (renderMathInNode(root))
-      void (0, import_obsidian3.finishRenderMath)();
+      void (0, import_obsidian4.finishRenderMath)();
   });
 }
 var activeController = null;
@@ -5064,7 +5521,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     const chartBtn = document.body.createDiv({ cls: "vt-chart-btn" });
     chartBtn.dataset.vtUid = chartUid;
     chartBtn.setAttribute("aria-label", t("\u8F6C\u6362\u4E3A\u56FE\u8868", "Convert to chart"));
-    (0, import_obsidian3.setIcon)(chartBtn, "bar-chart-3");
+    (0, import_obsidian4.setIcon)(chartBtn, "bar-chart-3");
     chartBtn.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -5230,6 +5687,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         renderSel();
       },
       getSelection: () => selRects,
+      sortEnabled: () => settings.enableSortBar,
       onDragStart: () => flushActiveCell(),
       onMutate: (focus) => {
         pendingFocusRestore = focus ? { r: focus.r, c: focus.c, caretAtEnd: false } : { r: focusedR, c: focusedC, caretAtEnd: false };
@@ -5267,7 +5725,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         placeCaret(td, caretAtEnd3);
     };
     place();
-    if (import_obsidian3.Platform.isIosApp) {
+    if (import_obsidian4.Platform.isIosApp) {
       window.requestAnimationFrame(() => {
         if (td.isConnected && document.activeElement === td)
           place();
@@ -5426,13 +5884,47 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       selectionOwner = null;
     selOverlay.update(extra ? [...selRects, extra] : selRects, cellMap);
     syncFillHandle();
+    sortBar.sync();
+    refreshRowColDrag();
   };
   const clearSelection = () => {
     selRects = [];
     selGesture = null;
     renderSel();
   };
-  let fillHandle = !settings.enableFillHandle || import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet ? null : new FillHandle({
+  const sortBar = new SortBar({
+    hostEl: () => el,
+    tableEl: () => table,
+    getRects: () => selRects,
+    cellTd: (r, c) => cellMap[r]?.[c] ?? null,
+    grid: () => grid,
+    data: () => data,
+    anchorIndex: () => anchorIndex,
+    flushActive: () => flushActiveCell(),
+    enabled: () => settings.enableSortBar,
+    applySort: (apply, allDone) => {
+      flushActiveCell();
+      const before = serialize(data);
+      apply();
+      const after = serialize(data);
+      if (after === before) {
+        if (allDone)
+          clearSelection();
+        return;
+      }
+      const act = document.activeElement;
+      if (act?.matches("td") && table.contains(act)) {
+        const rr = parseInt(act.dataset.vtR ?? "-1", 10);
+        const cc = parseInt(act.dataset.vtC ?? "-1", 10);
+        if (rr >= 0 && cc >= 0)
+          pendingFocusRestore = { r: rr, c: cc, caretAtEnd: true };
+      }
+      if (!allDone)
+        pendingSelectionRestore = { rects: selRects.slice(), host: el };
+      onCommit(after);
+    }
+  });
+  let fillHandle = !settings.enableFillHandle || import_obsidian4.Platform.isMobile || import_obsidian4.Platform.isTablet ? null : new FillHandle({
     cellTd: (r, c) => cellMap[r]?.[c] ?? null,
     cellValue: (r, c) => grid[r]?.[c]?.t ?? "",
     cellVisible: (r, c) => visible(grid[r]?.[c] ?? null),
@@ -5477,13 +5969,15 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   table.addEventListener("focusin", () => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(syncFillHandle));
   });
+  let pardonRibbon = false;
   const onOutsidePointer = (e) => {
     if (!el.isConnected) {
       document.removeEventListener("pointerdown", onOutsidePointer, true);
       return;
     }
     const t2 = e.target;
-    if (!t2 || el.contains(t2) || t2.closest?.(".vt-bar, .vt-drag-grip, .vt-ghost, .menu, .modal, .modal-container, .suggestion-container"))
+    pardonRibbon = !!(t2 && !el.contains(t2) && t2.closest?.(".workspace-ribbon"));
+    if (!t2 || el.contains(t2) || t2.closest?.(".vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon"))
       return;
     lastOutsidePointerAt = Date.now();
     clearSelection();
@@ -5524,7 +6018,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     e.stopPropagation();
     lastSelDeleteAt = Date.now();
     if (!isFullRow && !isFullCol) {
-      new import_obsidian3.Notice("\u4EC5\u652F\u6301\u6574\u884C\u6216\u6574\u5217\u9009\u533A\u7684\u5220\u9664\uFF08Ctrl+Delete\uFF09");
+      new import_obsidian4.Notice("\u4EC5\u652F\u6301\u6574\u884C\u6216\u6574\u5217\u9009\u533A\u7684\u5220\u9664\uFF08Ctrl+Delete\uFF09");
       clearSelection();
       return;
     }
@@ -5664,8 +6158,12 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     if (pendingSelectionRestore || pendingFocusRestore)
       return;
     const related = e.relatedTarget;
-    if (related && (el.contains(related) || related.closest(".vt-bar, .vt-drag-grip, .vt-ghost, .menu, .modal, .modal-container, .suggestion-container")))
+    if (related && (el.contains(related) || related.closest(".vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon")))
       return;
+    if (!related && pardonRibbon) {
+      pardonRibbon = false;
+      return;
+    }
     clearSelection();
   });
   const tdFromPoint = (x, y) => {
@@ -5849,7 +6347,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     )),
     delRows: () => {
       if (selRowCount(selRects) >= grid.length) {
-        new import_obsidian3.Notice("\u81F3\u5C11\u9700\u8981\u4FDD\u7559\u4E00\u884C");
+        new import_obsidian4.Notice("\u81F3\u5C11\u9700\u8981\u4FDD\u7559\u4E00\u884C");
         clearSelection();
         return;
       }
@@ -5884,7 +6382,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     )),
     delCols: () => {
       if (selColCount(selRects) >= (grid[0]?.length ?? 0)) {
-        new import_obsidian3.Notice("\u81F3\u5C11\u9700\u8981\u4FDD\u7559\u4E00\u5217");
+        new import_obsidian4.Notice("\u81F3\u5C11\u9700\u8981\u4FDD\u7559\u4E00\u5217");
         clearSelection();
         return;
       }
@@ -5900,7 +6398,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       if (!selRects.length)
         return;
       if (!isSolidUnion(selRects)) {
-        new import_obsidian3.Notice("\u6240\u9009\u533A\u57DF\u4E0D\u662F\u5B8C\u6574\u77E9\u5F62\uFF0C\u65E0\u6CD5\u5408\u5E76");
+        new import_obsidian4.Notice("\u6240\u9009\u533A\u57DF\u4E0D\u662F\u5B8C\u6574\u77E9\u5F62\uFF0C\u65E0\u6CD5\u5408\u5E76");
         return;
       }
       const bounds = unionSelBounds(selRects);
@@ -5917,7 +6415,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           targets.push([r, c]);
       });
       if (!targets.length) {
-        new import_obsidian3.Notice("\u6240\u9009\u533A\u57DF\u6CA1\u6709\u5408\u5E76\u5355\u5143\u683C");
+        new import_obsidian4.Notice("\u6240\u9009\u533A\u57DF\u6CA1\u6709\u5408\u5E76\u5355\u5143\u683C");
         return;
       }
       const wasFocusedAnchor = targets.some(([r, c]) => r === focusedR && c === focusedC);
@@ -5947,20 +6445,6 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         grid[r][c].t = stripInlineFormat(grid[r][c].t);
       });
     }, true, restoreSelEnd),
-    fontStep: (delta) => {
-      for (let r = 0; r < grid.length; r++) {
-        for (let c = 0; c < (grid[0]?.length ?? 0); c++) {
-          if (!selRects.some((rc) => rectContains(rc, r, c)))
-            continue;
-          const td = cellMap[r]?.[c];
-          if (!td)
-            continue;
-          const cur = parseFloat(getComputedStyle(td).fontSize) || 16;
-          td.style.fontSize = `${Math.max(8, Math.min(72, cur + delta))}px`;
-        }
-      }
-      clearSelection();
-    },
     // 任务1：选区对齐（l/c/r；存进 Cell.a，重渲染后由内联样式生效）
     align: (mode) => commitSel((rects) => {
       forEachSelectedAnchor(rects, (r, c) => {
@@ -6332,7 +6816,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           return;
         }
         const { r: r2, c: c2 } = tdCoords(td);
-        if ((import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet) && selRects.length) {
+        if ((import_obsidian4.Platform.isMobile || import_obsidian4.Platform.isTablet) && selRects.length) {
           if (selRects.some((rc) => rectContains(rc, r2, c2)))
             clearSelection();
           else
@@ -6349,9 +6833,9 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         showEditingUi();
         updateEdgeBars();
         syncFillHandle();
-        if (import_obsidian3.Platform.isDesktop && !settings.enableDesktopToolbar)
+        if (import_obsidian4.Platform.isDesktop && !settings.enableDesktopToolbar)
           return;
-        if ((import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet) && !settings.enableMobileToolbar)
+        if ((import_obsidian4.Platform.isMobile || import_obsidian4.Platform.isTablet) && !settings.enableMobileToolbar)
           return;
         toolbar.show(
           td,
@@ -6661,7 +7145,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     if (style !== "none") {
       const cur = suppressed ? "1" : "0";
       if (el.dataset.vtHdrSupp !== void 0 && el.dataset.vtHdrSupp !== cur) {
-        new import_obsidian3.Notice(suppressed ? "\u8868\u5934\u884C\u53C2\u4E0E\u4E86\u7EB5\u5411\u5408\u5E76\uFF0C\u8868\u5934\u5E95\u8272\u5DF2\u6682\u65F6\u505C\u7528" : "\u7EB5\u5411\u5408\u5E76\u5DF2\u62C6\u5206\uFF0C\u8868\u5934\u5E95\u8272\u5DF2\u6062\u590D");
+        new import_obsidian4.Notice(suppressed ? "\u8868\u5934\u884C\u53C2\u4E0E\u4E86\u7EB5\u5411\u5408\u5E76\uFF0C\u8868\u5934\u5E95\u8272\u5DF2\u6682\u65F6\u505C\u7528" : "\u7EB5\u5411\u5408\u5E76\u5DF2\u62C6\u5206\uFF0C\u8868\u5934\u5E95\u8272\u5DF2\u6062\u590D");
       }
       el.dataset.vtHdrSupp = cur;
     } else {
@@ -6723,7 +7207,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const finishInitialFocus = (fr, fc) => {
     showEditingUi();
     const td = cellMap[fr]?.[fc];
-    if (td && (import_obsidian3.Platform.isDesktop && settings.enableDesktopToolbar || (import_obsidian3.Platform.isMobile || import_obsidian3.Platform.isTablet) && settings.enableMobileToolbar)) {
+    if (td && (import_obsidian4.Platform.isDesktop && settings.enableDesktopToolbar || (import_obsidian4.Platform.isMobile || import_obsidian4.Platform.isTablet) && settings.enableMobileToolbar)) {
       toolbar.show(
         td,
         data,
@@ -7095,7 +7579,7 @@ function splitMath(text) {
     const display = match[1] !== void 0;
     const source = (match[1] ?? match[2] ?? "").trim();
     try {
-      frag.appendChild((0, import_obsidian3.renderMath)(source, display));
+      frag.appendChild((0, import_obsidian4.renderMath)(source, display));
     } catch {
       frag.appendChild(document.createTextNode(match[0]));
     }
@@ -7423,7 +7907,7 @@ function toggleWrapMd(src, delim) {
   return delim + src + delim;
 }
 function stripInlineFormat(src) {
-  return src.replace(/<\/?(?:b|i|u|s|em|strong|mark|sub|sup|small|del|ins|kbd|font|span)\b[^>]*>/gi, "");
+  return src.replace(/<\/?(?:b|i|u|s|em|strong|mark|sub|sup|small|big|del|ins|kbd|font|span)\b[^>]*>/gi, "");
 }
 function copyCtxToClipboard(ctx) {
   let text = "";
@@ -7488,7 +7972,7 @@ function pasteCtxFromClipboard(ctx) {
       cd.t = plainToCellHtml(text);
     });
   }).catch(() => {
-    new import_obsidian3.Notice(t("\u65E0\u6CD5\u8BFB\u53D6\u526A\u8D34\u677F\uFF08\u53EF\u80FD\u672A\u6388\u6743\uFF09", "Cannot read clipboard (permission denied)"));
+    new import_obsidian4.Notice(t("\u65E0\u6CD5\u8BFB\u53D6\u526A\u8D34\u677F\uFF08\u53EF\u80FD\u672A\u6388\u6743\uFF09", "Cannot read clipboard (permission denied)"));
   });
 }
 function alignCtx(ctx, mode) {
@@ -7522,7 +8006,7 @@ function alignVCtx(ctx, mode) {
   });
 }
 function noticeNoSelTarget() {
-  new import_obsidian3.Notice(t("\u8BF7\u5148\u9009\u4E2D\u5355\u5143\u683C\u6216\u5355\u5143\u683C\u5185\u7684\u6587\u5B57", "Select some cells or text inside a cell first"));
+  new import_obsidian4.Notice(t("\u8BF7\u5148\u9009\u4E2D\u5355\u5143\u683C\u6216\u5355\u5143\u683C\u5185\u7684\u6587\u5B57", "Select some cells or text inside a cell first"));
 }
 function wrapCtx(ctx, tag) {
   if (ctx.sel && ctx.sel.rects.length) {
@@ -7765,10 +8249,9 @@ var VT_MENU_ACTIONS = {
   "vt.modeRC": { zh: "\u5207\u6362\u5230 RC \u6A21\u5F0F", en: "RC mode", icon: "table", checked: (ctx) => ctx.data.mode === "RC", exec: (ctx) => ctx.setMode("RC") }
 };
 var DEFAULT_CONTEXT_MENU = [
-  "vt.copy",
-  "vt.paste",
-  "vt.cut",
-  "vt.delete",
+  "vt.bold\uFF5Cvt.italic\uFF5Cvt.highlight",
+  "---",
+  "vt.copy\uFF5Cvt.paste\uFF5Cvt.cut\uFF5Cvt.delete",
   "---",
   "vt.insRowAbove",
   "vt.insRowBelow",
@@ -7779,19 +8262,7 @@ var DEFAULT_CONTEXT_MENU = [
   "vt.delCol",
   "---",
   "vt.alignL\uFF5Cvt.alignC\uFF5Cvt.alignR",
-  "vt.alignT\uFF5Cvt.alignM\uFF5Cvt.alignB",
-  // 样式图标组（2026-11-04）：恒显示；无选区目标时点击弹提示
-  "vt.bold\uFF5Cvt.italic\uFF5Cvt.strike\uFF5Cvt.highlight",
-  "vt.underline\uFF5Cvt.subscript\uFF5Cvt.superscript\uFF5Cvt.code\uFF5Cvt.clearFormat",
-  "vt.pickColor",
-  "---",
-  "vt.mergeRight",
-  "vt.mergeDown",
-  "vt.split",
-  "---",
-  "vt.modeOL",
-  "vt.modeHS",
-  "vt.modeRC"
+  "vt.alignT\uFF5Cvt.alignM\uFF5Cvt.alignB"
 ].join("\n");
 function parseMenuConfig(src) {
   const out = [];
@@ -7818,7 +8289,7 @@ function parseMenuConfig(src) {
   return out;
 }
 function buildCellMenu(settings, ctx, obsidianCommand) {
-  const menu = new import_obsidian3.Menu();
+  const menu = new import_obsidian4.Menu();
   for (const spec of parseMenuConfig(settings.contextMenu || DEFAULT_CONTEXT_MENU)) {
     if (spec.kind === "sep") {
       menu.addSeparator();
@@ -7838,7 +8309,7 @@ function buildCellMenu(settings, ctx, obsidianCommand) {
             cls: "vt-menu-icon" + (act2.checked?.(ctx) ? " is-checked" : ""),
             attr: { "aria-label": t(act2.zh, act2.en) }
           });
-          (0, import_obsidian3.setIcon)(btn, act2.icon || "circle");
+          (0, import_obsidian4.setIcon)(btn, act2.icon || "circle");
           btn.addEventListener("click", (ev) => {
             ev.stopPropagation();
             menu.close();
@@ -8013,12 +8484,6 @@ var LUCIDE_ICONS = [
 ];
 
 // src/bar.ts
-function wrapFontSize(src, px) {
-  const m = src.match(/^<span style="font-size:\s*[\d.]+px"([^>]*)>([\s\S]*)<\/span>$/);
-  if (m)
-    return `<span style="font-size:${px}px"${m[1]}>${m[2]}</span>`;
-  return `<span style="font-size:${px}px">${src}</span>`;
-}
 var Toolbar = class {
   constructor() {
     this.cell = null;
@@ -8055,18 +8520,18 @@ var Toolbar = class {
   buildRows() {
     const row1 = this.el.createDiv({ cls: "vt-bar-row" });
     const fmtDefs = [
-      ["B", t("\u52A0\u7C97", "Bold"), () => this.fmt("bold")],
-      ["I", t("\u659C\u4F53", "Italic"), () => this.fmt("italic")],
-      ["A-", t("\u7F29\u5C0F\u5B57\u53F7", "Smaller"), () => this.stepFont(-2)],
-      ["A+", t("\u653E\u5927\u5B57\u53F7", "Larger"), () => this.stepFont(2)]
+      ["B", t("\u52A0\u7C97", "Bold"), "b"],
+      ["I", t("\u659C\u4F53", "Italic"), "i"],
+      ["A-", t("\u7F29\u5C0F\u5B57\u53F7", "Smaller"), "small"],
+      ["A+", t("\u653E\u5927\u5B57\u53F7", "Larger"), "big"]
     ];
-    for (const [label, hint, fn] of fmtDefs) {
+    for (const [label, hint, tag] of fmtDefs) {
       const btn = row1.createEl("button", { cls: "vt-bar-btn", text: label });
       btn.title = hint;
       btn.addEventListener("mousedown", (e) => {
         e.preventDefault();
         document.body.dataset.vtBarClick = "1";
-        fn();
+        this.wrap(tag);
         window.setTimeout(() => {
           delete document.body.dataset.vtBarClick;
         }, 200);
@@ -8134,9 +8599,10 @@ var Toolbar = class {
       }, 200);
     });
   }
-  /** 执行结构操作：有选区 → 按选区批量执行；无选区 → 单格（原有行为 + 光标位置保持） */
+  /** 执行结构操作：有选区 → 按选区批量执行；无选区 → 单格（原有行为 + 光标位置保持）。
+   *  kind = null：纯单格文本类操作（字号族），选区路径已由调用方自行处理 */
   structOp(kind, fn) {
-    if (this.selActive()) {
+    if (kind && this.selActive()) {
       this.selOps[kind]();
       return;
     }
@@ -8159,7 +8625,7 @@ var Toolbar = class {
       merge: { resetCaret: true }
       // 合并后内容变化 → 光标落格首
     };
-    this.focusShift = shifts[kind] ?? null;
+    this.focusShift = (kind ? shifts[kind] : void 0) ?? null;
     fn(g, r, c);
     this.syncCell?.(r, c);
     commit(serialize(this.data));
@@ -8183,13 +8649,13 @@ var Toolbar = class {
   /** 富文本格式：有选区 → 逐格整块包裹；格内文字选区（Shift+方向键/拖选）→ 只包
    *  选中片段；无选区 → 聚焦格整格包裹（源码域）。
    *  单格不再走 execCommand：其 DOM 修改会被 wysiwyg 源码投影丢弃（加粗/斜体不保存），
-   *  改与选区批量同语义直接包 grid 源码，经 commit 重渲染后持久化 */
-  fmt(cmd) {
+   *  改与选区批量同语义直接包 grid 源码，经 commit 重渲染后持久化。
+   *  字号复用本通道：tag = 'small' / 'big'，只写包裹标签，不涉及字号数值与内联样式 */
+  wrap(tag) {
     if (this.selActive()) {
-      this.selOps[cmd]();
+      this.selOps.wrapTag(tag);
       return;
     }
-    const tag = cmd === "bold" ? "b" : "i";
     const td = this.cell;
     if (td && isWysiwyg(td) && this.data && this.onCommit) {
       this.flushCell?.();
@@ -8209,7 +8675,7 @@ var Toolbar = class {
         return;
       }
     }
-    this.structOp(cmd, (g, r, c) => {
+    this.structOp(null, (g, r, c) => {
       const cd = g[r]?.[c];
       if (cd)
         cd.t = toggleWrapTag(cd.t, tag);
@@ -8317,40 +8783,6 @@ var Toolbar = class {
   /* ===== 文本格式化 ===== */
   exec(cmd, value) {
     compatExecCommand(document, cmd, value);
-  }
-  stepFont(delta) {
-    if (this.selActive()) {
-      this.selOps.fontStep(delta);
-      return;
-    }
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0)
-      return;
-    const range = sel.getRangeAt(0);
-    const anchor = range.startContainer.parentElement;
-    if (!anchor)
-      return;
-    const cur = parseFloat(getComputedStyle(anchor).fontSize) || 16;
-    const next = Math.max(8, Math.min(72, cur + delta));
-    if (!sel.isCollapsed) {
-      const span = createSpan();
-      span.style.fontSize = `${next}px`;
-      try {
-        range.surroundContents(span);
-      } catch {
-      }
-    } else if (this.cell) {
-      const cd = this.data?.rows[this.cellR]?.[this.cellC];
-      if (cd && (cd.t ?? "").trim() !== "" && this.onCommit) {
-        this.flushCell?.();
-        cd.t = wrapFontSize(cd.t, next);
-        this.syncCell?.(this.cellR, this.cellC);
-        const commit = this.onCommit;
-        commit(serialize(this.data));
-        return;
-      }
-      this.cell.style.fontSize = `${next}px`;
-    }
   }
   destroy() {
     if (this.animatedTimer !== null)
@@ -8871,6 +9303,9 @@ function gridToChart(grid) {
   }
 }
 
+// src/donation.ts
+var WECHAT_QR_BASE64 = "data:image/jpeg;base64,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";
+
 // src/main.ts
 var LANG = "vtable";
 var DEFAULT_SETTINGS = {
@@ -8890,9 +9325,24 @@ var DEFAULT_SETTINGS = {
   zebraEnabled: false,
   enableFillHandle: true,
   enableRcScale: true,
-  enableImgResize: true
+  enableImgResize: true,
+  enableSortBar: true
 };
-var VtPlugin = class extends import_obsidian4.Plugin {
+var LEGACY_DEFAULT_CONTEXT_MENU = [
+  "vt.alignL\uFF5Cvt.alignC\uFF5Cvt.alignR",
+  "vt.alignT\uFF5Cvt.alignM\uFF5Cvt.alignB",
+  "vt.bold\uFF5Cvt.italic\uFF5Cvt.strike\uFF5Cvt.highlight",
+  "vt.underline\uFF5Cvt.subscript\uFF5Cvt.superscript\uFF5Cvt.code\uFF5Cvt.clearFormat",
+  "vt.pickColor"
+].join("\n");
+function menuActionKey(src) {
+  return src.split("\n").flatMap((line) => line.split("\uFF5C")).map((item) => item.trim().split("|")[0].trim()).filter((id) => id && id !== "---").sort().join(",");
+}
+function isLegacyDefaultMenu(src) {
+  const key = menuActionKey(src);
+  return key === menuActionKey(LEGACY_DEFAULT_CONTEXT_MENU) || key === menuActionKey(LEGACY_DEFAULT_CONTEXT_MENU + "\nvt.paste");
+}
+var VtPlugin = class extends import_obsidian5.Plugin {
   constructor() {
     super(...arguments);
     /** 阅读模式写回定位缓存：渲染完成后 getSectionInfo 可用性最高，缓存行号供后续写回兜底
@@ -8911,7 +9361,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
       if (folder)
         templateFolder = folder;
     }
-    if (vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(templateFolder)) == null) {
+    if (vault.getAbstractFileByPath((0, import_obsidian5.normalizePath)(templateFolder)) == null) {
       try {
         await vault.createFolder(templateFolder);
       } catch (err) {
@@ -8948,7 +9398,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
     ];
     for (const tpl of templates) {
       const filePath = `${templateFolder}/${tpl.name}`;
-      if (vault.getAbstractFileByPath((0, import_obsidian4.normalizePath)(filePath)) == null) {
+      if (vault.getAbstractFileByPath((0, import_obsidian5.normalizePath)(filePath)) == null) {
         try {
           await vault.create(filePath, tpl.content);
         } catch (err) {
@@ -8957,7 +9407,7 @@ var VtPlugin = class extends import_obsidian4.Plugin {
         }
       }
     }
-    new import_obsidian4.Notice(lang2 === "zh" ? `\u5DF2\u5C06\u4E2D\u6587\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u81F3\u6A21\u677F\u6587\u4EF6\u5939\u300C${templateFolder}\u300D` : `English chart templates added to the templates folder "${templateFolder}"`);
+    new import_obsidian5.Notice(lang2 === "zh" ? `\u5DF2\u5C06\u4E2D\u6587\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u81F3\u6A21\u677F\u6587\u4EF6\u5939\u300C${templateFolder}\u300D` : `English chart templates added to the templates folder "${templateFolder}"`);
   }
   /** 官方"加载失败"提示不带技术细节：onload 全量捕获，错误消息直达 Notice 供真机定位 */
   async onload() {
@@ -8967,13 +9417,17 @@ var VtPlugin = class extends import_obsidian4.Plugin {
       const msg = e instanceof Error ? e.message : String(e);
       const first = e instanceof Error && e.stack ? (e.stack.split("\n")[1] || "").trim() : "";
       console.error("[Vtable] onload \u5931\u8D25\uFF1A", e);
-      new import_obsidian4.Notice(`Vtable \u52A0\u8F7D\u5931\u8D25\uFF1A${msg}
+      new import_obsidian5.Notice(`Vtable \u52A0\u8F7D\u5931\u8D25\uFF1A${msg}
 ${first}`, 0);
       throw e;
     }
   }
   async onloadInner() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    if (isLegacyDefaultMenu(this.settings.contextMenu)) {
+      this.settings.contextMenu = DEFAULT_CONTEXT_MENU;
+      await this.saveSettings();
+    }
     if (!this.settings.contextMenu.includes("vt.alignL")) {
       const lines = this.settings.contextMenu.split("\n");
       const mi = lines.findIndex((l) => l.trim() === "vt.mergeRight");
@@ -9007,7 +9461,7 @@ ${first}`, 0);
       callback: () => {
         const ed = this.activeEditor();
         if (!ed) {
-          new import_obsidian4.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
+          new import_obsidian5.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
           return;
         }
         this.deleteCurrentVtable(ed);
@@ -9055,7 +9509,7 @@ ${first}`, 0);
         (elHost) => {
           const ed = this.activeEditor();
           if (!ed) {
-            new import_obsidian4.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
+            new import_obsidian5.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
             return;
           }
           let anchor = -1;
@@ -9071,7 +9525,7 @@ ${first}`, 0);
           if (anchor >= 0) {
             ed.setCursor({ line: anchor + 1, ch: 0 });
           } else if (!findVtableBlock(ed)) {
-            new import_obsidian4.Notice(t("\u672A\u627E\u5230\u53EF\u8F6C\u6362\u7684\u56FE\u8868 vtable \u6A21\u677F", "No chart vtable template found"));
+            new import_obsidian5.Notice(t("\u672A\u627E\u5230\u53EF\u8F6C\u6362\u7684\u56FE\u8868 vtable \u6A21\u677F", "No chart vtable template found"));
             return;
           }
           this.vtableToChart(ed);
@@ -9146,7 +9600,7 @@ ${first}`, 0);
         callback: () => {
           const ctrl = getActiveTableController();
           if (!ctrl) {
-            new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+            new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
             return;
           }
           ctrl.moveCell(dr, dc);
@@ -9167,7 +9621,7 @@ ${first}`, 0);
         callback: () => {
           const ctrl = getActiveTableController();
           if (!ctrl) {
-            new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+            new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
             return;
           }
           ctrl.setMode(mode);
@@ -9184,11 +9638,11 @@ ${first}`, 0);
       callback: () => {
         const ctrl = getActiveTableController();
         if (!ctrl) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first"));
           return;
         }
         const removed = ctrl.toggleStyleAll();
-        new import_obsidian4.Notice(removed ? t("\u5DF2\u53D6\u6D88\u672C\u8868\u5168\u90E8\u6837\u5F0F", "All styles removed for this table") : t("\u672C\u8868\u6CA1\u6709\u53EF\u5220\u9664\u7684\u6837\u5F0F", "No styles to remove on this table"));
+        new import_obsidian5.Notice(removed ? t("\u5DF2\u53D6\u6D88\u672C\u8868\u5168\u90E8\u6837\u5F0F", "All styles removed for this table") : t("\u672C\u8868\u6CA1\u6709\u53EF\u5220\u9664\u7684\u6837\u5F0F", "No styles to remove on this table"));
       }
     });
     this.addCommand({
@@ -9197,15 +9651,15 @@ ${first}`, 0);
       callback: () => {
         const ctrl = getActiveTableController();
         if (!ctrl) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first"));
           return;
         }
         if (this.settings.headerStyle === "none") {
-          new import_obsidian4.Notice(t("\u672A\u542F\u7528\u8868\u5934\u5E95\u8272\uFF1A\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u5C06\u300C\u8868\u5934\u5E95\u8272\u300D\u8BBE\u4E3A\u4E3B\u9898\u8272\u6216\u81EA\u5B9A\u4E49\u8272", "Header background is off: set it to Theme color or Custom color in settings first"));
+          new import_obsidian5.Notice(t("\u672A\u542F\u7528\u8868\u5934\u5E95\u8272\uFF1A\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u5C06\u300C\u8868\u5934\u5E95\u8272\u300D\u8BBE\u4E3A\u4E3B\u9898\u8272\u6216\u81EA\u5B9A\u4E49\u8272", "Header background is off: set it to Theme color or Custom color in settings first"));
           return;
         }
         const added = ctrl.addHeaderBg();
-        new import_obsidian4.Notice(added ? t("\u5DF2\u6DFB\u52A0\u8868\u5934\u5E95\u8272", "Header background added") : t("\u672C\u8868\u5DF2\u6709\u8868\u5934\u5E95\u8272", "Header background already on"));
+        new import_obsidian5.Notice(added ? t("\u5DF2\u6DFB\u52A0\u8868\u5934\u5E95\u8272", "Header background added") : t("\u672C\u8868\u5DF2\u6709\u8868\u5934\u5E95\u8272", "Header background already on"));
       }
     });
     this.addCommand({
@@ -9214,11 +9668,11 @@ ${first}`, 0);
       callback: () => {
         const ctrl = getActiveTableController();
         if (!ctrl) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
           return;
         }
         void ctrl.styleCall((options) => new Promise((resolve) => {
-          const menu = new import_obsidian4.Menu();
+          const menu = new import_obsidian5.Menu();
           for (const o of options) {
             menu.addItem((i) => {
               i.setTitle(o.checked ? `\u2713 ${o.name}` : o.name);
@@ -9238,11 +9692,11 @@ ${first}`, 0);
       callback: () => {
         const ctrl = getActiveTableController();
         if (!ctrl) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
           return;
         }
         const on = ctrl.toggleZebra();
-        new import_obsidian4.Notice(on ? t("\u5DF2\u5E94\u7528\u9694\u884C\u53D8\u8272", "Zebra stripes applied") : t("\u5DF2\u53D6\u6D88\u9694\u884C\u53D8\u8272", "Zebra stripes removed"));
+        new import_obsidian5.Notice(on ? t("\u5DF2\u5E94\u7528\u9694\u884C\u53D8\u8272", "Zebra stripes applied") : t("\u5DF2\u53D6\u6D88\u9694\u884C\u53D8\u8272", "Zebra stripes removed"));
       }
     });
     this.addCommand({
@@ -9251,7 +9705,7 @@ ${first}`, 0);
       callback: () => {
         const ctrl = getActiveTableController();
         if (!ctrl) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
           return;
         }
         ctrl.toggleDiag();
@@ -9276,7 +9730,7 @@ ${first}`, 0);
         callback: () => {
           const ctrl = getActiveTableController();
           if (!ctrl) {
-            new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+            new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
             return;
           }
           if (mode === "t" || mode === "m" || mode === "b")
@@ -9292,7 +9746,7 @@ ${first}`, 0);
       callback: () => {
         const ctrl = getActiveTableController();
         if (!ctrl) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
           return;
         }
         ctrl.pickColor();
@@ -9304,7 +9758,7 @@ ${first}`, 0);
       callback: () => {
         const td = activeWysiwygTd();
         if (!td || !execCellCommand(td)) {
-          new import_obsidian4.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
+          new import_obsidian5.Notice(t("\u8BF7\u5148\u70B9\u51FB vtable \u8868\u683C\u4E2D\u7684\u4EFB\u610F\u5355\u5143\u683C\u8FDB\u5165\u7F16\u8F91\u72B6\u6001", "Click any cell in a vtable table first to enter edit mode"));
         }
       }
     });
@@ -9315,7 +9769,7 @@ ${first}`, 0);
     const cur = ed.getCursor();
     const end = { line: cur.line, ch: ed.getLine(cur.line).length };
     ed.replaceRange("\n" + block + "\n", end);
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     const currentMode = view?.currentMode;
     if (currentMode?.sourceMode) {
       ed.setCursor({ line: cur.line + 2, ch: 0 });
@@ -9325,13 +9779,13 @@ ${first}`, 0);
   }
   /** 获取当前活动编辑器（常驻命令用：拿不到时提示而非隐藏命令） */
   activeEditor() {
-    return this.app.workspace.activeEditor?.editor ?? this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView)?.editor ?? null;
+    return this.app.workspace.activeEditor?.editor ?? this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView)?.editor ?? null;
   }
   /** 常驻命令统一入口：确保有活动编辑器再执行 */
   runWithEditor(fn) {
     const ed = this.activeEditor();
     if (!ed) {
-      new import_obsidian4.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
+      new import_obsidian5.Notice(t("\u5F53\u524D\u6CA1\u6709\u53EF\u7528\u7684\u7F16\u8F91\u5668", "No active editor"));
       return;
     }
     fn(ed);
@@ -9341,7 +9795,7 @@ ${first}`, 0);
     const info = ctx.getSectionInfo(el);
     if (!info)
       return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!view)
       return;
     const editor = view.editor;
@@ -9407,7 +9861,7 @@ ${first}`, 0);
           return false;
         const el = this.locateTableEl(key, view, doc, fenceLine);
         if (!el) {
-          new import_obsidian4.Notice(t("Vtable\uFF1A\u65B9\u5411\u952E\u5DF2\u547D\u4E2D\u8868\u683C\uFF0C\u4F46\u672A\u5B9A\u4F4D\u5230\u6E32\u67D3\u5BB9\u5668\uFF08\u8BF7\u628A\u6B64\u63D0\u793A\u53CD\u9988\u7ED9\u5F00\u53D1\u8005\uFF09", "Vtable: arrow key matched a table but its container was not found (please report this to the developer)"));
+          new import_obsidian5.Notice(t("Vtable\uFF1A\u65B9\u5411\u952E\u5DF2\u547D\u4E2D\u8868\u683C\uFF0C\u4F46\u672A\u5B9A\u4F4D\u5230\u6E32\u67D3\u5BB9\u5668\uFF08\u8BF7\u628A\u6B64\u63D0\u793A\u53CD\u9988\u7ED9\u5F00\u53D1\u8005\uFF09", "Vtable: arrow key matched a table but its container was not found (please report this to the developer)"));
           return false;
         }
         if (target === "first") {
@@ -9458,7 +9912,7 @@ ${first}`, 0);
           return;
         if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing)
           return;
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
         if (!view)
           return;
         const cm = view.editor.cm;
@@ -9533,7 +9987,7 @@ ${first}`, 0);
   }
   /** 删除光标上方紧邻的 vtable 代码块（光标需位于表格下方第一个空行） */
   deleteCurrentVtable(ed) {
-    const hint = () => new import_obsidian4.Notice(t("\u8BF7\u5C06\u5149\u6807\u653E\u5728\u8981\u5220\u9664\u7684 vtable \u8868\u683C\u4E0B\u65B9\u7D27\u90BB\u7684\u7A7A\u884C\u4E0A\u518D\u6267\u884C\u5220\u9664", "Put the cursor on the empty line right below the vtable block to delete it"));
+    const hint = () => new import_obsidian5.Notice(t("\u8BF7\u5C06\u5149\u6807\u653E\u5728\u8981\u5220\u9664\u7684 vtable \u8868\u683C\u4E0B\u65B9\u7D27\u90BB\u7684\u7A7A\u884C\u4E0A\u518D\u6267\u884C\u5220\u9664", "Put the cursor on the empty line right below the vtable block to delete it"));
     const cursor = ed.getCursor();
     const currentLine = cursor.line;
     if (ed.getLine(currentLine).trim() !== "") {
@@ -9561,7 +10015,7 @@ ${first}`, 0);
         break;
     }
     if (startLine === -1) {
-      new import_obsidian4.Notice(t("\u4E0A\u65B9\u672A\u627E\u5230 vtable \u4EE3\u7801\u5757", "No vtable code block found above"));
+      new import_obsidian5.Notice(t("\u4E0A\u65B9\u672A\u627E\u5230 vtable \u4EE3\u7801\u5757", "No vtable code block found above"));
       return;
     }
     ed.replaceRange("", { line: startLine, ch: 0 }, { line: endLine, ch: ed.getLine(endLine).length });
@@ -9611,18 +10065,18 @@ ${first}`, 0);
   vtableToChart(ed) {
     const range = findVtableBlock(ed);
     if (!range) {
-      new import_obsidian4.Notice(t("\u672A\u627E\u5230\u53EF\u8F6C\u6362\u7684\u56FE\u8868 vtable \u6A21\u677F", "No chart template found"));
+      new import_obsidian5.Notice(t("\u672A\u627E\u5230\u53EF\u8F6C\u6362\u7684\u56FE\u8868 vtable \u6A21\u677F", "No chart template found"));
       return;
     }
     const source = ed.getRange(range.contentFrom, range.contentTo);
     const grid = parseSource(source).rows;
     if (!detectChartType(grid)) {
-      new import_obsidian4.Notice(t("\u4E0D\u662F\u6709\u6548\u7684\u56FE\u8868\u6A21\u677F\uFF08\u8868\u5934\u5E94\u4E3A vbarchart / vpie / vline\uFF09", "Not a valid chart template (header must be vbarchart / vpie / vline)"));
+      new import_obsidian5.Notice(t("\u4E0D\u662F\u6709\u6548\u7684\u56FE\u8868\u6A21\u677F\uFF08\u8868\u5934\u5E94\u4E3A vbarchart / vpie / vline\uFF09", "Not a valid chart template (header must be vbarchart / vpie / vline)"));
       return;
     }
     const output = gridToChart(grid);
     if (!output) {
-      new import_obsidian4.Notice(t("\u8868\u683C\u5F62\u5F0F\u4E0D\u89C4\u8303\uFF1A\u6570\u636E\u884C\u7F3A\u5931\u6216\u683C\u5F0F\u6709\u8BEF", "Malformed table: data rows missing or invalid"));
+      new import_obsidian5.Notice(t("\u8868\u683C\u5F62\u5F0F\u4E0D\u89C4\u8303\uFF1A\u6570\u636E\u884C\u7F3A\u5931\u6216\u683C\u5F0F\u6709\u8BEF", "Malformed table: data rows missing or invalid"));
       return;
     }
     const insertLine = range.blockTo.line;
@@ -9632,7 +10086,7 @@ ${first}`, 0);
   selectVtableAbove(ed) {
     const block = findVtableBlockAbove(ed);
     if (!block) {
-      new import_obsidian4.Notice(t("\u4E0A\u65B9\u672A\u627E\u5230 vtable \u8868\u683C", "No vtable table found above"));
+      new import_obsidian5.Notice(t("\u4E0A\u65B9\u672A\u627E\u5230 vtable \u8868\u683C", "No vtable table found above"));
       return;
     }
     ed.setSelection(block.blockFrom, block.blockTo);
@@ -9640,7 +10094,7 @@ ${first}`, 0);
   }
   /** 将新的表格源文本写回代码块内部（围栏之间的行） */
   writeBack(el, ctx, newSource) {
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!view)
       return;
     const editor = view.editor;
@@ -9652,7 +10106,7 @@ ${first}`, 0);
     if (!info)
       info = this.locateBlockByDom(el, view);
     if (!info) {
-      new import_obsidian4.Notice(t("\u65E0\u6CD5\u5B9A\u4F4D\u8868\u683C\u5728\u6587\u6863\u4E2D\u7684\u4F4D\u7F6E\uFF0C\u672C\u6B21\u66F4\u6539\u6682\u672A\u5199\u5165\u6587\u4EF6", "Vtable: table position in the document not found; this change was not written to file"));
+      new import_obsidian5.Notice(t("\u65E0\u6CD5\u5B9A\u4F4D\u8868\u683C\u5728\u6587\u6863\u4E2D\u7684\u4F4D\u7F6E\uFF0C\u672C\u6B21\u66F4\u6539\u6682\u672A\u5199\u5165\u6587\u4EF6", "Vtable: table position in the document not found; this change was not written to file"));
       return;
     }
     const scroller = el.closest(".cm-scroller");
@@ -9711,7 +10165,7 @@ ${first}`, 0);
     const info = ctx.getSectionInfo(el);
     if (!info)
       return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!view)
       return;
     const editor = view.editor;
@@ -9724,7 +10178,7 @@ ${first}`, 0);
     const info = ctx.getSectionInfo(el);
     if (!info)
       return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!view)
       return;
     const editor = view.editor;
@@ -9743,7 +10197,7 @@ ${first}`, 0);
     await this.saveData(this.settings);
   }
 };
-var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
+var VtSettingTab = class extends import_obsidian5.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     /** 右键菜单文本框未保存缓冲：update() 重跑 render 回调时保住用户未点保存的输入 */
@@ -9754,12 +10208,21 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
    *  （key 直绑 plugin.settings，框架经 get/setControlValue 读写并自动保存）；
    *  特殊 UI（图表按钮/折叠样式区/菜单自定义）走 render 回调自理（render 不带 type 字段，
    *  文档链接走 desc 片段——官方链接标准形态）。详见官方迁移指南 Path A */
+  /** 使用文档行（2026-11-14 TA：居中，开头结尾同款） */
+  docRowDefs() {
+    return {
+      name: t("\u4F7F\u7528\u6587\u6863", "Documentation"),
+      render: (s) => {
+        s.settingEl.empty();
+        s.settingEl.addClass("vt-doc-row");
+        const box = s.settingEl.createDiv({ cls: "vt-doc-box" });
+        box.appendChild(makeDocLinksFrag());
+      }
+    };
+  }
   getSettingDefinitions() {
     const defs = [];
-    defs.push({
-      name: t("\u4F7F\u7528\u6587\u6863", "Documentation"),
-      desc: makeDocLinksFrag()
-    });
+    defs.push(this.docRowDefs());
     defs.push({
       name: t("\u754C\u9762\u8BED\u8A00", "UI language"),
       desc: t("\u8BBE\u7F6E\u9762\u677F\u3001\u6D6E\u7A97\u6309\u94AE\u4E0E\u53F3\u952E\u83DC\u5355\u6587\u672C\u7684\u8BED\u8A00\u3002", "Language of the settings panel, toolbar buttons and context menus."),
@@ -9770,51 +10233,17 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
       }
     });
     defs.push({
-      name: t("\u56FE\u8868\u6A21\u677F", "Chart templates"),
-      desc: t("\u628A\u5BF9\u5E94\u8BED\u8A00\u7684\u56FE\u8868\u6A21\u677F\uFF08\u67F1\u72B6\u56FE/\u997C\u56FE/\u6298\u7EBF\u56FE\uFF09\u6DFB\u52A0\u5230\u6A21\u677F\u6587\u4EF6\u5939\uFF0C\u5199\u5165\u68C0\u6D4B\u5230\u7684\u6A21\u677F\u76EE\u5F55\u3002", "Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder."),
-      render: (s) => {
-        s.addButton((b) => b.setButtonText("+\u4E2D\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
-          this.plugin.addChartTemplates("zh").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
-        }));
-        s.addButton((b) => b.setButtonText("+\u82F1\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
-          this.plugin.addChartTemplates("en").catch(() => new import_obsidian4.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
-        }));
-      }
-    });
-    defs.push({
       name: t("\u6D6E\u7A97\u6309\u94AE\u8BF4\u660E", "Floating toolbar legend"),
       desc: makeLegendFrag(),
       visible: () => this.plugin.settings.uiLang === "en"
     });
     defs.push({
-      name: t("\u7535\u8111\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F", "Desktop floating toolbar"),
-      desc: t("\u5728\u7535\u8111\u7AEF\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F", "Show the floating formatting toolbar while editing cells on desktop"),
-      control: { type: "toggle", key: "enableDesktopToolbar" }
-    });
-    defs.push({
-      name: t("\u79FB\u52A8\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F", "Mobile / tablet floating toolbar"),
-      desc: t("\u5728\u624B\u673A/\u5E73\u677F\u8BBE\u5907\u4E0A\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F", "Show the floating toolbar while editing cells on phones and tablets"),
-      control: { type: "toggle", key: "enableMobileToolbar" }
-    });
-    defs.push({
-      name: t("\u6A21\u5F0F\u5207\u6362\u6309\u94AE", "Mode switcher"),
-      desc: t("\u7F16\u8F91\u8868\u683C\u65F6\u663E\u793A OL / HS / RC \u4E09\u79CD\u6A21\u5F0F\u7684\u5207\u6362\u6309\u94AE", "Show the OL / HS / RC mode switcher while editing"),
-      control: { type: "toggle", key: "enableModeSwitcher" }
-    });
-    defs.push({
-      name: t("\u81EA\u52A8\u586B\u5145\u67C4", "Auto fill handle"),
-      desc: t("\u9009\u4E2D\u5355\u5143\u683C\u65F6\u5728\u53F3\u4E0B\u89D2\u663E\u793A\u586B\u5145\u67C4\uFF0C\u62D6\u62FD\u53EF\u590D\u5236\u6216\u6309\u5E8F\u5217\u586B\u5145\u76F8\u90BB\u5355\u5143\u683C\uFF08\u684C\u9762\u7AEF\u4E13\u5C5E\uFF09\u3002", "Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only)."),
-      control: { type: "toggle", key: "enableFillHandle" }
-    });
-    defs.push({
-      name: t("RC \u6574\u4F53\u7F29\u653E\u628A\u624B", "RC whole-table scaling handle"),
-      desc: t("RC \u6A21\u5F0F\u4E0B\u5728\u8868\u683C\u53F3\u4E0B\u89D2\u663E\u793A\u7F29\u653E\u628A\u624B\uFF0C\u62D6\u62FD\u53EF\u6574\u4F53\u62C9\u4F38\u6240\u6709\u884C\u9AD8\u5217\u5BBD\u3002", "In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging."),
-      control: { type: "toggle", key: "enableRcScale" }
-    });
-    defs.push({
-      name: t("\u56FE\u7247\u7F29\u653E\u67C4", "Image resize handle"),
-      desc: t("\u7F16\u8F91\u65F6\u5728\u5D4C\u5165\u56FE\u7247\u65C1\u663E\u793A L \u5F62\u62D6\u67C4\uFF0C\u62D6\u62FD\u8C03\u6574\u56FE\u7247\u5BBD\u5EA6\uFF08\u5199\u56DE |\u6570\u5B57 \u5C3A\u5BF8\u8BED\u6CD5\uFF09\u3002", "Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax)."),
-      control: { type: "toggle", key: "enableImgResize" }
+      name: t("\u4F53\u9A8C\u81EA\u5B9A\u4E49", "Experience customization"),
+      render: (s) => {
+        s.settingEl.empty();
+        s.settingEl.addClass("vt-style-section-host");
+        this.buildExperienceSection(s.settingEl);
+      }
     });
     defs.push({
       name: t("\u8868\u683C\u6837\u5F0F", "Table style"),
@@ -9824,11 +10253,85 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
         this.buildStyleSection(s.settingEl);
       }
     });
+    defs.push(this.docRowDefs());
     defs.push({
-      name: t("\u4F7F\u7528\u6587\u6863", "Documentation"),
-      desc: makeDocLinksFrag()
+      name: t("\u6350\u8D60", "Donation"),
+      render: (s) => {
+        s.settingEl.empty();
+        s.settingEl.addClass("vt-donation-row");
+        const btn = s.settingEl.createEl("button", { text: "\u2615\uFE0F WeChat \u5FAE\u4FE1" });
+        btn.addEventListener("click", () => new VtDonationModal(this.app).open());
+      }
     });
     return defs;
+  }
+  /** 体验自定义板块（2026-11-14 TA）：图表模板 + 浮窗/模式/把手类开关，details 默认折叠 */
+  buildExperienceSection(host) {
+    host.empty();
+    const section = host.createEl("details", { cls: "vt-style-section" });
+    section.createEl("summary", { text: t("\u4F53\u9A8C\u81EA\u5B9A\u4E49", "Experience customization") });
+    new import_obsidian5.Setting(section).setName(t("\u56FE\u8868\u6A21\u677F", "Chart templates")).setDesc(t("\u628A\u5BF9\u5E94\u8BED\u8A00\u7684\u56FE\u8868\u6A21\u677F\uFF08\u67F1\u72B6\u56FE/\u997C\u56FE/\u6298\u7EBF\u56FE\uFF09\u6DFB\u52A0\u5230\u6A21\u677F\u6587\u4EF6\u5939\uFF0C\u5199\u5165\u68C0\u6D4B\u5230\u7684\u6A21\u677F\u76EE\u5F55\u3002", "Add the chart templates (bar/pie/line) in the chosen language to the detected templates folder.")).addButton((b) => b.setButtonText("+\u4E2D\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
+      this.plugin.addChartTemplates("zh").catch(() => new import_obsidian5.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
+    })).addButton((b) => b.setButtonText("+\u82F1\u6587\u56FE\u8868\u6A21\u677F").onClick(() => {
+      this.plugin.addChartTemplates("en").catch(() => new import_obsidian5.Notice(t("\u56FE\u8868\u6A21\u677F\u6DFB\u52A0\u5931\u8D25", "Failed to add chart templates")));
+    }));
+    const addToggle = (name, nameEn, desc, descEn, key) => {
+      new import_obsidian5.Setting(section).setName(t(name, nameEn)).setDesc(t(desc, descEn)).addToggle((tg) => tg.setValue(this.plugin.settings[key] ?? false).onChange(async (value) => {
+        this.plugin.settings[key] = value;
+        await this.plugin.saveSettings();
+        if (key === "uiLang") {
+        }
+      }));
+    };
+    addToggle(
+      "\u7535\u8111\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F",
+      "Desktop floating toolbar",
+      "\u5728\u7535\u8111\u7AEF\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F",
+      "Show the floating formatting toolbar while editing cells on desktop",
+      "enableDesktopToolbar"
+    );
+    addToggle(
+      "\u79FB\u52A8\u7AEF\u6D6E\u7A97\u5DE5\u5177\u680F",
+      "Mobile / tablet floating toolbar",
+      "\u5728\u624B\u673A/\u5E73\u677F\u8BBE\u5907\u4E0A\u7F16\u8F91\u5355\u5143\u683C\u65F6\u663E\u793A\u60AC\u6D6E\u683C\u5F0F\u5316\u5DE5\u5177\u680F",
+      "Show the floating toolbar while editing cells on phones and tablets",
+      "enableMobileToolbar"
+    );
+    addToggle(
+      "\u6A21\u5F0F\u5207\u6362\u6309\u94AE",
+      "Mode switcher",
+      "\u7F16\u8F91\u8868\u683C\u65F6\u663E\u793A OL / HS / RC \u4E09\u79CD\u6A21\u5F0F\u7684\u5207\u6362\u6309\u94AE",
+      "Show the OL / HS / RC mode switcher while editing",
+      "enableModeSwitcher"
+    );
+    addToggle(
+      "\u81EA\u52A8\u586B\u5145\u67C4",
+      "Auto fill handle",
+      "\u9009\u4E2D\u5355\u5143\u683C\u65F6\u5728\u53F3\u4E0B\u89D2\u663E\u793A\u586B\u5145\u67C4\uFF0C\u62D6\u62FD\u53EF\u590D\u5236\u6216\u6309\u5E8F\u5217\u586B\u5145\u76F8\u90BB\u5355\u5143\u683C\uFF08\u684C\u9762\u7AEF\u4E13\u5C5E\uFF09\u3002",
+      "Show a fill handle at the bottom-right corner of the selected cell; drag to copy or fill neighbors in a series (desktop only).",
+      "enableFillHandle"
+    );
+    addToggle(
+      "RC \u6574\u4F53\u7F29\u653E\u628A\u624B",
+      "RC whole-table scaling handle",
+      "RC \u6A21\u5F0F\u4E0B\u5728\u8868\u683C\u53F3\u4E0B\u89D2\u663E\u793A\u7F29\u653E\u628A\u624B\uFF0C\u62D6\u62FD\u53EF\u6574\u4F53\u62C9\u4F38\u6240\u6709\u884C\u9AD8\u5217\u5BBD\u3002",
+      "In RC mode, show a handle at the bottom-right corner to resize all rows and columns at once by dragging.",
+      "enableRcScale"
+    );
+    addToggle(
+      "\u56FE\u7247\u7F29\u653E\u67C4",
+      "Image resize handle",
+      "\u7F16\u8F91\u65F6\u5728\u5D4C\u5165\u56FE\u7247\u65C1\u663E\u793A L \u5F62\u62D6\u67C4\uFF0C\u62D6\u62FD\u8C03\u6574\u56FE\u7247\u5BBD\u5EA6\uFF08\u5199\u56DE |\u6570\u5B57 \u5C3A\u5BF8\u8BED\u6CD5\uFF09\u3002",
+      "Show an L-shaped grip next to embedded images while editing; drag to set the image width (writes the |number size syntax).",
+      "enableImgResize"
+    );
+    addToggle(
+      "\u5217\u5185\u6392\u5E8F\u7B26\u53F7",
+      "Column sort markers",
+      "\u5F00\u542F\u540E\uFF0C\u9009\u4E2D\u5355\u5143\u683C\u8303\u56F4\u65F6\u5404\u5217\u4E0A\u65B9\u51FA\u73B0\u6392\u5E8F\u5C0F\u7B26\u53F7\uFF08\u62D6\u52A8\u628A\u624B\u6682\u65F6\u8BA9\u4F4D\uFF09\uFF1B\u5173\u95ED\u540E\u6392\u5E8F\u7B26\u53F7\u4E0D\u51FA\u73B0\uFF0C\u9009\u6846\u65F6\u62D6\u52A8\u628A\u624B\u7167\u5E38\u663E\u793A\u3002",
+      "When on, small sort markers appear above each covered column while a selection is active (drag handles step aside); when off, no sort markers appear and the drag handles show as usual during selections.",
+      "enableSortBar"
+    );
   }
   /** 声明式控件读写：key 直绑 plugin.settings；变更副作用按 key 分派 */
   getControlValue(key) {
@@ -9848,14 +10351,13 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
   buildStyleSection(host) {
     host.empty();
     const styleSection = host.createEl("details", { cls: "vt-style-section" });
-    styleSection.setAttribute("open", "");
     styleSection.createEl("summary", { text: t("\u8868\u683C\u6837\u5F0F", "Table style") });
-    new import_obsidian4.Setting(styleSection).setName(t("\u8868\u683C\u5916\u6846\u5706\u89D2", "Table corner radius")).setDesc(t("\u62D6\u52A8\u8C03\u6574\u8868\u683C\u56DB\u4E2A\u5916\u89D2\u7684\u5706\u89D2\u5927\u5C0F\uFF0C0 \u4E3A\u76F4\u89D2\u3002\u4FEE\u6539\u540E\u5BF9\u6240\u6709\u5DF2\u6253\u5F00\u7684\u8868\u683C\u5373\u65F6\u751F\u6548\uFF08\u5168\u5C40\u8BBE\u7F6E\uFF0C\u4E0D\u80FD\u5BF9\u5355\u4E2A\u8868\u683C\u53D6\u6D88\uFF09\u3002", "Rounded corners of the table outline, 0 = square. Applies to all open tables immediately (global only, cannot be disabled per table).")).addSlider((s) => s.setLimits(0, 20, 1).setValue(this.plugin.settings.tableRadius).onChange(async (value) => {
+    new import_obsidian5.Setting(styleSection).setName(t("\u8868\u683C\u5916\u6846\u5706\u89D2", "Table corner radius")).setDesc(t("\u62D6\u52A8\u8C03\u6574\u8868\u683C\u56DB\u4E2A\u5916\u89D2\u7684\u5706\u89D2\u5927\u5C0F\uFF0C0 \u4E3A\u76F4\u89D2\u3002\u4FEE\u6539\u540E\u5BF9\u6240\u6709\u5DF2\u6253\u5F00\u7684\u8868\u683C\u5373\u65F6\u751F\u6548\uFF08\u5168\u5C40\u8BBE\u7F6E\uFF0C\u4E0D\u80FD\u5BF9\u5355\u4E2A\u8868\u683C\u53D6\u6D88\uFF09\u3002", "Rounded corners of the table outline, 0 = square. Applies to all open tables immediately (global only, cannot be disabled per table).")).addSlider((s) => s.setLimits(0, 20, 1).setValue(this.plugin.settings.tableRadius).onChange(async (value) => {
       this.plugin.settings.tableRadius = value;
       await this.plugin.saveSettings();
       refreshAllTableAppearance();
     }));
-    new import_obsidian4.Setting(styleSection).setName(t("\u8868\u5934\u5E95\u8272", "Header background")).setDesc(t("\u4E3B\u9898\u8272\u4F1A\u81EA\u52A8\u9002\u914D\u6587\u5B57\u989C\u8272\uFF08\u5E95\u8272\u6DF1\u5219\u767D\u5B57\uFF0C\u6D45\u5219\u9ED1\u5B57\uFF09\uFF1B\u7B2C\u4E00\u884C\u53C2\u4E0E\u4E0A\u4E0B\u5408\u5E76\u65F6\u5E95\u8272\u81EA\u52A8\u505C\u7528\u3002", "Theme color adapts text color automatically; disabled while the first row participates in vertical merges.")).addDropdown((d) => d.addOptions({
+    new import_obsidian5.Setting(styleSection).setName(t("\u8868\u5934\u5E95\u8272", "Header background")).setDesc(t("\u4E3B\u9898\u8272\u4F1A\u81EA\u52A8\u9002\u914D\u6587\u5B57\u989C\u8272\uFF08\u5E95\u8272\u6DF1\u5219\u767D\u5B57\uFF0C\u6D45\u5219\u9ED1\u5B57\uFF09\uFF1B\u7B2C\u4E00\u884C\u53C2\u4E0E\u4E0A\u4E0B\u5408\u5E76\u65F6\u5E95\u8272\u81EA\u52A8\u505C\u7528\u3002", "Theme color adapts text color automatically; disabled while the first row participates in vertical merges.")).addDropdown((d) => d.addOptions({
       "none": t("\u65E0\u8868\u5934\u5E95\u8272\uFF08\u9ED8\u8BA4\uFF09", "None (default)"),
       "theme": t("\u4E3B\u9898\u8272", "Theme color"),
       "custom": t("\u81EA\u5B9A\u4E49\u989C\u8272", "Custom color")
@@ -9866,7 +10368,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
       this.buildStyleSection(host);
     }));
     if (this.plugin.settings.headerStyle === "custom") {
-      const colorSetting = new import_obsidian4.Setting(styleSection).setName(t("\u81EA\u5B9A\u4E49\u8868\u5934\u989C\u8272", "Custom header color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #4a90d9", "Hex color, e.g. #4a90d9"));
+      const colorSetting = new import_obsidian5.Setting(styleSection).setName(t("\u81EA\u5B9A\u4E49\u8868\u5934\u989C\u8272", "Custom header color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #4a90d9", "Hex color, e.g. #4a90d9"));
       const preview = createSpan();
       preview.className = "vt-color-preview";
       preview.style.background = this.plugin.settings.headerColor;
@@ -9880,7 +10382,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       }));
     }
-    new import_obsidian4.Setting(styleSection).setName(t("\u8868\u683C\u7EBF\u98CE\u683C", "Table line style")).setDesc(t("\u4E09\u7EBF\u8868=\u9876\u7EBF/\u8868\u5934\u4E0B\u7EBF/\u5E95\u7EBF\uFF1B\u65E0\u683C\u7EBF=\u6CA1\u6709\u4EFB\u4F55\u683C\u7EBF\uFF1B\u5168\u6A2A\u7EBF=\u53EA\u4FDD\u7559\u6A2A\u7EBF\u3002\u4EC5\u663E\u793A\u6001\u5E94\u7528\uFF0C\u7F16\u8F91\u5355\u5143\u683C\u65F6\u4FDD\u6301\u539F\u72B6\u3002", "Three-line / no grid / horizontal-only. Applied when not editing cells.")).addDropdown((d) => d.addOptions({
+    new import_obsidian5.Setting(styleSection).setName(t("\u8868\u683C\u7EBF\u98CE\u683C", "Table line style")).setDesc(t("\u4E09\u7EBF\u8868=\u9876\u7EBF/\u8868\u5934\u4E0B\u7EBF/\u5E95\u7EBF\uFF1B\u65E0\u683C\u7EBF=\u6CA1\u6709\u4EFB\u4F55\u683C\u7EBF\uFF1B\u5168\u6A2A\u7EBF=\u53EA\u4FDD\u7559\u6A2A\u7EBF\u3002\u4EC5\u663E\u793A\u6001\u5E94\u7528\uFF0C\u7F16\u8F91\u5355\u5143\u683C\u65F6\u4FDD\u6301\u539F\u72B6\u3002", "Three-line / no grid / horizontal-only. Applied when not editing cells.")).addDropdown((d) => d.addOptions({
       "none": t("\u65E0\uFF08\u9ED8\u8BA4\uFF09", "None (default)"),
       "three": t("\u4E09\u7EBF\u8868", "Three-line table"),
       "noline": t("\u65E0\u683C\u7EBF", "No grid lines"),
@@ -9894,7 +10396,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
       await this.plugin.saveSettings();
       refreshAllTableAppearance();
     }));
-    new import_obsidian4.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272", "Zebra stripes")).setDesc(t("\u6BCF\u9694\u4E00\u884C\u81EA\u52A8\u586B\u8272\uFF08\u53EF\u88AB\u5355\u683C\u5E95\u8272\u8986\u76D6\uFF09\u3002\u542F\u7528\u8868\u5934\u5E95\u8272\u65F6\u4ECE\u7B2C 3 \u884C\u5F00\u59CB\u3002\u547D\u4EE4\u300C\u9694\u884C\u53D8\u8272\u6837\u5F0F\u300D\u4F7F\u7528\u8FD9\u91CC\u6700\u540E\u4E00\u6B21\u8BBE\u7F6E\u7684\u989C\u8272\u3002", 'Fills every other row (single-cell colors still win). Starts at row 3 when the header background is on. The "Zebra stripe style" command uses the last color configured here.')).addDropdown((d) => d.addOptions({
+    new import_obsidian5.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272", "Zebra stripes")).setDesc(t("\u6BCF\u9694\u4E00\u884C\u81EA\u52A8\u586B\u8272\uFF08\u53EF\u88AB\u5355\u683C\u5E95\u8272\u8986\u76D6\uFF09\u3002\u542F\u7528\u8868\u5934\u5E95\u8272\u65F6\u4ECE\u7B2C 3 \u884C\u5F00\u59CB\u3002\u547D\u4EE4\u300C\u9694\u884C\u53D8\u8272\u6837\u5F0F\u300D\u4F7F\u7528\u8FD9\u91CC\u6700\u540E\u4E00\u6B21\u8BBE\u7F6E\u7684\u989C\u8272\u3002", 'Fills every other row (single-cell colors still win). Starts at row 3 when the header background is on. The "Zebra stripe style" command uses the last color configured here.')).addDropdown((d) => d.addOptions({
       "none": t("\u65E0\uFF08\u547D\u4EE4\u65F6\u7528\u4E3B\u9898\u8272\uFF09", "None (command falls back to theme)"),
       "theme": t("\u4E3B\u9898\u8272", "Theme color"),
       "custom": t("\u81EA\u5B9A\u4E49\u989C\u8272", "Custom color")
@@ -9909,7 +10411,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
       refreshAllTableAppearance();
     }));
     if (this.plugin.settings.zebraStyle === "custom") {
-      const zcSetting = new import_obsidian4.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272\u81EA\u5B9A\u4E49\u989C\u8272", "Custom zebra color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #e8f0fe\u3002\u989C\u8272\u8FC7\u6DF1\u65F6\u6587\u5B57\u81EA\u52A8\u53CD\u767D\u3002", "Hex color, e.g. #e8f0fe. Dark colors get white text automatically."));
+      const zcSetting = new import_obsidian5.Setting(styleSection).setName(t("\u9694\u884C\u53D8\u8272\u81EA\u5B9A\u4E49\u989C\u8272", "Custom zebra color")).setDesc(t("\u586B\u5199\u5341\u516D\u8FDB\u5236\u989C\u8272\u7F16\u7801\uFF0C\u5982 #e8f0fe\u3002\u989C\u8272\u8FC7\u6DF1\u65F6\u6587\u5B57\u81EA\u52A8\u53CD\u767D\u3002", "Hex color, e.g. #e8f0fe. Dark colors get white text automatically."));
       const zcPreview = createSpan();
       zcPreview.className = "vt-color-preview";
       zcPreview.style.background = this.plugin.settings.zebraColor;
@@ -9923,7 +10425,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
         }
       }));
     }
-    new import_obsidian4.Setting(styleSection).setName(t("\u5BFC\u51FA Markdown \u4FDD\u7559\u5BF9\u9F50\u4E0E\u5E95\u8272", "Keep alignment & colors in Markdown export")).setDesc(t('\u8F6C\u4E3A Markdown \u8868\u683C\u65F6\uFF0C\u7528\u5D4C\u5957 HTML \u6807\u7B7E\uFF08<center>\u3001<span style="background-color:..."> \u7B49\uFF09\u4FDD\u7559\u5355\u5143\u683C\u7684\u5BF9\u9F50\u4E0E\u5E95\u8272\u3002', 'When converting to Markdown, wrap cells in nested HTML tags (<center>, <span style="background-color:...">, etc.) to preserve alignment and colors.')).addToggle((t2) => t2.setValue(this.plugin.settings.mdHtmlTags).onChange(async (value) => {
+    new import_obsidian5.Setting(styleSection).setName(t("\u5BFC\u51FA Markdown \u4FDD\u7559\u5BF9\u9F50\u4E0E\u5E95\u8272", "Keep alignment & colors in Markdown export")).setDesc(t('\u8F6C\u4E3A Markdown \u8868\u683C\u65F6\uFF0C\u7528\u5D4C\u5957 HTML \u6807\u7B7E\uFF08<center>\u3001<span style="background-color:..."> \u7B49\uFF09\u4FDD\u7559\u5355\u5143\u683C\u7684\u5BF9\u9F50\u4E0E\u5E95\u8272\u3002', 'When converting to Markdown, wrap cells in nested HTML tags (<center>, <span style="background-color:...">, etc.) to preserve alignment and colors.')).addToggle((t2) => t2.setValue(this.plugin.settings.mdHtmlTags).onChange(async (value) => {
       this.plugin.settings.mdHtmlTags = value;
       await this.plugin.saveSettings();
     }));
@@ -9931,9 +10433,9 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
   }
   /** 右键菜单自定义板块：文本框（一行一项，"---"=分隔线）+ 保存按钮 + 对照表 */
   displayContextMenuSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName(t("\u53F3\u952E\u83DC\u5355\u81EA\u5B9A\u4E49", "Context menu customization")).setHeading();
+    new import_obsidian5.Setting(containerEl).setName(t("\u53F3\u952E\u83DC\u5355\u81EA\u5B9A\u4E49", "Context menu customization")).setHeading();
     const taRef = { el: null };
-    const taSetting = new import_obsidian4.Setting(containerEl).setName(t("\u83DC\u5355\u7ED3\u6784\uFF08\u6587\u672C\u65B9\u5F0F\uFF09", "Menu layout (text)")).setDesc(t(
+    const taSetting = new import_obsidian5.Setting(containerEl).setName(t("\u83DC\u5355\u7ED3\u6784\uFF08\u6587\u672C\u65B9\u5F0F\uFF09", "Menu layout (text)")).setDesc(t(
       '\u4E00\u884C\u4EE3\u8868\u83DC\u5355\u91CC\u7684\u4E00\u884C\uFF1B"---" \u4EE3\u8868\u5206\u9694\u7EBF\uFF1B"cmd:\u547D\u4EE4id" \u4EE3\u8868\u4EFB\u610F Obsidian \u547D\u4EE4\uFF1B"\u52A8\u4F5Cid|\u56FE\u6807\u540D" \u53EF\u81EA\u5B9A\u4E49\u56FE\u6807\uFF08\u56FE\u6807\u90E8\u5206\u53EF\u7701\u7565\uFF09\u3002\u4FEE\u6539\u540E\u8BF7\u70B9\u51FB\u4E0B\u65B9\u4FDD\u5B58\u6309\u94AE\u3002',
       'One menu row per line; "---" = separator; "cmd:commandId" = any Obsidian command; "actionId|iconName" overrides the icon. Press Save below to apply.'
     )).then((s) => {
@@ -9947,13 +10449,13 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
     ta.addEventListener("input", () => {
       this.menuTaBuf = ta.value;
     });
-    new import_obsidian4.Setting(containerEl).setName(t("\u4FDD\u5B58\u83DC\u5355\u914D\u7F6E", "Save menu layout")).setDesc(t("\u70B9\u51FB\u4FDD\u5B58\u540E\u7ACB\u5373\u5BF9\u6240\u6709\u8868\u683C\u751F\u6548\uFF1B\u672A\u4FDD\u5B58\u7684\u4FEE\u6539\u5728\u5173\u95ED\u8BBE\u7F6E\u540E\u4E22\u5F03\u3002", "Applies to all tables immediately; unsaved edits are discarded when settings close.")).addButton((b) => b.setButtonText(t("\u4FDD\u5B58", "Save")).setCta().onClick(async () => {
+    new import_obsidian5.Setting(containerEl).setName(t("\u4FDD\u5B58\u83DC\u5355\u914D\u7F6E", "Save menu layout")).setDesc(t("\u70B9\u51FB\u4FDD\u5B58\u540E\u7ACB\u5373\u5BF9\u6240\u6709\u8868\u683C\u751F\u6548\uFF1B\u672A\u4FDD\u5B58\u7684\u4FEE\u6539\u5728\u5173\u95ED\u8BBE\u7F6E\u540E\u4E22\u5F03\u3002", "Applies to all tables immediately; unsaved edits are discarded when settings close.")).addButton((b) => b.setButtonText(t("\u4FDD\u5B58", "Save")).setCta().onClick(async () => {
       if (!taRef.el)
         return;
       this.plugin.settings.contextMenu = taRef.el.value;
       this.menuTaBuf = null;
       await this.plugin.saveSettings();
-      new import_obsidian4.Notice(t("\u53F3\u952E\u83DC\u5355\u914D\u7F6E\u5DF2\u4FDD\u5B58", "Context menu saved"));
+      new import_obsidian5.Notice(t("\u53F3\u952E\u83DC\u5355\u914D\u7F6E\u5DF2\u4FDD\u5B58", "Context menu saved"));
     }));
     const wrap = containerEl.createDiv({ cls: "vt-menu-lookup" });
     wrap.createDiv({
@@ -9987,7 +10489,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
           cls: "vt-icon-cell" + (name === cur ? " is-selected" : ""),
           attr: { title: name, "aria-label": name }
         });
-        (0, import_obsidian4.setIcon)(cell2, name);
+        (0, import_obsidian5.setIcon)(cell2, name);
         cell2.addEventListener("click", () => {
           genIcon.value = name;
           if (selectedLine)
@@ -10007,7 +10509,7 @@ var VtSettingTab = class extends import_obsidian4.PluginSettingTab {
       const icon = genIcon.value.trim();
       const line = icon ? `${selectedLine}|${icon}` : selectedLine;
       void navigator.clipboard?.writeText(line);
-      new import_obsidian4.Notice(t("\u5DF2\u590D\u5236\uFF0C\u8BF7\u7C98\u8D34\u5230\u4E0A\u65B9\u6587\u672C\u6846", "Copied \u2014 paste it into the box above"));
+      new import_obsidian5.Notice(t("\u5DF2\u590D\u5236\uFF0C\u8BF7\u7C98\u8D34\u5230\u4E0A\u65B9\u6587\u672C\u6846", "Copied \u2014 paste it into the box above"));
     });
     const sources = [];
     for (const [id, act] of Object.entries(VT_MENU_ACTIONS)) {
@@ -10181,7 +10683,27 @@ function findVtableBlockAbove(ed) {
   }
   return best;
 }
-var VtColorModal = class extends import_obsidian4.Modal {
+var VtDonationModal = class extends import_obsidian5.Modal {
+  onOpen() {
+    this.modalEl.addClass("vt-donation-modal");
+    const { contentEl } = this;
+    contentEl.empty();
+    const backRow = contentEl.createDiv({ cls: "vt-donation-back" });
+    const backBtn = backRow.createEl("button", {
+      cls: "clickable-icon vt-donation-back-btn",
+      attr: { "aria-label": t("\u8FD4\u56DE", "Back") }
+    });
+    (0, import_obsidian5.setIcon)(backBtn, "arrow-left");
+    backBtn.addEventListener("click", () => this.close());
+    const img = contentEl.createEl("img", { cls: "vt-donation-img" });
+    img.src = WECHAT_QR_BASE64;
+    img.alt = t("\u5FAE\u4FE1\u6536\u6B3E\u7801", "WeChat QR code");
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var VtColorModal = class extends import_obsidian5.Modal {
   constructor(app, initial, onOk) {
     super(app);
     this.selected = null;
@@ -10224,7 +10746,7 @@ var VtColorModal = class extends import_obsidian4.Modal {
     }
     const clear = grid.createEl("button", { cls: "vt-color-swatch vt-color-clear" });
     clear.title = "\u65E0\u586B\u5145";
-    (0, import_obsidian4.setIcon)(clear, "paintbrush");
+    (0, import_obsidian5.setIcon)(clear, "paintbrush");
     clear.addEventListener("click", () => select(clear, null));
     swatches.push(clear);
     if (!this.selected)
@@ -10256,7 +10778,7 @@ var VtColorModal = class extends import_obsidian4.Modal {
   confirm() {
     const v = this.inputEl.value.trim();
     if (v && !CSS.supports("background-color", v)) {
-      new import_obsidian4.Notice(t("\u65E0\u6548\u7684\u989C\u8272\u7F16\u7801", "Invalid color code"));
+      new import_obsidian5.Notice(t("\u65E0\u6548\u7684\u989C\u8272\u7F16\u7801", "Invalid color code"));
       return;
     }
     this.close();

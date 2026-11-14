@@ -21,6 +21,8 @@ export interface DragHooks {
         selectCells(rects: SelRect[], additive: boolean): void;
         /** 当前选区（只读快照） */
         getSelection(): SelRect[];
+        /** 列内排序符号是否接管（2026-11-09 设置开关）：开 = 选框时把手让位 */
+        sortEnabled?(): boolean;
         /** 拖动开始（DOM 与 grid 尚一致）：宿主此刻 flush 正在编辑格的内容，此后写回才不会丢字 */
         onDragStart?(): void;
         /** 数据变更后写回源码（重渲染）。focus = 焦点格新坐标（拖动跟随修正），缺省沿用当前焦点 */
@@ -47,6 +49,11 @@ let persistedRC: { r: number; c: number } | null = null;
 /** 模块级：当前活跃实例的 tick uid 与清理器（重渲染时清掉旧把手/指示线） */
 let activeUid: symbol | null = null;
 let activeCleanup: (() => void) | null = null;
+/** 模块级：当前实例显隐刷新入口——选区变化时 render.ts 调用（选框存在 → 把手让位给排序符号） */
+let activeRefresh: (() => void) | null = null;
+
+/** 选区变化 → 重估把手显隐（2026-11-07 排序符号接管配套） */
+export function refreshRowColDrag(): void { activeRefresh?.(); }
 
 export function bindRowColDrag(
         table: HTMLTableElement,
@@ -184,16 +191,19 @@ export function bindRowColDrag(
         /** 显隐刷新：hoverRC ?? focusRC；选区存在时同方向把手亮起 (6b)；合并覆盖行/列永不显示 (1d) */
         const apply = () => {
                 const cur = hoverRC ?? focusRC;
-                const showR = cur && rowOk[cur.r] ? cur.r : -1;
-                const showC = cur && colOk[cur.c] ? cur.c : -1;
+                // 排序符号接管（2026-11-07 用户令；2026-11-09 加设置开关）：
+                // 排序开 && 选框存在 → 拖动把手全部让位（列上方排序符号接管，见 sort.ts）
+                const selHide = (hooks.sortEnabled?.() ?? true) && hooks.getSelection().length > 0;
+                const showR = !selHide && cur && rowOk[cur.r] ? cur.r : -1;
+                const showC = !selHide && cur && colOk[cur.c] ? cur.c : -1;
                 rowGrips.forEach((g, r) => {
                         g.classList.toggle('vt-drag-on', r === showR);
                 });
                 colGrips.forEach((g, c) => g.classList.toggle('vt-drag-on', c === showC));
-                // 亮灯：纯行选 → 行把手亮；纯列选 → 列把手亮 (6b)
+                // 亮灯：纯行选 → 行把手亮；纯列选 → 列把手亮 (6b)（把手让位时不亮）
                 const sel = hooks.getSelection();
-                const litRows = sel.length > 0 && sel.every(rc => rc.c1 === 0 && rc.c2 === cols - 1);
-                const litCols = sel.length > 0 && sel.every(rc => rc.r1 === 0 && rc.r2 === grid.length - 1);
+                const litRows = !selHide && sel.length > 0 && sel.every(rc => rc.c1 === 0 && rc.c2 === cols - 1);
+                const litCols = !selHide && sel.length > 0 && sel.every(rc => rc.r1 === 0 && rc.r2 === grid.length - 1);
                 rowGrips.forEach(g => g.classList.toggle('vt-drag-lit', litRows));
                 colGrips.forEach(g => g.classList.toggle('vt-drag-lit', litCols));
                 placeGrips();
@@ -490,6 +500,7 @@ export function bindRowColDrag(
                 dropLine.remove();
         };
         activeCleanup = cleanup;
+        activeRefresh = apply; // 模块级刷新入口指向本实例（单例：新绑定覆盖旧的）
         const uid = Symbol('vtDrag');
         activeUid = uid;
         const tick = () => {

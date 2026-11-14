@@ -36,9 +36,8 @@ export interface SelOps {
         wrapTag(tag: string): void;
         /** 整格反引号包裹/解包（行内代码，markdown 语法族） */
         code(): void;
-        /** 剥除选区内联格式标签（b/i/u/s/em/strong/mark/sub/sup/small/del/ins/kbd/font/span） */
+        /** 剥除选区内联格式标签（b/i/u/s/em/strong/mark/sub/sup/small/big/del/ins/kbd/font/span） */
         stripFormat(): void;
-        fontStep(delta: number): void;
         /** 设置选区水平对齐 */
         align(mode: 'l' | 'c' | 'r'): void;
         /** 设置选区垂直对齐（t=顶/m=中/b=底） */
@@ -497,9 +496,10 @@ export class SelOverlay {
                 this.layer.style.position = `fixed`;
                 this.layer.style.pointerEvents = `none`;
                 this.layer.style.overflow = `visible`;
-                // 层级（2026-11-01 TA：选框盖在右键菜单上）：原 1000 压过 Obsidian Menu
-                // (--layer-menu 65)——降到菜单之下，随主题变量自适应（同 .vt-fill-handle 公式）
-                this.layer.style.zIndex = `calc(var(--layer-menu, 65) - 5)`;
+                // 层级（2026-11-14 用户令：选框只压文本一层）：与 vt-edge-bar / vt-drag-grip /
+                // vt-sort-layer 同级（1，body 直挂的实证最低可行层级）；不再抬到 modal 层之上，
+                // 命令面板弹出时选框被正常盖住；侧边栏面板不遮挡编辑区，选框照旧可见
+                this.layer.style.zIndex = `1`;
                 this.svg = document.createElementNS(SVG_NS, 'svg');
                 this.svg.style.overflow = `visible`;
                 this.path = document.createElementNS(SVG_NS, 'path');

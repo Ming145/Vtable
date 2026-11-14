@@ -35,6 +35,16 @@ Anything you type in a cell renders on blur, exactly like Obsidian preview:
 - Batch apply bold, italic, font size, alignment (left/center/right), background color, or clear content
 - Click a row/column drag handle without sliding to select the whole row/column; `Shift`+click adds it to the selection
 - `Ctrl/Cmd+Delete` deletes the rows/columns of a full-row or full-column selection
+- **Column sorting** inside a selection: small sort markers appear above each covered column (drag handles step aside); click through each column independently
+  - Pure number columns: `1↑↓` (↑ descending, ↓ ascending; `2` sorts before `10`)
+  - Pure text columns: `AZ` (A to Z / Z to A; case-insensitive English, pinyin order for Chinese)
+  - Number cells with identical text parts (only the numbers differ): `1↑↓` single step — executes immediately on click
+  - Number cells with differing text parts (trailing number or number in the middle, any prefix): pick the number direction first (→ skips numbers; **each direction applies and writes back immediately**), then the marker switches seamlessly to the letter direction (→ skips letters)
+  - **Every step applies and writes back immediately** (the sorted result is written to the table source at once; undo step by step with Ctrl+Z). The selection ends with the first sort — to run the letter step, re-select the column and click `→` (skip numbers) to enter the letter direction
+  - Columns where all content is identical or that contain a single cell show no sort marker
+  - Mixed columns (pure text / text with numbers / pure numbers coexisting): `A1` — A puts pure text first, 1 puts pure numbers first; **only groups are ordered, ties inside a group keep their original order**, blanks always last
+  - Hold `Shift` to process several columns, releasing it executes them together in one commit; non-rectangular selections are split per column and only the covered cells of each column are swapped; clicking with merged cells in range shows a hint
+  - Comparisons strip all formatting in the background (bold, font size, etc. never affect sorting) and line breaks are flattened into one line; background colors travel with the cells; the sorted result is written back immediately
 
 ### Grid copy & paste
 
@@ -160,7 +170,7 @@ The context menu is fully customizable in **Settings → vtable → 右键菜单
 - UI language (中文 / English; floating toolbar abbreviations get an in-settings legend when English is selected). Command names follow the UI language — reload the plugin after switching
 - Show the floating toolbar on desktop / mobile independently
 - Show the OL/HS/RC mode switcher
-- **Interactive component toggles**: fill handle / row & column drag handles / image resize handles can each be turned off (all on by default)
+- **Interactive component toggles**: fill handle / row & column drag handles / image resize handles / column sort markers can each be turned off (all on by default; when sort markers are off, the drag handles show as usual during selections)
 - **Table style** (collapsible section): table corner radius; header row background color (theme accent or custom); line-style presets (three-line / no grid / horizontal-only) with a global enable toggle; zebra stripes (theme or custom color, with the color picker shown when custom is selected) — plus per-table commands for header background and zebra stripes
 - Export: keep alignment & colors in Markdown export via nested HTML tags
 - Customizable context menu (see above)
