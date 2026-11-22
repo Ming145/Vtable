@@ -1430,6 +1430,17 @@ table.vt td.vt-diag {
         color: var(--text-faint, #aaa);
 }
 
+/* 多组排序的步骤进度 n/total（2026-11-22）：小号灰字，放在符号前 */
+.vt-sort-stepno {
+        font-size: 9px;
+        font-weight: 600;
+        line-height: 1;
+        color: var(--text-faint, #aaa);
+        margin-right: 3px;
+        letter-spacing: 0;
+        cursor: default;
+}
+
 /* ===== 设置面板：使用文档行居中（2026-11-14，开头结尾同款） ===== */
 .vt-doc-row {
         justify-content: center;

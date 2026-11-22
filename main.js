@@ -1008,6 +1008,8 @@ var _SelOverlay = class {
     this.ro = new ResizeObserver(() => {
       if (!this.table.isConnected) {
         this.ro?.disconnect();
+        if (this.layer)
+          this.layer.style.display = `none`;
         return;
       }
       if (this.rects.length)
@@ -1042,8 +1044,12 @@ var _SelOverlay = class {
     this.stopLiveSync();
     const tick = () => {
       this.rafId = 0;
-      if (!this.rects.length || !this.table.isConnected || !this.layer)
+      if (!this.rects.length || !this.layer)
         return;
+      if (!this.table.isConnected) {
+        this.layer.style.display = `none`;
+        return;
+      }
       const tRect = this.table.getBoundingClientRect();
       const g = this.geo;
       const posMoved = !!g && (Math.abs(g.left - tRect.left) > 0.5 || Math.abs(g.top - tRect.top) > 0.5);
@@ -2079,6 +2085,7 @@ var FillHandle = class {
       this.el.style.display = `none`;
       return;
     }
+    this.el.style.display = ``;
     const rect = td.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
       this.el.style.display = `none`;
@@ -2450,14 +2457,36 @@ function sortFlatText(src) {
 }
 var TRAIL_NUM = /[+-]?\d+(?:\.\d+)?$/;
 var FIRST_NUM = /[+-]?\d+(?:\.\d+)?/;
+var NUM_TOKEN = /[+-]?\d+(?:\.\d+)?/g;
+function sequencesOf(flat) {
+  const nums = [];
+  const before = [];
+  let last = 0;
+  for (const m of flat.matchAll(NUM_TOKEN)) {
+    const at = m.index ?? 0;
+    before.push(flat.slice(last, at).trim());
+    nums.push(parseFloat(m[0]));
+    last = at + m[0].length;
+  }
+  if (!nums.length)
+    return { nums: [], texts: [] };
+  const trailing = flat.slice(last).trim();
+  if (nums.length === 1) {
+    const all = (before[0] + trailing).trim();
+    return { nums, texts: all ? [all] : [] };
+  }
+  return { nums, texts: [...before, trailing].filter(Boolean) };
+}
 function keyOfCell(cell2, grid) {
+  const blank = () => ({ kind: "blank", value: null, flat: "", prefix: "", firstNum: null, rank: 0, nums: [], texts: [] });
   if (!cell2 || cell2.rs === 0 && cell2.cs === 0)
-    return { kind: "blank", value: null, flat: "", prefix: "", firstNum: null, rank: 0 };
+    return blank();
   let flat = sortFlatText(cell2.t);
   if (/^=[A-Za-z]+\(/.test(cell2.t))
     flat = sortFlatText(evalFormula(grid, cell2.t));
   if (!flat)
-    return { kind: "blank", value: null, flat: "", prefix: "", firstNum: null, rank: 0 };
+    return blank();
+  const { nums, texts } = sequencesOf(flat);
   const fm0 = flat.match(FIRST_NUM);
   const prefix0 = fm0 ? flat.slice(0, fm0.index) : flat;
   const firstNum0 = fm0 ? parseFloat(fm0[0]) : null;
@@ -2469,11 +2498,13 @@ function keyOfCell(cell2, grid) {
       flat,
       prefix: prefix0,
       firstNum: firstNum0,
-      rank: tm[0].length === flat.length ? 3 : 2
+      rank: tm[0].length === flat.length ? 3 : 2,
       // 纯数字 3 / 文末数字 2
+      nums,
+      texts
     };
   }
-  return { kind: "text", value: null, flat, prefix: prefix0, firstNum: firstNum0, rank: fm0 ? 1 : 0 };
+  return { kind: "text", value: null, flat, prefix: prefix0, firstNum: firstNum0, rank: fm0 ? 1 : 0, nums, texts };
 }
 function detectFlow(keys) {
   const nb = keys.filter((k) => k.kind !== "blank");
@@ -2482,18 +2513,31 @@ function detectFlow(keys) {
   const cats = new Set(nb.map((k) => k.rank === 0 || k.rank === 3 ? k.rank : 2));
   if (cats.size >= 2)
     return "mix";
-  if (nb.every((k) => k.kind === "num") && nb.every((k) => k.prefix === ""))
-    return "num";
-  if (nb.every((k) => k.firstNum !== null && k.prefix !== "")) {
-    const nd = nb.map((k) => k.flat.replace(/\d+/g, ""));
-    if (nd.every((s) => s === nd[0]))
+  if (nb.every((k) => k.nums.length > 0 && k.texts.length > 0)) {
+    const sig = (k) => k.texts.join("");
+    if (nb.every((k) => sig(k) === sig(nb[0])))
       return "numonly";
     return "dual";
   }
+  if (nb.every((k) => k.kind === "num" && k.prefix === ""))
+    return "num";
   return "text";
 }
 function coll(a, b) {
+  const ga = isHanLead(a), gb = isHanLead(b);
+  if (ga !== gb)
+    return ga ? 1 : -1;
   return a.localeCompare(b, "zh-Hans-CN", { sensitivity: "base" });
+}
+var isHanLead = (s) => /^[\u3400-\u4dbf\u4e00-\u9fff]/.test(s);
+function cmpNums(a, b, dir) {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const d = a[i] - b[i];
+    if (d !== 0)
+      return dir === "asc" ? d : -d;
+  }
+  return 0;
 }
 function orderKeys(entries, flow, numDir, textDir) {
   const nums = [], txts = [], blanks = [];
@@ -2518,26 +2562,8 @@ function orderKeys(entries, flow, numDir, textDir) {
   if (flow === "numonly") {
     if (numDir === "skip")
       return [...entries.filter((e) => e.key.kind !== "blank"), ...blanks];
-    const sgn2 = numDir === "asc" ? 1 : -1;
     const all = entries.filter((e) => e.key.kind !== "blank");
-    const sorted = all.slice().sort((x, y) => sgn2 * ((x.key.firstNum ?? 0) - (y.key.firstNum ?? 0)));
-    return [...sorted, ...blanks];
-  }
-  if (flow === "dual") {
-    const useNum = numDir !== "skip", useTxt = textDir !== "skip";
-    const all = entries.filter((e) => e.key.kind !== "blank");
-    const sorted = all.slice().sort((x, y) => {
-      if (useNum) {
-        const d = (x.key.firstNum ?? 0) - (y.key.firstNum ?? 0);
-        if (d !== 0)
-          return numDir === "asc" ? d : -d;
-      }
-      if (useTxt) {
-        const c = coll(x.key.flat, y.key.flat);
-        return textDir === "asc" ? c : -c;
-      }
-      return 0;
-    });
+    const sorted = all.slice().sort((x, y) => cmpNums(x.key.nums, y.key.nums, numDir));
     return [...sorted, ...blanks];
   }
   const pick = flow === "num" ? numDir : textDir;
@@ -2565,6 +2591,15 @@ function columnsFromRects(rects) {
   return cols;
 }
 var session = null;
+var flowSnapshot = null;
+var captureFlowSnapshot = () => {
+  if (!session)
+    return;
+  flowSnapshot = {
+    rects: session.rects.map((rc) => ({ ...rc })),
+    cols: new Map([...session.cols].map(([k, v]) => [k, { ...v }]))
+  };
+};
 var sameRects = (a, b) => a.length === b.length && a.every((rc, i) => rc.r1 === b[i].r1 && rc.c1 === b[i].c1 && rc.r2 === b[i].r2 && rc.c2 === b[i].c2);
 var SortBar = class {
   constructor(ctx) {
@@ -2605,16 +2640,22 @@ var SortBar = class {
       return;
     }
     const rects = this.ctx.getRects();
+    const rid = this.ctx.renderId();
     if (!rects.length) {
+      const pending = this.ctx.pendingRestore();
       if (this.layer)
-        this.destroy(false);
-      session = null;
+        this.destroy(pending);
+      if (pending)
+        return;
+      if (session && session.renderId === rid)
+        session = null;
+      flowSnapshot = null;
       return;
     }
-    if (session && (session.host !== this.ctx.hostEl() || !sameRects(session.rects, rects)))
+    if (session && (session.renderId !== rid || !sameRects(session.rects, rects)))
       session = null;
     if (!session)
-      session = { host: this.ctx.hostEl(), rects: rects.map((rc) => ({ ...rc })), cols: /* @__PURE__ */ new Map() };
+      session = { renderId: rid, rects: rects.map((rc) => ({ ...rc })), cols: /* @__PURE__ */ new Map() };
     if (!this.layer) {
       this.layer = document.body.createDiv({ cls: "vt-sort-layer" });
       document.addEventListener("keyup", this.onShiftUp);
@@ -2622,6 +2663,28 @@ var SortBar = class {
       this.raf = window.requestAnimationFrame(this.tick);
     }
     this.buildPills();
+  }
+  /** 排序后重渲染回灌（render 侧在源码匹配时调用，先于 renderSel）：
+   *  按快照恢复整列流程状态（当前 step），选区由 render 侧设好。
+   *  快照丢失时退回沿用旧会话（同选区），保证 step 不丢 */
+  restoreFlow(rects) {
+    if (!rects.length)
+      return;
+    const rid = this.ctx.renderId();
+    const snap = flowSnapshot;
+    if (snap && sameRects(snap.rects, rects)) {
+      session = {
+        renderId: rid,
+        rects: rects.map((rc) => ({ ...rc })),
+        cols: new Map([...snap.cols].map(([k, v]) => [k, { ...v }]))
+      };
+    } else if (session && sameRects(session.rects, rects)) {
+      session = {
+        renderId: rid,
+        rects: rects.map((rc) => ({ ...rc })),
+        cols: new Map([...session.cols].map(([k, v]) => [k, { ...v }]))
+      };
+    }
   }
   /** 层销毁（表格销毁/选区清空）。keepSession：宿主重渲染销毁时保留会话供新层续接 */
   destroy(keepSession) {
@@ -2634,10 +2697,10 @@ var SortBar = class {
     this.layer = null;
     this.deferred = [];
     this.lastSig = "";
-    if (!keepSession)
+    if (!keepSession && session && session.renderId === this.ctx.renderId())
       session = null;
   }
-  /** 符号构建：未处理的列各一粒（processed 的不建），dual 两阶段按 stage 切换形态 */
+  /** 符号构建：未处理的列各一粒（processed 的不建）；dual 按当前 step 显示数字/文字组符号 */
   buildPills() {
     if (!this.layer || !session)
       return;
@@ -2650,7 +2713,7 @@ var SortBar = class {
     const cols = columnsFromRects(rects);
     const grid = this.ctx.grid();
     for (const [c, rows] of cols) {
-      const st = session.cols.get(c) ?? { processed: false, stage: 0, numChoice: null };
+      const st = session.cols.get(c) ?? { processed: false, step: 0 };
       session.cols.set(c, st);
       if (st.processed)
         continue;
@@ -2665,6 +2728,18 @@ var SortBar = class {
         continue;
       }
       const flow = detectFlow(keys);
+      if (flow === "dual") {
+        const maxNums = Math.max(...nbk.map((k) => k.nums.length));
+        const maxTexts = Math.max(...nbk.map((k) => k.texts.length));
+        const plan = this.stepPlan(maxNums, maxTexts);
+        if (st.step >= plan.length) {
+          st.processed = true;
+          continue;
+        }
+        const step = plan[st.step];
+        this.layer.appendChild(this.buildStepPill(c, step.type === "num", step.index, st, rows.length, plan.length));
+        continue;
+      }
       this.layer.appendChild(this.buildPill(c, flow, st, rows.length));
     }
     this.layer.style.display = this.layer.childElementCount ? "" : "none";
@@ -2699,17 +2774,45 @@ var SortBar = class {
     } else if (flow === "text") {
       mkCh("asc", "A", t("\u4ECEA\u5230Z", "A to Z"));
       mkCh("desc", "Z", t("\u4ECEZ\u5230A", "Z to A"));
+    }
+    if (rowCount < 2)
+      pill.addClass("vt-sort-idle");
+    return pill;
+  }
+  /** dual 的单个步骤符号：第 index 个数字 / 第 index 段文字（每一步独立排序）。
+   *  开头的 `n/total` 是步骤进度（一眼看出这列到底有几步，排到第几步） */
+  buildStepPill(c, isNum, index, st, rowCount, total) {
+    const pill = createDiv({ cls: "vt-sort-pill" });
+    pill.dataset.c = String(c);
+    pill.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    const stepNo = createSpan({
+      cls: "vt-sort-stepno",
+      text: `${st.step + 1}/${total}`,
+      attr: { "aria-label": t(`\u7B2C ${st.step + 1} \u6B65\uFF0C\u5171 ${total} \u6B65`, `Step ${st.step + 1} of ${total}`) }
+    });
+    pill.appendChild(stepNo);
+    const mkCh = (act, ch, label) => {
+      const s = createSpan({
+        cls: "vt-sort-ch" + (act == null ? " vt-sort-lab" : ""),
+        text: ch,
+        attr: { "aria-label": label }
+      });
+      if (act != null)
+        s.addEventListener("click", (e) => this.onChoice(c, "dual", st, act, e));
+      pill.appendChild(s);
+    };
+    const n = index + 1;
+    if (isNum) {
+      mkCh("desc", "\u2191", t(`\u6570\u5B57\u6B65\uFF08\u7B2C ${n} \u7EC4\uFF09\u4ECE\u5927\u5230\u5C0F`, `Number step ${n}, descending`));
+      mkCh("asc", "\u2193", t(`\u6570\u5B57\u6B65\uFF08\u7B2C ${n} \u7EC4\uFF09\u4ECE\u5C0F\u5230\u5927`, `Number step ${n}, ascending`));
+      mkCh("skip", "\u2192", t("\u8DF3\u8FC7\u8FD9\u7EC4\u6570\u5B57", "Skip this group\u2019s numbers"));
     } else {
-      if (st.stage === 0) {
-        mkCh(null, "1", t("\u6570\u5B57\u6B65", "Number step"));
-        mkCh("desc", "\u2191", t("\u4ECE\u5927\u5230\u5C0F", "Descending"));
-        mkCh("asc", "\u2193", t("\u4ECE\u5C0F\u5230\u5927", "Ascending"));
-        mkCh("skip", "\u2192", t("\u4E0D\u6392\u6570\u5B57", "Skip numbers"));
-      } else {
-        mkCh("asc", "A", t("\u4ECEA\u5230Z", "A to Z"));
-        mkCh("desc", "Z", t("\u4ECEZ\u5230A", "Z to A"));
-        mkCh("skip", "\u2192", t("\u4E0D\u6392\u5B57\u6BCD", "Skip letters"));
-      }
+      mkCh("asc", "A", t(`\u6587\u5B57\u6B65\uFF08\u7B2C ${n} \u7EC4\uFF09`, `Text step (group ${n})`));
+      mkCh("desc", "Z", t("\u4ECEZ\u5230A", "Z to A"));
+      mkCh("skip", "\u2192", t("\u8DF3\u8FC7\u8FD9\u7EC4\u6587\u5B57", "Skip this group\u2019s text"));
     }
     if (rowCount < 2)
       pill.addClass("vt-sort-idle");
@@ -2733,18 +2836,31 @@ var SortBar = class {
       }
     }
     if (flow === "dual") {
-      if (st.stage === 0) {
-        st.numChoice = act;
-        st.stage = 1;
-        this.lastSig = "";
-        if (act !== "skip") {
-          this.execColumn(c, rows, act, "skip", ev.shiftKey);
-          return;
-        }
+      const keys = rows.map((r) => keyOfCell(grid[r]?.[c], grid));
+      const maxNums = Math.max(...keys.map((k) => k.nums.length));
+      const maxTexts = Math.max(...keys.map((k) => k.texts.length));
+      const plan = this.stepPlan(maxNums, maxTexts);
+      const step = plan[st.step];
+      if (!step) {
+        st.processed = true;
         this.buildPills();
         return;
       }
-      this.completeColumn(c, rows, st.numChoice ?? "skip", act, ev.shiftKey);
+      st.step += 1;
+      if (st.step >= plan.length)
+        st.processed = true;
+      this.lastSig = "";
+      if (act === "skip") {
+        if (this.isAllDone())
+          this.ctx.applySort(() => {
+          }, true);
+        else {
+          captureFlowSnapshot();
+          this.buildPills();
+        }
+        return;
+      }
+      this.execStep(c, rows, step.index, step.type === "num", act, ev.shiftKey);
       return;
     }
     if (flow === "num" || flow === "numonly")
@@ -2762,9 +2878,7 @@ var SortBar = class {
     st.processed = true;
     this.execColumn(c, rows, numDir, textDir, withShift);
   }
-  /** 排序执行（不动流程状态）：2026-11-13 TA——数据物理顺序一变立即写回
-   *  （数字步/字母步/单步共用；写回即独立 CM 事务 = 撤销栈逐步记录）。
-   *  dual 数字步走此路径不设 processed → 流程续接字母步（选区恢复链自动挂） */
+  /** 非 dual 单步：算好顺序后统一落定 */
   execColumn(c, rows, numDir, textDir, withShift) {
     if (!session)
       return;
@@ -2772,7 +2886,51 @@ var SortBar = class {
     const grid = this.ctx.grid();
     const entries = rows.map((r) => ({ r, key: keyOfCell(grid[r]?.[c], grid) }));
     const flow = detectFlow(entries.map((e) => e.key));
-    const order = orderKeys(entries, flow, numDir, textDir).map((e) => grid[e.r][c]);
+    const sortedEntries = orderKeys(entries, flow, numDir, textDir);
+    const order = sortedEntries.map((e) => grid[e.r][c]);
+    this.commitOrder(c, rows, order, sortedEntries.map((e) => e.r), withShift);
+  }
+  /** dual 的单步：只按第 index 个数字 / 第 index 段文字排（每一步独立，不看上一步结果） */
+  execStep(c, rows, index, isNum, dir, withShift) {
+    if (!session)
+      return;
+    this.ctx.flushActive();
+    const grid = this.ctx.grid();
+    const entries = rows.map((r) => ({ r, key: keyOfCell(grid[r]?.[c], grid) }));
+    const sortedEntries = entries.slice().sort((x, y) => {
+      if (isNum) {
+        const a2 = x.key.nums[index], b2 = y.key.nums[index];
+        if (a2 == null || b2 == null)
+          return 0;
+        const d = a2 - b2;
+        return dir === "asc" ? d : -d;
+      }
+      const a = x.key.texts[index], b = y.key.texts[index];
+      if (a == null || b == null)
+        return 0;
+      const cc = coll(a, b);
+      return dir === "asc" ? cc : -cc;
+    });
+    const order = sortedEntries.map((e) => grid[e.r][c]);
+    this.commitOrder(c, rows, order, sortedEntries.map((e) => e.r), withShift);
+  }
+  /** 一列的步骤计划：第 1 数字 → 第 1 文字 → 第 2 数字 → 第 2 文字…
+   *  两个序列长度不同时，多出来的那组各成一步。
+   *  例：A2Z7M（2 数字 + 3 文字）= 5 步；A2Z7 = 4 步；香蕉3个 = 2 步 */
+  stepPlan(maxNums, maxTexts) {
+    const plan = [];
+    const n = Math.max(maxNums, maxTexts);
+    for (let i = 0; i < n; i++) {
+      if (i < maxNums)
+        plan.push({ type: "num", index: i });
+      if (i < maxTexts)
+        plan.push({ type: "text", index: i });
+    }
+    return plan;
+  }
+  /** 落定：入队/提交、整行模式、快照、写回。
+   *  dual 每一步独立覆盖（不走 deferred，保证跨重渲染续接） */
+  commitOrder(c, rows, order, sortedRs, withShift) {
     this.lastSig = "";
     if (withShift) {
       this.deferred.push({ c, rows, order });
@@ -2780,7 +2938,33 @@ var SortBar = class {
       return;
     }
     const allDone = this.isAllDone();
-    this.ctx.applySort(() => this.applyColumn(c, rows, order), allDone);
+    const grid = this.ctx.grid();
+    if (this.ctx.fullRow()) {
+      for (const r of rows) {
+        for (const cd of grid[r]) {
+          if ((cd?.rs ?? 1) > 1) {
+            new import_obsidian2.Notice(t("\u884C\u5185\u6709\u8DE8\u884C\u5408\u5E76\u5355\u5143\u683C\uFF0C\u65E0\u6CD5\u6574\u884C\u6392\u5E8F", "Rows contain vertically merged cells; full-row sorting is not available"));
+            return;
+          }
+        }
+      }
+    }
+    const applyMutate = this.ctx.fullRow() ? () => {
+      const moved = sortedRs.map((r) => grid[r]);
+      rows.forEach((r, i) => {
+        grid[r] = moved[i];
+      });
+      const data = this.ctx.data();
+      if (data.mode === "RC" && data.rowHeights) {
+        for (const r of rows)
+          data.rowHeights[r] = 0;
+      }
+    } : () => this.applyColumn(c, rows, order);
+    if (allDone)
+      flowSnapshot = null;
+    else
+      captureFlowSnapshot();
+    this.ctx.applySort(applyMutate, allDone);
     this.buildPills();
   }
   /** 松开 shift：队列统一执行（一次提交） */
@@ -2790,6 +2974,10 @@ var SortBar = class {
     const items = this.deferred;
     this.deferred = [];
     const allDone = this.isAllDone();
+    if (allDone)
+      flowSnapshot = null;
+    else
+      captureFlowSnapshot();
     this.ctx.applySort(() => {
       for (const it of items)
         this.applyColumn(it.c, it.rows, it.order);
@@ -5371,6 +5559,8 @@ function zebraTintOf(settings, el) {
 }
 var pendingFocusRestore = null;
 var pendingSelectionRestore = null;
+var renderSeq = 0;
+var normSourceForRestore = (s) => s.replace(/\r\n/g, "\n").trimEnd();
 var lastTableFocus = null;
 var lastOutsidePointerAt = 0;
 function isStealLikeFocus(dest, tableHost) {
@@ -5489,6 +5679,7 @@ function preserveVisualSnapshot(el) {
 }
 function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, onCommit, onConvertToMd, onConvertToHtml, onExitTable, onPickColor, onOpenLink, obsidianCommand, onConvertToChart) {
   const renderStart = Date.now();
+  const renderId = ++renderSeq;
   let reviveRC = null;
   {
     const ae0 = document.activeElement;
@@ -5506,7 +5697,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   el.empty();
   el.classList.add("vtable-container");
   el.closest(".cm-embed-block")?.addClass("vt-embedded");
-  if (!pendingFocusRestore && !pendingSelectionRestore)
+  if (!pendingFocusRestore)
     toolbar.hideIfStale();
   const data = parseSource(source);
   const grid = data.rows;
@@ -5890,6 +6081,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   const clearSelection = () => {
     selRects = [];
     selGesture = null;
+    pendingSelectionRestore = null;
     renderSel();
   };
   const sortBar = new SortBar({
@@ -5902,6 +6094,9 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     anchorIndex: () => anchorIndex,
     flushActive: () => flushActiveCell(),
     enabled: () => settings.enableSortBar,
+    renderId: () => renderId,
+    pendingRestore: () => !!pendingSelectionRestore,
+    fullRow: () => settings.enableSortFullRow,
     applySort: (apply, allDone) => {
       flushActiveCell();
       const before = serialize(data);
@@ -5919,8 +6114,19 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
         if (rr >= 0 && cc >= 0)
           pendingFocusRestore = { r: rr, c: cc, caretAtEnd: true };
       }
-      if (!allDone)
-        pendingSelectionRestore = { rects: selRects.slice(), host: el };
+      if (allDone) {
+        pendingSelectionRestore = null;
+      } else {
+        const now = Date.now();
+        pendingSelectionRestore = {
+          rects: selRects.slice(),
+          source: after,
+          path: sourcePath,
+          at: now,
+          expires: now + 3e5
+          // 5 分钟：覆盖"中途停顿再继续"的正常节奏
+        };
+      }
       onCommit(after);
     }
   });
@@ -5977,7 +6183,7 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
     }
     const t2 = e.target;
     pardonRibbon = !!(t2 && !el.contains(t2) && t2.closest?.(".workspace-ribbon"));
-    if (!t2 || el.contains(t2) || t2.closest?.(".vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon"))
+    if (!t2 || el.contains(t2) || t2.closest?.(".vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon, .prompt"))
       return;
     lastOutsidePointerAt = Date.now();
     clearSelection();
@@ -6121,6 +6327,9 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       return;
     if (!selRects.length)
       return;
+    const kt = e.target;
+    if (kt && !table.contains(kt) && kt.closest?.(".modal-container, .suggestion-container, .menu, .prompt"))
+      return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C" || compatKeyCode(e) === 67)) {
       e.preventDefault();
       e.stopPropagation();
@@ -6142,6 +6351,9 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
       return;
     if (!selRects.length)
       return;
+    const ku = e.target;
+    if (ku && !table.contains(ku) && ku.closest?.(".modal-container, .suggestion-container, .menu, .prompt"))
+      return;
     if (!isSelDeleteKey(e))
       return;
     if (e.ctrlKey || e.metaKey || e.altKey)
@@ -6155,10 +6367,10 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   table.addEventListener("focusout", (e) => {
     if (!selRects.length)
       return;
-    if (pendingSelectionRestore || pendingFocusRestore)
+    if (pendingFocusRestore || pendingSelectionRestore && (!table.isConnected || Date.now() - pendingSelectionRestore.at < 1e3))
       return;
     const related = e.relatedTarget;
-    if (related && (el.contains(related) || related.closest(".vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon")))
+    if (related && (el.contains(related) || related.closest(".vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon, .prompt")))
       return;
     if (!related && pardonRibbon) {
       pardonRibbon = false;
@@ -6882,6 +7094,12 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
           placeCaretAtSourceOffset(td, src.length);
         }
         showBarFor();
+        window.setTimeout(() => {
+          if (!el.isConnected || document.activeElement !== td)
+            return;
+          fillHandle?.hide();
+          syncFillHandle();
+        }, 150);
       });
       const finishDiagEdit = () => {
         const cell2 = grid[r]?.[c];
@@ -6951,7 +7169,12 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
               commit();
               pendingDirty = false;
             }
-          }, 600);
+            if (isWysiwyg(td))
+              exitWysiwyg(td);
+            populateCell(td, cell2.t, grid, sourcePath, resolveImage, onTodoToggle(r, c), handleOpenLink);
+            td.dataset.vtView = "view";
+            scheduleMathRender(td);
+          }, 100);
           return;
         }
         const html = normalizeCellHtml(stripRcHandles(isWysiwyg(td) ? projectSource(td) : td.innerHTML));
@@ -7191,18 +7414,22 @@ function renderBlock(source, el, toolbar, settings, sourcePath, resolveImage, on
   };
   appearanceRegistry.set(el, refreshAppearance);
   refreshAppearance();
-  if (pendingSelectionRestore && pendingSelectionRestore.host === el) {
-    const restore = pendingSelectionRestore.rects;
-    pendingSelectionRestore = null;
-    const maxR = grid.length - 1;
-    const maxC = (grid[0]?.length ?? 1) - 1;
-    selRects = restore.map((rc) => normalizeSelRect({
-      r1: Math.max(0, Math.min(rc.r1, maxR)),
-      c1: Math.max(0, Math.min(rc.c1, maxC)),
-      r2: Math.max(0, Math.min(rc.r2, maxR)),
-      c2: Math.max(0, Math.min(rc.c2, maxC))
-    }, grid, anchorIndex)).filter((rc) => rc.r1 <= rc.r2 && rc.c1 <= rc.c2);
-    renderSel();
+  if (pendingSelectionRestore) {
+    const req = pendingSelectionRestore;
+    if (req.expires < Date.now()) {
+      pendingSelectionRestore = null;
+    } else if (req.path === sourcePath && (req.source === source || normSourceForRestore(req.source) === normSourceForRestore(source))) {
+      const maxR = grid.length - 1;
+      const maxC = (grid[0]?.length ?? 1) - 1;
+      selRects = req.rects.map((rc) => normalizeSelRect({
+        r1: Math.max(0, Math.min(rc.r1, maxR)),
+        c1: Math.max(0, Math.min(rc.c1, maxC)),
+        r2: Math.max(0, Math.min(rc.r2, maxR)),
+        c2: Math.max(0, Math.min(rc.c2, maxC))
+      }, grid, anchorIndex)).filter((rc) => rc.r1 <= rc.r2 && rc.c1 <= rc.c2);
+      sortBar.restoreFlow(selRects);
+      renderSel();
+    }
   }
   const finishInitialFocus = (fr, fc) => {
     showEditingUi();
@@ -9326,7 +9553,8 @@ var DEFAULT_SETTINGS = {
   enableFillHandle: true,
   enableRcScale: true,
   enableImgResize: true,
-  enableSortBar: true
+  enableSortBar: true,
+  enableSortFullRow: false
 };
 var LEGACY_DEFAULT_CONTEXT_MENU = [
   "vt.alignL\uFF5Cvt.alignC\uFF5Cvt.alignR",
@@ -9423,7 +9651,11 @@ ${first}`, 0);
     }
   }
   async onloadInner() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const savedSettings = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, savedSettings);
+    if (!savedSettings || savedSettings.uiLang === void 0) {
+      this.settings.uiLang = import_obsidian5.moment.locale().startsWith("zh") ? "zh" : "en";
+    }
     if (isLegacyDefaultMenu(this.settings.contextMenu)) {
       this.settings.contextMenu = DEFAULT_CONTEXT_MENU;
       await this.saveSettings();
@@ -10225,7 +10457,7 @@ var VtSettingTab = class extends import_obsidian5.PluginSettingTab {
     defs.push(this.docRowDefs());
     defs.push({
       name: t("\u754C\u9762\u8BED\u8A00", "UI language"),
-      desc: t("\u8BBE\u7F6E\u9762\u677F\u3001\u6D6E\u7A97\u6309\u94AE\u4E0E\u53F3\u952E\u83DC\u5355\u6587\u672C\u7684\u8BED\u8A00\u3002", "Language of the settings panel, toolbar buttons and context menus."),
+      desc: t("\u8BBE\u7F6E\u9762\u677F\u3001\u6D6E\u7A97\u6309\u94AE\u4E0E\u53F3\u952E\u83DC\u5355\u6587\u672C\u7684\u8BED\u8A00\u3002\u672A\u4E3B\u52A8\u9009\u62E9\u8FC7\u65F6\u8DDF\u968F Obsidian \u7CFB\u7EDF\u8BED\u8A00\uFF0C\u9009\u62E9\u540E\u56FA\u5B9A\u3002", "Language of the settings panel, toolbar buttons and context menus. Follows the Obsidian system language until you pick one explicitly."),
       control: {
         type: "dropdown",
         key: "uiLang",
@@ -10331,6 +10563,13 @@ var VtSettingTab = class extends import_obsidian5.PluginSettingTab {
       "\u5F00\u542F\u540E\uFF0C\u9009\u4E2D\u5355\u5143\u683C\u8303\u56F4\u65F6\u5404\u5217\u4E0A\u65B9\u51FA\u73B0\u6392\u5E8F\u5C0F\u7B26\u53F7\uFF08\u62D6\u52A8\u628A\u624B\u6682\u65F6\u8BA9\u4F4D\uFF09\uFF1B\u5173\u95ED\u540E\u6392\u5E8F\u7B26\u53F7\u4E0D\u51FA\u73B0\uFF0C\u9009\u6846\u65F6\u62D6\u52A8\u628A\u624B\u7167\u5E38\u663E\u793A\u3002",
       "When on, small sort markers appear above each covered column while a selection is active (drag handles step aside); when off, no sort markers appear and the drag handles show as usual during selections.",
       "enableSortBar"
+    );
+    addToggle(
+      "\u6392\u5E8F\u505A\u4E00\u6574\u884C\u7684\u66F4\u6539",
+      "Sort moves whole rows",
+      "\u5F00\u542F\u540E\uFF0C\u6392\u5E8F\u632A\u52A8\u67D0\u683C\u65F6\u8BE5\u683C\u6240\u5728\u6574\u884C\u8DDF\u7740\u632A\uFF08\u884C\u95F4\u79FB\u52A8\uFF09\uFF1B\u9ED8\u8BA4\u5173\u95ED\u65F6\u53EA\u632A\u5217\u5185\u88AB\u9009\u683C\u3002\u884C\u5185\u6709\u8DE8\u884C\u5408\u5E76\u5355\u5143\u683C\u65F6\u6574\u884C\u6392\u5E8F\u4E0D\u53EF\u7528\u3002",
+      "When on, moving a cell in a sort moves its entire row (row-level moves); off by default \u2014 only the selected cells of the column move. Full-row sorting is unavailable when rows contain vertically merged cells.",
+      "enableSortFullRow"
     );
   }
   /** 声明式控件读写：key 直绑 plugin.settings；变更副作用按 key 分派 */
