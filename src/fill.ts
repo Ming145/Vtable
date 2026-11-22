@@ -514,6 +514,9 @@ export class FillHandle {
                         this.el.style.display = `none`;
                         return;
                 }
+                // 恢复显示（2026-11-17 题3）：display 被任何外部链改为 none 后，showAt 重放
+                // 若不显式恢复就永远消失（"柄特殊情况自动消失"的机制候选）——正常路径一律归位
+                this.el.style.display = ``;
                 const rect = td.getBoundingClientRect();
                 if (rect.width === 0 && rect.height === 0) {
                         this.el.style.display = `none`;

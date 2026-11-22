@@ -371,7 +371,13 @@ export class SelOverlay {
 
         constructor(private wrap: HTMLElement, private table: HTMLTableElement) {
                 this.ro = new ResizeObserver(() => {
-                        if (!this.table.isConnected) { this.ro?.disconnect(); return; }
+                        if (!this.table.isConnected) {
+                                this.ro?.disconnect();
+                                // 断连即隐藏（2026-11-17 题4）：表格被重渲染/移除后 nobody
+                                // 会再清这个 body 直挂的 fixed 层——不藏就是"死选框"残留
+                                if (this.layer) this.layer.style.display = `none`;
+                                return;
+                        }
                         if (this.rects.length) this.redraw();
                 });
                 this.ro.observe(table);
@@ -407,7 +413,13 @@ export class SelOverlay {
                 this.stopLiveSync();
                 const tick = () => {
                         this.rafId = 0;
-                        if (!this.rects.length || !this.table.isConnected || !this.layer) return;
+                        if (!this.rects.length || !this.layer) return;
+                        if (!this.table.isConnected) {
+                                // 断连即隐藏（2026-11-17 题4）：巡检停摆会让 fixed 层永远停在
+                                // 最后的视口位置（滚动不跟随、点击不清的"死选框"），必须藏层
+                                this.layer.style.display = `none`;
+                                return;
+                        }
                         const tRect = this.table.getBoundingClientRect();
                         const g = this.geo;
                         const posMoved = !!g && (Math.abs(g.left - tRect.left) > 0.5 || Math.abs(g.top - tRect.top) > 0.5);

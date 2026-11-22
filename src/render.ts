@@ -254,8 +254,24 @@ let pendingFocusRestore: {
         createdAt?: number;
 } | null = null;
 
-/** 提交后恢复选区（批量操作后 re-render 时使用）；host 保证只作用于原表格 */
-let pendingSelectionRestore: { rects: SelRect[]; host: HTMLElement } | null = null;
+/** 提交后恢复选区（排序流程未走完时）：代码块 widget 每次重渲染都是新 el（noReuse），
+ *  不能用宿主判等——按"排序写回的源码 + 文件路径"匹配，且在每次重渲染尾部回灌（不消费），
+ *  CM 连渲多轮时最后一轮也能恢复。清选区（用户操作/流程完成）时作废。 */
+let pendingSelectionRestore: {
+        rects: SelRect[];
+        /** 排序写回后的 bloc 源码（下一次重渲染的 source 与它相等） */
+        source: string;
+        path: string;
+        /** 请求时刻（重渲染撕 DOM 期间的 focusout 赦免窗口用） */
+        at: number;
+        /** 兜底过期：超时后不再回灌（防切文档/长期停留后突然冒出旧选框） */
+        expires: number;
+} | null = null;
+
+/** 每次 renderBlock 递增：代码块 widget 的 el 每轮都换新，用它做"本次渲染"的身份 */
+let renderSeq = 0;
+/** 源码比较归一（末尾换行/CRLF 不算差异） */
+const normSourceForRestore = (s: string): string => s.replace(/\r\n/g, '\n').trimEnd();
 
 /** 被动重渲染焦点回退登记（2026-10-30 场景8）：td focus 时登记；被 CM/内核挪走焦点后
  *  重渲染（reviveRC 记不到）时回退恢复。真离表（blur 正常收尾/表外 pointerdown）清除/拦截 */
@@ -422,6 +438,8 @@ export function renderBlock(
 ) {
         // 本轮构建开始时刻：创建请求消费校验用它区分"请求前已存在的表格"与"请求后新构建的表格"
         const renderStart = Date.now();
+        // 本次渲染的身份（排序流程跨重渲染续接用；el 每轮都是新的，不能当身份）
+        const renderId = ++renderSeq;
         // 被动重渲染焦点恢复（2026-10-30）：CM 装饰重建等场景 postProcessor 重跑时，此前焦点在
         // 本表内 → el.empty() 后 td 脱离、focus 落 body、浮窗被 hideIfStale 收走且无人恢复 →
         // "点两次单元格浮窗消失"。此处记录焦点格坐标，渲染完成后放回同格（浮窗/编辑态随
@@ -447,7 +465,8 @@ export function renderBlock(
         el.closest('.cm-embed-block')?.addClass('vt-embedded');
 
         // bug1：浮窗引用的格已脱离 DOM（重渲染/切标签页/焦点元素被摘除时 blur 不触发）→ 立即隐藏
-        if (!pendingFocusRestore && !pendingSelectionRestore) toolbar.hideIfStale();
+        // （排序回灌请求是长期的，不再用它挡 hide；浮窗随焦点恢复自然重挂）
+        if (!pendingFocusRestore) toolbar.hideIfStale();
 
         const data = parseSource(source);
         const grid = data.rows;
@@ -890,6 +909,8 @@ export function renderBlock(
         const clearSelection = () => {
                 selRects = [];
                 selGesture = null;
+                // 用户/其它操作清选区 = 排序流程被放弃：作废跨重渲染回灌请求
+                pendingSelectionRestore = null;
                 renderSel();
         };
 
@@ -906,13 +927,16 @@ export function renderBlock(
                 anchorIndex: () => anchorIndex,
                 flushActive: () => flushActiveCell(),
                 enabled: () => settings.enableSortBar,
+                renderId: () => renderId,
+                pendingRestore: () => !!pendingSelectionRestore,
+                fullRow: () => settings.enableSortFullRow,
                 applySort: (apply, allDone) => {
                         flushActiveCell();
                         const before = serialize(data);
                         apply();
                         const after = serialize(data);
                         if (after === before) { // 排序无实际变化：不提交，选区维持
-                                if (allDone) clearSelection();
+                                if (allDone) clearSelection(); // 同时作废 pendingSelectionRestore
                                 return;
                         }
                         // 焦点在表内：恢复到原聚焦格（内容已变，光标落末尾安全位）
@@ -922,8 +946,21 @@ export function renderBlock(
                                 const cc = parseInt(act.dataset.vtC ?? '-1', 10);
                                 if (rr >= 0 && cc >= 0) pendingFocusRestore = { r: rr, c: cc, caretAtEnd: true };
                         }
-                        // 还有未处理列：选区跨重渲染恢复（排序流程分立续接）；全部完成 → 选区消失
-                        if (!allDone) pendingSelectionRestore = { rects: selRects.slice(), host: el };
+                        if (allDone) {
+                                // 流程走完：选区按用户约定消失，不再回灌
+                                pendingSelectionRestore = null;
+                        } else {
+                                // 还有未处理列：记下"排序后源码"，重渲染尾部按源码匹配回灌。
+                                // 代码块 widget 每次重渲染都换新 el（noReuse），不能按宿主判等
+                                const now = Date.now();
+                                pendingSelectionRestore = {
+                                        rects: selRects.slice(),
+                                        source: after,
+                                        path: sourcePath,
+                                        at: now,
+                                        expires: now + 300_000, // 5 分钟：覆盖"中途停顿再继续"的正常节奏
+                                };
+                        }
                         onCommit(after);
                 },
         });
@@ -988,7 +1025,7 @@ export function renderBlock(
                 const t = e.target as Element | null;
                 pardonRibbon = !!(t && !el.contains(t) && t.closest?.('.workspace-ribbon')); // 侧栏按钮列赦免（选区保住，后续命令可用）
                 if (!t || el.contains(t)
-                        || t.closest?.('.vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon')) return;
+                        || t.closest?.('.vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon, .prompt')) return;
                 // 登记表外点击时刻（配套模块级 revive 回退链）：表外点击引发的 widget 重建不得抢回焦点
                 lastOutsidePointerAt = Date.now();
                 clearSelection();
@@ -1123,6 +1160,11 @@ export function renderBlock(
                 }
                 if (e.isComposing) return; // IME 组合中的 keydown 交给 keyup 兜底
                 if (!selRects.length) return;
+                // 弹层输入区豁免（2026-11-17 题2）：选区保留期间（TA 令）打开命令面板/菜单等
+                // 弹层，Backspace/Delete/Ctrl+C 属于弹层输入框，不得被选框监听吞掉
+                const kt = e.target as Element | null;
+                if (kt && !table.contains(kt)
+                        && kt.closest?.('.modal-container, .suggestion-container, .menu, .prompt')) return;
                 // 选框态 Cmd/Ctrl+C：复制选区为 markdown 表格（跨表/跨文档可粘回）
                 if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey
                         && (e.key === 'c' || e.key === 'C' || compatKeyCode(e) === 67)) {
@@ -1141,6 +1183,10 @@ export function renderBlock(
                 if (!el.isConnected) return;
                 if (e.isComposing) return;
                 if (!selRects.length) return;
+                // 弹层输入区豁免（同 keydown，2026-11-17 题2）：keyup 兜底也不碰弹层按键
+                const ku = e.target as Element | null;
+                if (ku && !table.contains(ku)
+                        && ku.closest?.('.modal-container, .suggestion-container, .menu, .prompt')) return;
                 if (!isSelDeleteKey(e)) return;
                 if (e.ctrlKey || e.metaKey || e.altKey) return;
                 if (Date.now() - lastSelDeleteAt < 250) return; // keydown 已处理过本次按键
@@ -1153,7 +1199,11 @@ export function renderBlock(
         table.addEventListener('focusout', (e: FocusEvent) => {
                 if (!selRects.length) return;
                 // 结构操作重渲染期间的 focusout（元素被摘除）交给恢复逻辑
-                if (pendingSelectionRestore || pendingFocusRestore) return;
+                // 代码块重渲染撕 DOM 期间的 focusout（表格已脱离文档 / 刚提交 1s 内）不是用户离表：
+                // 交给渲染尾部回灌；其余（含 Tab 离表）照常清选区并作废排序回灌请求
+                if (pendingFocusRestore
+                        || (pendingSelectionRestore
+                                && (!table.isConnected || Date.now() - pendingSelectionRestore.at < 1000))) return;
                 const related = e.relatedTarget as HTMLElement | null;
                 // 强制清理：只有焦点明确落在表格内/表格自身浮层（工具条、菜单、弹窗、侧栏）时才保留选区；
                 // 其余一律视为离开表格立即清选框——包括 relatedTarget 为 null（iPad blur 常态，
@@ -1161,7 +1211,7 @@ export function renderBlock(
                 // 例外（2026-11-13 TA：侧边栏赦免）：null 且最近指针落点在侧栏（点击 ribbon 按钮
                 // 的 div 不获焦 → blur 拿不到去向）→ 保选区；真点表外由 onOutsidePointer 兜底清理
                 if (related && (el.contains(related)
-                        || related.closest('.vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon'))) return;
+                        || related.closest('.vt-bar, .vt-drag-grip, .vt-ghost, .vt-sort-pill, .menu, .modal, .modal-container, .suggestion-container, .workspace-ribbon, .prompt'))) return;
                 if (!related && pardonRibbon) {
                         pardonRibbon = false; // 消费即焚：仅本次点击引发的 null blur 赦免
                         return;
@@ -1926,6 +1976,14 @@ export function renderBlock(
                                         placeCaretAtSourceOffset(td, src.length);
                                 }
                                 showBarFor();
+                                // 填充柄短时自愈（2026-11-17 题3）：进入编辑态后极短时间先清再补——
+                                // 不深究个别场景柄消失的成因，统一强制按当下状态重挂（原有→刷新；
+                                // 原无→补上）。拖动中 hide/showAt 自带保护不受影响
+                                window.setTimeout(() => {
+                                        if (!el.isConnected || document.activeElement !== td) return;
+                                        fillHandle?.hide();
+                                        syncFillHandle();
+                                }, 150);
                         });
 
                                         // 区编辑收尾：dataset 暂存写回 grid → 重建显示态 → commit 判定
@@ -2006,7 +2064,14 @@ export function renderBlock(
                                         window.setTimeout(() => {
                                                 if (!table.isConnected || table.contains(document.activeElement)) return;
                                                 if (pendingDirty) { commit(); pendingDirty = false; }
-                                        }, 600);
+                                                // 离表自动渲染（2026-11-18 题6 / 2026-11-19 TA：100ms）——
+                                                // 劫持分支只投影数据不渲染——焦点最终没归位（用户点表外
+                                                // 正文等）时，把该格渲染回显示态，块不停留源码态
+                                                if (isWysiwyg(td)) exitWysiwyg(td);
+                                                populateCell(td, cell.t, grid, sourcePath, resolveImage, onTodoToggle(r, c), handleOpenLink);
+                                                td.dataset.vtView = 'view';
+                                                scheduleMathRender(td);
+                                        }, 100);
                                         return;
                                 }
                                 const html = normalizeCellHtml(stripRcHandles(isWysiwyg(td) ? projectSource(td) : td.innerHTML));
@@ -2288,21 +2353,29 @@ export function renderBlock(
         appearanceRegistry.set(el, refreshAppearance);
         refreshAppearance();
 
-        // 批量操作后的选区恢复（仅作用于发起操作的那张表）
-        if (pendingSelectionRestore && pendingSelectionRestore.host === el) {
-                const restore = pendingSelectionRestore.rects;
-                pendingSelectionRestore = null;
-                const maxR = grid.length - 1;
-                const maxC = (grid[0]?.length ?? 1) - 1;
-                selRects = restore
-                        .map(rc => normalizeSelRect({
-                                r1: Math.max(0, Math.min(rc.r1, maxR)),
-                                c1: Math.max(0, Math.min(rc.c1, maxC)),
-                                r2: Math.max(0, Math.min(rc.r2, maxR)),
-                                c2: Math.max(0, Math.min(rc.c2, maxC)),
-                        }, grid, anchorIndex))
-                        .filter(rc => rc.r1 <= rc.r2 && rc.c1 <= rc.c2);
-                renderSel();
+        // 排序流程未走完 → 选区回灌。代码块 widget 每次重渲染都换新 el（noReuse），
+        // 因此按"排序写回的源码 + 文件路径"匹配；且每次渲染都回灌、不消费请求——
+        // CM 连渲多轮时最后一轮也能恢复。请求由 clearSelection（用户清选区/流程完成）作废。
+        if (pendingSelectionRestore) {
+                const req = pendingSelectionRestore;
+                if (req.expires < Date.now()) {
+                        pendingSelectionRestore = null;
+                } else if (req.path === sourcePath
+                        && (req.source === source || normSourceForRestore(req.source) === normSourceForRestore(source))) {
+                        const maxR = grid.length - 1;
+                        const maxC = (grid[0]?.length ?? 1) - 1;
+                        selRects = req.rects
+                                .map(rc => normalizeSelRect({
+                                        r1: Math.max(0, Math.min(rc.r1, maxR)),
+                                        c1: Math.max(0, Math.min(rc.c1, maxC)),
+                                        r2: Math.max(0, Math.min(rc.r2, maxR)),
+                                        c2: Math.max(0, Math.min(rc.c2, maxC)),
+                                }, grid, anchorIndex))
+                                .filter(rc => rc.r1 <= rc.r2 && rc.c1 <= rc.c2);
+                        // 先按快照恢复整列流程状态（stage），再 renderSel → sync 画下一形态符号
+                        sortBar.restoreFlow(selRects);
+                        renderSel();
+                }
         }
 
         // ===== 创建后聚焦：向轮询器注册本块执行器 =====

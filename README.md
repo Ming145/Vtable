@@ -38,9 +38,11 @@ Anything you type in a cell renders on blur, exactly like Obsidian preview:
 - **Column sorting** inside a selection: small sort markers appear above each covered column (drag handles step aside); click through each column independently
   - Pure number columns: `1↑↓` (↑ descending, ↓ ascending; `2` sorts before `10`)
   - Pure text columns: `AZ` (A to Z / Z to A; case-insensitive English, pinyin order for Chinese)
-  - Number cells with identical text parts (only the numbers differ): `1↑↓` single step — executes immediately on click
-  - Number cells with differing text parts (trailing number or number in the middle, any prefix): pick the number direction first (→ skips numbers; **each direction applies and writes back immediately**), then the marker switches seamlessly to the letter direction (→ skips letters)
-  - **Every step applies and writes back immediately** (the sorted result is written to the table source at once; undo step by step with Ctrl+Z). The selection ends with the first sort — to run the letter step, re-select the column and click `→` (skip numbers) to enter the letter direction
+  - Number + text cells whose text sequences are all identical (only numbers differ): `1↑↓` single step — executes immediately on click
+  - Number + text cells with differing text sequences (text first or number first): **step through the sequences** — 1st number (`↑↓→`) → 1st text (`AZ→`) → 2nd number → 2nd text… until both sequences end; when the two sequences have different lengths, each extra group is its own step. Each step re-sorts by that step's key only and overrides the previous result; `→` skips the step
+  - Example: `香蕉3个 / 苹果5个` takes 2 steps (numbers 3/5 → texts 香蕉个/苹果个; a single-number cell's surrounding text counts as one); `A2Z7 / 是3C4` takes 4 steps (2/3 → A/是 → 7/4 → Z/C); `A2Z7M / 是3C4N` takes 5 steps (the extra trailing M/N is its own step)
+  - Multi-step columns show a small `n/m` step counter before the marker (e.g. `A2Z7M / 是3C4N` shows `1/5` … `5/5`)
+  - **Every step applies and writes back to the table source immediately** (undo step by step with Ctrl+Z); if the flow still has pending columns or steps, the selection and sort markers restore themselves — keep clicking the marker for the next step; clicking outside ends the flow
   - Columns where all content is identical or that contain a single cell show no sort marker
   - Mixed columns (pure text / text with numbers / pure numbers coexisting): `A1` — A puts pure text first, 1 puts pure numbers first; **only groups are ordered, ties inside a group keep their original order**, blanks always last
   - Hold `Shift` to process several columns, releasing it executes them together in one commit; non-rectangular selections are split per column and only the covered cells of each column are swapped; clicking with merged cells in range shows a hint
@@ -132,6 +134,8 @@ The following shortcuts and gestures are built in and work out of the box (no co
 | Add rows / columns to the selection | Shift + click the row number / column label |
 | Clear the selection | Plain click outside it |
 | Select all text in a cell, then turn it into a selection | Ctrl/Cmd+A |
+| Sort a selected column (numbers `1↑↓` / text `AZ` / number + text per-sequence steps `↑↓→`·`AZ→` / blended `A1`; every step re-sorts independently and applies immediately, `→` skips) | Click the sort marker above the column after box-selecting |
+| Sort several columns in one commit | Hold `Shift` while clicking each marker |
 | Copy the selection as a Markdown table | Ctrl/Cmd+C |
 | Paste a Markdown table (overwrite from the focused cell) | Ctrl/Cmd+V |
 | Paste a Markdown table and extend rows/columns as needed | Ctrl/Cmd+Alt+V |

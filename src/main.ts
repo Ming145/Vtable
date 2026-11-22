@@ -1,4 +1,4 @@
-import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath } from 'obsidian';
+import { Plugin, Editor, EditorPosition, Menu, MarkdownPostProcessorContext, MarkdownView, Modal, Notice, PluginSettingTab, Setting, setIcon, normalizePath, moment } from 'obsidian';
 import type { SettingDefinitionItem } from 'obsidian';
 import type { App } from 'obsidian';
 import type { EditorView } from '@codemirror/view';
@@ -55,6 +55,9 @@ export interface VtSettings {
         /** 列内排序符号（2026-11-09）：开 = 选框时列上方排序符号（拖动把手让位）；
          *  关 = 排序符号不出现，选框时拖动把手照常显示 */
         enableSortBar: boolean;
+        /** 整行排序（2026-11-18 题4）：开 = 排序挪动某格时该格所在整行跟着挪（行间移动）；
+         *  默认关 = 只挪列内被选格（原行为） */
+        enableSortFullRow: boolean;
 }
 
 const DEFAULT_SETTINGS: VtSettings = {
@@ -76,6 +79,7 @@ const DEFAULT_SETTINGS: VtSettings = {
         enableRcScale: true,
         enableImgResize: true,
         enableSortBar: true,
+        enableSortFullRow: false,
 };
 
 /** 上一版内置默认菜单（识别"没改过菜单"的旧安装并升级到新默认；自定义配置原样保留） */
@@ -204,7 +208,14 @@ export default class VtPlugin extends Plugin {
 
                 // 语言必须先于任何 addCommand 初始化：命令名在注册时求值（t() 即时返回），
                 // 晚于注册再切语言只会改到设置面板文本，命令名仍是注册时的旧语言
-                this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<VtSettings>);
+                const savedSettings = (await this.loadData()) as Partial<VtSettings>;
+                this.settings = Object.assign({}, DEFAULT_SETTINGS, savedSettings);
+                // 语言首次默认（2026-11-20）：用户从未主动设置过 uiLang（data 里无此键）→
+                // 每次启动跟随 Obsidian 系统语言；跟随值不落盘——系统语言将来变化仍跟随，
+                // 直到用户在设置里主动选择（写入 data）后固定
+                if (!savedSettings || savedSettings.uiLang === undefined) {
+                        this.settings.uiLang = moment.locale().startsWith('zh') ? 'zh' : 'en';
+                }
                 // 右键菜单默认配置改版（2026-11-14 用户定稿）：旧内置默认 → 新默认；
                 // 用户自定义过的菜单不覆盖
                 if (isLegacyDefaultMenu(this.settings.contextMenu)) {
@@ -1093,10 +1104,10 @@ class VtSettingTab extends PluginSettingTab {
         // 面板开头的双语文档链接（GitHub README 中文版 + 英文版）——居中（2026-11-14 TA）
         defs.push(this.docRowDefs());
 
-        // ===== 界面语言（默认中文）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
+        // ===== 界面语言（未设置时跟随 Obsidian 系统语言）：设置面板/浮窗按钮/右键菜单文本整体切换 =====
         defs.push({
                 name: t('界面语言', 'UI language'),
-                desc: t('设置面板、浮窗按钮与右键菜单文本的语言。', 'Language of the settings panel, toolbar buttons and context menus.'),
+                desc: t('设置面板、浮窗按钮与右键菜单文本的语言。未主动选择过时跟随 Obsidian 系统语言，选择后固定。', 'Language of the settings panel, toolbar buttons and context menus. Follows the Obsidian system language until you pick one explicitly.'),
                 control: {
                         type: 'dropdown',
                         key: 'uiLang',
@@ -1205,6 +1216,9 @@ class VtSettingTab extends PluginSettingTab {
                 addToggle('列内排序符号', 'Column sort markers',
                         '开启后，选中单元格范围时各列上方出现排序小符号（拖动把手暂时让位）；关闭后排序符号不出现，选框时拖动把手照常显示。', 'When on, small sort markers appear above each covered column while a selection is active (drag handles step aside); when off, no sort markers appear and the drag handles show as usual during selections.',
                         'enableSortBar');
+                addToggle('排序做一整行的更改', 'Sort moves whole rows',
+                        '开启后，排序挪动某格时该格所在整行跟着挪（行间移动）；默认关闭时只挪列内被选格。行内有跨行合并单元格时整行排序不可用。', 'When on, moving a cell in a sort moves its entire row (row-level moves); off by default — only the selected cells of the column move. Full-row sorting is unavailable when rows contain vertically merged cells.',
+                        'enableSortFullRow');
         }
 
         /** 声明式控件读写：key 直绑 plugin.settings；变更副作用按 key 分派 */
